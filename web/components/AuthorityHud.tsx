@@ -1,17 +1,19 @@
 "use client";
 
-import { motion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 
 interface Props {
   obrasCount: number;
   redFlagsCount: number;
   source: string;
+  regionLabel: string;
 }
 
 export default function AuthorityHud({
   obrasCount,
   redFlagsCount,
   source,
+  regionLabel,
 }: Props) {
   const isDemo = source === "mock";
   return (
@@ -22,20 +24,31 @@ export default function AuthorityHud({
       className="absolute top-0 left-0 z-20 w-full pointer-events-none"
     >
       <div className="flex items-baseline justify-between px-6 py-5 gap-6 flex-wrap">
-        {/* Wordmark */}
-        <div className="flex items-baseline gap-3">
+        {/* Wordmark + region scroll-spy */}
+        <div className="flex items-baseline gap-3 min-w-0">
           <span
-            className="text-[20px] leading-none font-medium tracking-tight text-white"
+            className="text-[20px] leading-none font-medium tracking-tight text-white shrink-0"
             style={{ fontFamily: "var(--font-display), serif" }}
           >
             Transparentape
             <span className="text-[var(--brand)]">.</span>
           </span>
           <span
-            className="text-[10px] uppercase tracking-[0.25em] text-[var(--fg-faint)]"
-            style={{ fontFamily: "var(--font-mono), monospace" }}
+            className="relative inline-block text-[10px] uppercase tracking-[0.22em] text-[var(--fg-faint)] truncate max-w-[480px]"
+            style={{ fontFamily: "var(--font-mono), monospace", minHeight: 12 }}
           >
-            Perú
+            <AnimatePresence mode="wait">
+              <motion.span
+                key={regionLabel}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+                className="block whitespace-nowrap"
+              >
+                {regionLabel}
+              </motion.span>
+            </AnimatePresence>
           </span>
         </div>
 
