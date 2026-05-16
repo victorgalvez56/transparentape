@@ -36,6 +36,38 @@ function getMapPadding() {
   return { top: 80, bottom: 40, left: 40, right: sidebar };
 }
 
+/**
+ * Padding para flyTo a marker seleccionado.
+ * Define el rectángulo "visible" excluyendo los overlays (panel detalle
+ * bottom-left, sidebar right, HUD top). MapLibre centra el destino en el
+ * centro de ese rectángulo, garantizando que el halo del marker quede
+ * en la franja libre entre overlays.
+ *
+ * Más predecible que `offset` cuando hay pitch alto.
+ */
+function getMarkerFlyToPadding() {
+  if (typeof window === "undefined") {
+    return { top: 0, bottom: 0, left: 0, right: 0 };
+  }
+  const w = window.innerWidth;
+  if (w < 768) {
+    return { top: 80, bottom: 40, left: 20, right: 20 };
+  }
+  // El panel detalle está en bottom-LEFT, no bloquea verticalmente la zona
+  // a su derecha. Por eso el padding bottom es solo un margen mínimo:
+  // el centro vertical del área visible queda alineado con el centro
+  // del viewport (no en el top como antes).
+  const sidebarW = 448;
+  const panelLeft = 24;
+  const panelWidth = 560;
+  return {
+    top: 80, // HUD
+    right: sidebarW + 40, // sidebar + margen
+    left: panelLeft + panelWidth + 40, // hasta el final del panel + margen
+    bottom: 60, // solo margen del bottom edge (panel está a la izquierda)
+  };
+}
+
 function toFeatureCollection(obras: Obra[]): GeoJSON.FeatureCollection {
   const features = obras
     .filter((o) => o.lat != null && o.lng != null)
@@ -598,7 +630,8 @@ export default function MapGlobe({
       const targetPitch = 55;
       const targetBearing = -12;
 
-      // flyTo cinematográfico — duration explícita, sin padding (que limitaba el zoom)
+      // flyTo cinematográfico — padding define el área visible
+      // (entre panel detalle bottom-left y sidebar right)
       map.flyTo({
         center: [targetLng, targetLat],
         zoom: targetZoom,
@@ -606,6 +639,7 @@ export default function MapGlobe({
         bearing: targetBearing,
         duration: 2000,
         essential: true,
+        padding: getMarkerFlyToPadding(),
       });
       setDbg((d) => ({
         ...d,
@@ -613,21 +647,30 @@ export default function MapGlobe({
         lastErr: "7:flyTo-called",
       }));
 
-      // FALLBACK DE SEGURIDAD: si el flyTo no llegó al destino en 2.4s,
-      // forzar setCenter+setZoom (garantiza el aterrizaje SIEMPRE)
+      // FALLBACK DE SEGURIDAD + force emit del label con valores target
       setTimeout(() => {
         const m = mapRef.current;
         if (!m) return;
         const dz = Math.abs(m.getZoom() - targetZoom);
-        const dl = Math.abs(m.getCenter().lng - targetLng);
-        if (dz > 0.5 || dl > 0.05) {
-          m.setCenter([targetLng, targetLat]);
-          m.setZoom(targetZoom);
-          m.setPitch(targetPitch);
-          m.setBearing(targetBearing);
+        if (dz > 0.5) {
+          m.easeTo({
+            center: [targetLng, targetLat],
+            zoom: targetZoom,
+            pitch: targetPitch,
+            bearing: targetBearing,
+            duration: 0,
+            padding: getMarkerFlyToPadding(),
+          });
           setDbg((d) => ({ ...d, lastErr: "8:fallback-snap" }));
         } else {
           setDbg((d) => ({ ...d, lastErr: "8:flyTo-completed-ok" }));
+        }
+        // FORCE EMIT con los valores TARGET conocidos — independiente del
+        // estado del map. Garantiza que el label muestre "Perú · Lima · Miraflores"
+        // sin depender de idle event ni del getCenter()/getZoom() actuales.
+        const cb = onViewChangeRef.current;
+        if (cb) {
+          cb(detectLocation(targetZoom, { lng: targetLng, lat: targetLat }));
         }
       }, 2400);
     } catch (e) {
@@ -652,48 +695,6 @@ export default function MapGlobe({
           background: "#0a0a0a",
         }}
       />
-      {/* DEBUG overlay — quitar cuando todo esté validado */}
-      <div
-        className="fixed bottom-3 left-3 z-50 bg-black/90 border border-white/15 px-3 py-2 text-[10px] tracking-[0.10em] font-mono pointer-events-none max-w-md"
-        style={{ fontFamily: "var(--font-mono), monospace" }}
-      >
-        <div className="text-white/40">
-          sel: <span className="text-white">{selectedId ?? "—"}</span>{" "}
-          <span className="text-white/30">·</span> obras:{" "}
-          <span className="text-white">{dbg.obras}</span>{" "}
-          <span className="text-white/30">·</span> byId:{" "}
-          <span className="text-white">{dbg.byId}</span>
-        </div>
-        <div className="text-white/40">
-          obra: lat=<span className="text-white">{dbg.obraLat}</span>{" "}
-          lng=<span className="text-white">{dbg.obraLng}</span>
-        </div>
-        <div className="text-white/40">
-          effectRuns: <span className="text-white">{dbg.effectRuns}</span>{" "}
-          <span className="text-white/30">·</span> flyToCalls:{" "}
-          <span className="text-white">{dbg.flyToCalls}</span>
-        </div>
-        <div className="text-white/40">
-          z: <span className="text-white">{dbg.zoom}</span>{" "}
-          <span className="text-white/30">·</span> lng:{" "}
-          <span className="text-white">{dbg.lng}</span>{" "}
-          <span className="text-white/30">·</span> lat:{" "}
-          <span className="text-white">{dbg.lat}</span>
-        </div>
-        <div className="text-white/40">
-          caches: <span className="text-white">{dbg.caches}</span>{" "}
-          <span className="text-white/30">·</span> orbital:{" "}
-          <span className={dbg.orbital ? "text-[var(--brand)]" : "text-white/60"}>
-            {dbg.orbital ? "ON" : "off"}
-          </span>
-        </div>
-        <div className="text-white/40">
-          label: <span className="text-white normal-case">{dbg.label}</span>
-        </div>
-        <div className="text-[var(--brand)] mt-1 normal-case tracking-normal">
-          last: {dbg.lastErr}
-        </div>
-      </div>
     </>
   );
 }

@@ -43,6 +43,7 @@ function computeBbox(
     }
   };
   const g = feature.geometry;
+  if (!g) return [0, 0, 0, 0];
   if (g.type === "Polygon") g.coordinates.forEach(visit);
   else g.coordinates.forEach((poly) => poly.forEach(visit));
   return [minX, minY, maxX, maxY];
@@ -77,11 +78,13 @@ function featureContains(
   lng: number,
   lat: number
 ): boolean {
+  const g = feature.geometry;
+  if (!g) return false; // features con geometry null en el GeoJSON
+
   // Bbox prefilter — descarta el 95%+ sin tocar vertices
   const [minX, minY, maxX, maxY] = getBbox(feature);
   if (lng < minX || lng > maxX || lat < minY || lat > maxY) return false;
 
-  const g = feature.geometry;
   if (g.type === "Polygon") {
     if (!ringContains(g.coordinates[0], lng, lat)) return false;
     for (let i = 1; i < g.coordinates.length; i++) {
