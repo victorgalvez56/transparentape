@@ -113,15 +113,15 @@ def load_inhabilitaciones(cur) -> int:
     rows_raw = read_csv(path)
     rows = []
     for r in rows_raw:
-        ruc = (r.get("RUC/DNI") or "").strip()
+        ruc = (r.get("RUC_DNI") or r.get("RUC/DNI") or "").strip()
         if not ruc:
             continue
-        fecha_fin = (r.get("FechaFinInhabilitacion") or "").strip() or None
+        fecha_fin = (r.get("FECHA_FIN") or r.get("FechaFinInhabilitacion") or "").strip() or None
         rows.append((
             "PE", ruc,
-            (r.get("RazonSocial/Nombre") or "")[:200],
-            (r.get("OrganoJurisdiccional") or "")[:200],
-            r.get("FechaInicioInhabilitacion") or None,
+            (r.get("NOMBRE_RAZONODENOMINACIONSOCIAL") or r.get("RazonSocial/Nombre") or "")[:200],
+            (r.get("ORGANO_JURISDICCIONAL") or r.get("OrganoJurisdiccional") or "")[:200],
+            r.get("FECHA_INICIO") or r.get("FechaInicioInhabilitacion") or None,
             fecha_fin,
             fecha_fin is None,
         ))
