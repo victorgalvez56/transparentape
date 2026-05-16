@@ -14,7 +14,7 @@ import random
 import time
 from pathlib import Path
 
-import psycopg2
+import psycopg
 import requests
 from dotenv import load_dotenv
 
@@ -97,7 +97,7 @@ def nominatim(address: str) -> tuple[float, float] | tuple[None, None]:
 
 
 def run():
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = psycopg.connect(DATABASE_URL)
     cur = conn.cursor()
 
     cur.execute("""

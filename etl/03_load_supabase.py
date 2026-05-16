@@ -16,8 +16,7 @@ import json
 import os
 from pathlib import Path
 
-import psycopg2
-import psycopg2.extras
+import psycopg
 from dotenv import load_dotenv
 
 parser = argparse.ArgumentParser()
@@ -86,7 +85,7 @@ def run():
 
     print(f"Loaded {len(records):,} records from {INPUT.name}")
 
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = psycopg.connect(DATABASE_URL)
     cur = conn.cursor()
 
     inserted = skipped = 0
@@ -94,12 +93,11 @@ def run():
     for i in range(0, len(records), BATCH_SIZE):
         batch = [clean(r) for r in records[i : i + BATCH_SIZE]]
         try:
-            psycopg2.extras.execute_batch(cur, INSERT_SQL, batch, page_size=BATCH_SIZE)
+            cur.executemany(INSERT_SQL, batch)
             conn.commit()
             inserted += len(batch)
-        except Exception as exc:
+        except Exception:
             conn.rollback()
-            # Retry one by one to skip bad rows
             for row in batch:
                 try:
                     cur.execute(INSERT_SQL, row)

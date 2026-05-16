@@ -19,8 +19,7 @@ import io
 import os
 from pathlib import Path
 
-import psycopg2
-import psycopg2.extras
+import psycopg
 from dotenv import load_dotenv
 
 ROOT = Path(__file__).parent.parent
@@ -47,11 +46,11 @@ def read_csv(path: Path, delimiter: str = "|") -> list[dict]:
 def insert_flags(cur, rows: list[tuple], tipo: str, fuente: str) -> int:
     sql = """
         INSERT INTO red_flags (country, ruc, nombre, tipo, descripcion, fecha_inicio, fecha_fin, vigente, fuente)
-        VALUES %s
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT DO NOTHING
     """
     data = [(row[0], row[1], row[2], tipo, row[3], row[4], row[5], row[6], fuente) for row in rows]
-    psycopg2.extras.execute_values(cur, sql, data, page_size=BATCH_SIZE)
+    cur.executemany(sql, data)
     return len(data)
 
 
@@ -158,7 +157,7 @@ def cross_reference(cur) -> int:
 def run():
     OECE_DIR.mkdir(parents=True, exist_ok=True)
 
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = psycopg.connect(DATABASE_URL)
     conn.autocommit = False
     cur = conn.cursor()
 
