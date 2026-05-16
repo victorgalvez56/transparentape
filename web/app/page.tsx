@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { Obra } from "@/lib/types";
+import { CountryView, DEFAULT_COUNTRY } from "@/lib/countries";
 import ObrasListPanel from "@/components/ObrasListPanel";
 import ObraDetailPanel from "@/components/ObraDetailPanel";
 import ForensicsPanel from "@/components/ForensicsPanel";
@@ -35,6 +36,8 @@ export default function HomePage() {
   const [selected, setSelected] = useState<Obra | null>(null);
   const [showForensics, setShowForensics] = useState(false);
   const [showColdOpen, setShowColdOpen] = useState<boolean | null>(null);
+  const [userCountry, setUserCountry] = useState<CountryView | null>(null);
+  const [regionLabel, setRegionLabel] = useState<string>("Perú");
 
   // Reset cold open con ?reset=1
   useEffect(() => {
@@ -47,7 +50,7 @@ export default function HomePage() {
     setShowColdOpen(sessionStorage.getItem("coldOpenSeen") !== "1");
   }, []);
 
-  // Stats globales (para cold open + HUD) — corre primero, rápido
+  // Stats globales — corre rápido, alimenta cold open + HUD
   useEffect(() => {
     let cancelled = false;
     fetch("/api/stats")
@@ -56,6 +59,22 @@ export default function HomePage() {
         if (!cancelled) setStats(data);
       })
       .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Detección del país del usuario (Cloudflare → accept-language → default PE)
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/geo")
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled && data?.country) setUserCountry(data.country);
+      })
+      .catch(() => {
+        if (!cancelled) setUserCountry(DEFAULT_COUNTRY);
+      });
     return () => {
       cancelled = true;
     };
@@ -78,22 +97,6 @@ export default function HomePage() {
     };
   }, []);
 
-  // Caso del día: tras cold open + obras cargadas, abrir 1 red_flag con mayor monto
-  useEffect(() => {
-    if (obras.length === 0 || selected || showColdOpen !== false) return;
-    const t = setTimeout(() => {
-      const candidato = [...obras]
-        .filter((o) => o.is_red_flag && o.lat != null && o.lng != null)
-        .sort(
-          (a, b) =>
-            (b.contract_amount ?? b.award_amount ?? 0) -
-            (a.contract_amount ?? a.award_amount ?? 0)
-        )[0];
-      if (candidato) setSelected(candidato);
-    }, 1800);
-    return () => clearTimeout(t);
-  }, [obras, selected, showColdOpen]);
-
   return (
     <main className="relative w-screen h-screen overflow-hidden globe-bg">
       {showColdOpen && (
@@ -110,6 +113,8 @@ export default function HomePage() {
         obras={obras}
         selectedId={selected?.id ?? null}
         onSelect={setSelected}
+        flyToCountry={showColdOpen === false ? userCountry : null}
+        onViewChange={setRegionLabel}
       />
 
       {!showColdOpen && (
@@ -117,6 +122,7 @@ export default function HomePage() {
           obrasCount={stats?.total_obras ?? obras.length}
           redFlagsCount={stats?.total_red_flags ?? 0}
           source={stats?.source ?? source}
+          regionLabel={regionLabel}
         />
       )}
 

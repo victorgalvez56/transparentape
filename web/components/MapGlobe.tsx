@@ -4,15 +4,32 @@ import { useEffect, useRef } from "react";
 import maplibregl, { Map as MLMap, GeoJSONSource } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { Obra, riesgoDeObra } from "@/lib/types";
+import { CountryView } from "@/lib/countries";
+import { detectLocation } from "@/lib/regions";
+import { preloadGeoJSON } from "@/lib/geo";
 
 interface Props {
   obras: Obra[];
   selectedId: number | null;
   onSelect: (o: Obra) => void;
+  flyToCountry?: CountryView | null;
+  onViewChange?: (label: string) => void;
 }
 
 const MAP_STYLE =
   "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
+
+/**
+ * Devuelve padding para encuadrar el área visible — excluye sidebar derecha
+ * (~448px en >=md, 0 en mobile) y deja espacio arriba para el HUD.
+ */
+function getMapPadding() {
+  if (typeof window === "undefined") {
+    return { top: 0, bottom: 0, left: 0, right: 0 };
+  }
+  const sidebar = window.innerWidth >= 768 ? 448 : 0;
+  return { top: 80, bottom: 40, left: 40, right: sidebar };
+}
 
 function toFeatureCollection(obras: Obra[]): GeoJSON.FeatureCollection {
   const features = obras
@@ -35,10 +52,21 @@ function toFeatureCollection(obras: Obra[]): GeoJSON.FeatureCollection {
   return { type: "FeatureCollection", features };
 }
 
-export default function MapGlobe({ obras, selectedId, onSelect }: Props) {
+export default function MapGlobe({
+  obras,
+  selectedId,
+  onSelect,
+  flyToCountry,
+  onViewChange,
+}: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MLMap | null>(null);
   const obrasById = useRef<Map<number, Obra>>(new Map());
+  const countryFlewToRef = useRef<string | null>(null);
+  const onViewChangeRef = useRef<typeof onViewChange>(onViewChange);
+  useEffect(() => {
+    onViewChangeRef.current = onViewChange;
+  }, [onViewChange]);
 
   useEffect(() => {
     obrasById.current = new Map(obras.map((o) => [o.id, o]));
@@ -47,6 +75,10 @@ export default function MapGlobe({ obras, selectedId, onSelect }: Props) {
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
+    // Precargar polígonos en background. La re-emisión post-load se dispara
+    // más abajo, una vez que `emitView` está declarado.
+    const geoReady = preloadGeoJSON();
+
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: MAP_STYLE,
@@ -54,6 +86,37 @@ export default function MapGlobe({ obras, selectedId, onSelect }: Props) {
       zoom: 4.6,
       pitch: 25,
       attributionControl: false,
+    });
+    // Emit del label de región según viewport — debounced 200ms
+    let labelTimer: ReturnType<typeof setTimeout> | null = null;
+    const emitView = () => {
+      const cb = onViewChangeRef.current;
+      if (!cb) return;
+      const b = map.getBounds();
+      const c = map.getCenter();
+      const label = detectLocation(
+        { west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() },
+        { lng: c.lng, lat: c.lat }
+      );
+      cb(label);
+    };
+    const scheduleEmit = () => {
+      if (labelTimer) clearTimeout(labelTimer);
+      labelTimer = setTimeout(emitView, 100);
+    };
+    map.on("moveend", scheduleEmit);
+    map.on("zoomend", scheduleEmit);
+
+    // Cuando los polígonos terminan de cargar, re-emitir por si el user
+    // ya hizo zoom adentro y necesita el label de departamento/distrito.
+    geoReady.then(() => {
+      if (mapRef.current) emitView();
+    });
+
+    // Padding inicial — encuadra dentro del área visible (sin sidebar)
+    map.once("load", () => {
+      map.setPadding(getMapPadding());
+      emitView(); // primera emisión cuando el style está listo
     });
 
     map.on("error", (e) => {
@@ -255,7 +318,19 @@ export default function MapGlobe({ obras, selectedId, onSelect }: Props) {
 
     mapRef.current = map;
 
+    // Reajustar padding al redimensionar (sidebar aparece/desaparece en breakpoint md)
+    const onResize = () => {
+      try {
+        map.setPadding(getMapPadding());
+      } catch {
+        /* noop */
+      }
+    };
+    window.addEventListener("resize", onResize);
+
     return () => {
+      window.removeEventListener("resize", onResize);
+      if (labelTimer) clearTimeout(labelTimer);
       cancelAnimationFrame(rafId);
       if (mapRef.current) {
         try {
@@ -281,6 +356,24 @@ export default function MapGlobe({ obras, selectedId, onSelect }: Props) {
     else map.once("load", apply);
   }, [obras]);
 
+  // Ease suave al país detectado del usuario (después del cold open)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !flyToCountry) return;
+    if (countryFlewToRef.current === flyToCountry.code) return;
+    countryFlewToRef.current = flyToCountry.code;
+    const apply = () => {
+      map.easeTo({
+        center: flyToCountry.center,
+        zoom: flyToCountry.zoom,
+        padding: getMapPadding(),
+        duration: 2400,
+      });
+    };
+    if (map.isStyleLoaded()) apply();
+    else map.once("load", apply);
+  }, [flyToCountry]);
+
   // Actualizar selección + flyTo
   useEffect(() => {
     const map = mapRef.current;
@@ -298,6 +391,7 @@ export default function MapGlobe({ obras, selectedId, onSelect }: Props) {
           map.easeTo({
             center: [Number(o.lng), Number(o.lat)],
             zoom: Math.max(map.getZoom(), 13.5),
+            padding: getMapPadding(),
             duration: 1400,
           });
         }
