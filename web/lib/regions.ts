@@ -125,43 +125,51 @@ function findRegion(center: ViewCenter): string | null {
 }
 
 /**
+ * Une partes con " · " y colapsa duplicados consecutivos
+ * (ej. ["Perú", "Cusco", "Cusco", "Cusco"] → "Perú · Cusco").
+ */
+function compose(parts: (string | undefined | null)[]): string {
+  const out: string[] = [];
+  for (const p of parts) {
+    if (!p) continue;
+    if (out[out.length - 1]?.toLowerCase() !== p.toLowerCase()) out.push(p);
+  }
+  return out.join(" · ");
+}
+
+/**
  * Devuelve el label legible del viewport.
  *
- * Umbrales por ancho del viewport (en grados de longitud):
- *   < 0.5° → distrito    (Dep · Prov · Dist)
- *   < 3°   → provincia   (Dep · Prov)
- *   < 8°   → departamento (Perú · Dep)
- *   < 22°  → país
- *   < 70°  → región continental + cardinal
- *   < 130° → "América Latina"
- *   ≥ 130° → "Vista global"
+ * Discriminamos por ZOOM LEVEL (no por bounds.width — el pitch alto
+ * los infla y rompe la detección a zoom cerrado):
+ *   zoom ≥ 10  → distrito    (Perú · Prov · Dist)
+ *   zoom ≥ 7   → provincia   (Perú · Dep · Prov)
+ *   zoom ≥ 5   → departamento (Perú · Dep)
+ *   zoom ≥ 3   → país
+ *   zoom ≥ 2   → región continental + cardinal
+ *   zoom ≥ 1   → "América Latina"
+ *   resto      → "Vista global"
  *
- * Para distritos/provincias usamos findOrNearestFeature: si el point cae
- * en un gap entre polígonos (frecuente en zonas urbanas densas), asigna
- * al feature más cercano dentro de un radio razonable.
+ * Para distritos/provincias/depts usamos findOrNearestFeature: si el
+ * point cae en un gap entre polígonos, asigna al feature más cercano
+ * dentro de un radio razonable.
  */
-export function detectLocation(
-  bounds: ViewBounds,
-  center: ViewCenter
-): string {
-  const width = bounds.east - bounds.west;
-
-  // 1. Distrito — 3 niveles: Dep · Prov · Dist
-  if (width < 0.5) {
+export function detectLocation(zoom: number, center: ViewCenter): string {
+  // 1. Distrito — Perú · Provincia · Distrito (dedup auto)
+  if (zoom >= 10) {
     const dist = findOrNearestFeature(
       getPeruDists(),
       center.lng,
       center.lat,
-      0.15 // ~17km — solo nearest dentro de zona urbana
+      0.15 // ~17km
     );
     if (dist) {
-      const parts = [dist.properties.dep, dist.properties.prov, dist.properties.name].filter(Boolean);
-      return parts.join(" · ");
+      return compose(["Perú", dist.properties.prov, dist.properties.name]);
     }
   }
 
-  // 2. Provincia — 2 niveles: Dep · Prov
-  if (width < 3) {
+  // 2. Provincia — Perú · Departamento · Provincia (dedup auto)
+  if (zoom >= 7) {
     const prov = findOrNearestFeature(
       getPeruProvs(),
       center.lng,
@@ -169,35 +177,34 @@ export function detectLocation(
       0.5 // ~55km
     );
     if (prov) {
-      const dep = prov.properties.dep;
-      return dep ? `${dep} · ${prov.properties.name}` : prov.properties.name;
+      return compose(["Perú", prov.properties.dep, prov.properties.name]);
     }
   }
 
-  // 3. Departamento — Perú · Dep
-  if (width < 8) {
+  // 3. Departamento — Perú · Departamento
+  if (zoom >= 5) {
     const dep = findOrNearestFeature(
       getPeruDepts(),
       center.lng,
       center.lat,
-      2.0 // ~220km — los depts son grandes
+      2.0 // ~220km
     );
-    if (dep) return `Perú · ${dep.properties.name}`;
+    if (dep) return compose(["Perú", dep.properties.name]);
   }
 
   // 4. País
-  if (width < 22) {
+  if (zoom >= 3) {
     const country = findCountry(center);
     if (country) return country;
   }
 
   // 5. Región
-  if (width < 70) {
+  if (zoom >= 2) {
     const region = findRegion(center);
     if (region) return region;
   }
 
   // 6. Vista amplia
-  if (width < 130) return "América Latina";
+  if (zoom >= 1) return "América Latina";
   return "Vista global";
 }
