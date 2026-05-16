@@ -21,7 +21,6 @@ import os
 from pathlib import Path
 
 import psycopg
-import psycopg.extras
 from dotenv import load_dotenv
 
 parser = argparse.ArgumentParser()
@@ -86,11 +85,19 @@ ON CONFLICT (ocid) DO UPDATE SET
 """
 
 
-def is_lima(buyer_name: str) -> bool:
-    name = buyer_name.upper()
-    if "MUNICIPALIDAD" not in name and "LIMA" not in name:
+def is_lima(buyer_name: str, region: str = "", locality: str = "") -> bool:
+    """Match Lima obras by buyer name OR address (region/locality)."""
+    haystack = f"{buyer_name} {region} {locality}".upper()
+    # Must have at least one Lima signal
+    if "LIMA" not in haystack and not any(t in haystack for t in LIMA_TERMS):
         return False
-    return any(t in name for t in LIMA_TERMS)
+    # Exclude other Peruvian departments that contain "LIMA" in entity names
+    # (e.g. "LIMA" appears in some non-Lima province names too)
+    # Allow anything that explicitly mentions a Lima district OR "LIMA" in region/locality
+    return (
+        any(t in haystack for t in LIMA_TERMS)
+        or "LIMA" in f"{region} {locality}".upper()
+    )
 
 
 def extract(rec: dict, year: int) -> dict | None:
@@ -98,8 +105,6 @@ def extract(rec: dict, year: int) -> dict | None:
     buyer = rec.get("buyer", {})
 
     if tender.get("mainProcurementCategory") != "works":
-        return None
-    if not is_lima(buyer.get("name", "")):
         return None
 
     awards = rec.get("awards") or []
@@ -113,6 +118,11 @@ def extract(rec: dict, year: int) -> dict | None:
     parties = rec.get("parties") or []
     buyer_party = next((p for p in parties if p.get("id") == buyer.get("id")), {})
     address = buyer_party.get("address", {})
+    region   = address.get("region", "")
+    locality = address.get("locality", "")
+
+    if not is_lima(buyer.get("name", ""), region, locality):
+        return None
 
     items = tender.get("items") or []
     item = items[0] if items else {}
