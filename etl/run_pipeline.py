@@ -121,13 +121,13 @@ def extract(rec: dict, year: int) -> dict | None:
     region   = address.get("region", "")
     locality = address.get("locality", "")
 
-    if not is_lima(buyer.get("name", ""), region, locality):
-        return None
-
     items = tender.get("items") or []
     item = items[0] if items else {}
     classification = (item.get("classification") or {}).get("description", "")
     ruc = supplier.get("id", "").replace("PE-RUC-", "")
+
+    # Derive city from region: 'lima' if LIMA department, else lowercased region
+    city = "lima" if "LIMA" in (region or "").upper() else (region or "peru").lower()
 
     def num(val):
         try: return float(val) if val not in (None, "", "None") else None
@@ -140,7 +140,7 @@ def extract(rec: dict, year: int) -> dict | None:
         "ocid":                txt(rec.get("ocid")),
         "source_year":         year,
         "country":             "PE",
-        "city":                "lima",
+        "city":                city,
         "buyer_id":            txt(buyer.get("id")),
         "buyer_name":          txt(buyer.get("name")),
         "buyer_region":        txt(address.get("region")),
@@ -238,6 +238,8 @@ def run():
     print("\nObras por año en DB:")
     for year, count in cur.fetchall():
         print(f"  {year}: {count:,}")
+    cur.execute("SELECT COUNT(*) FROM obras")
+    print(f"Total Perú: {cur.fetchone()[0]:,}")
     cur.execute("SELECT COUNT(*) FROM obras WHERE is_lima = TRUE")
     print(f"Total Lima: {cur.fetchone()[0]:,}")
     cur.close()
