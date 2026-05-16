@@ -37,6 +37,9 @@ Thumbs.db
 *.swp
 *.swo
 
+# Claude Code local config — NEVER commit (puede tener tokens / sesiones)
+.claude/
+
 # Vercel
 .vercel
 
