@@ -77,6 +77,38 @@ CENTROIDS: dict[str, tuple[float, float]] = {
     "CERCADO DE LIMA":                  (-12.0464, -77.0428),
 }
 
+# Department-level centroids for all 25 Peru regions
+PERU_DEPT_CENTROIDS: dict[str, tuple[float, float]] = {
+    "AMAZONAS":       (-6.2304, -77.8706),
+    "ANCASH":         (-9.5240, -77.5306),
+    "APURIMAC":       (-13.6385, -73.0875),
+    "AREQUIPA":       (-16.3988, -71.5350),
+    "AYACUCHO":       (-13.1588, -74.2236),
+    "CAJAMARCA":      (-7.1638, -78.5004),
+    "CALLAO":         (-12.0566, -77.1184),
+    "CUSCO":          (-13.5319, -71.9675),
+    "HUANCAVELICA":   (-12.7853, -74.9731),
+    "HUANUCO":        (-9.9306, -76.2420),
+    "HUÁNUCO":        (-9.9306, -76.2420),
+    "ICA":            (-14.0672, -75.7286),
+    "JUNIN":          (-11.1578, -75.9926),
+    "JUNÍN":          (-11.1578, -75.9926),
+    "LA LIBERTAD":    (-8.1120, -79.0270),
+    "LAMBAYEQUE":     (-6.7011, -79.9071),
+    "LIMA":           (-11.9890, -76.7920),  # Lima province (not metro)
+    "LORETO":         (-4.0085, -73.2532),
+    "MADRE DE DIOS":  (-12.5933, -69.1891),
+    "MOQUEGUA":       (-17.1939, -70.9324),
+    "PASCO":          (-10.6851, -76.2599),
+    "PIURA":          (-5.1945, -80.6328),
+    "PUNO":           (-15.8402, -70.0219),
+    "SAN MARTIN":     (-6.5000, -76.3667),
+    "SAN MARTÍN":     (-6.5000, -76.3667),
+    "TACNA":          (-18.0066, -70.2503),
+    "TUMBES":         (-3.5662, -80.4520),
+    "UCAYALI":        (-8.3791, -74.5539),
+}
+
 JITTER = 0.008  # ~900 m radius spread around centroid
 
 
@@ -105,9 +137,9 @@ def run():
     conn, cur = reconnect()
 
     cur.execute("""
-        SELECT id, buyer_locality, buyer_street
+        SELECT id, buyer_locality, buyer_street, buyer_region, is_lima
         FROM obras
-        WHERE is_lima = TRUE AND lat IS NULL
+        WHERE lat IS NULL
         ORDER BY contract_amount DESC NULLS LAST
     """)
     pending = cur.fetchall()
@@ -115,18 +147,25 @@ def run():
 
     centroid_hits = nominatim_hits = failed = 0
 
-    for i, (obra_id, locality, street) in enumerate(pending):
+    for i, (obra_id, locality, street, region, is_lima_flag) in enumerate(pending):
         lat, lng = None, None
         locality_key = (locality or "").upper().strip()
+        region_key   = (region or "").upper().strip()
 
-        if locality_key in CENTROIDS:
+        if is_lima_flag and locality_key in CENTROIDS:
             lat, lng = CENTROIDS[locality_key]
             lat += random.uniform(-JITTER, JITTER)
             lng += random.uniform(-JITTER, JITTER)
             centroid_hits += 1
+        elif region_key in PERU_DEPT_CENTROIDS:
+            lat, lng = PERU_DEPT_CENTROIDS[region_key]
+            lat += random.uniform(-JITTER * 10, JITTER * 10)  # wider jitter for departments
+            lng += random.uniform(-JITTER * 10, JITTER * 10)
+            centroid_hits += 1
         elif street and nominatim_hits < 500:
             time.sleep(1.1)
-            lat, lng = nominatim(f"{street}, {locality}, Lima, Peru")
+            query = f"{street}, {locality}, {region}, Peru" if region else f"{street}, {locality}, Peru"
+            lat, lng = nominatim(query)
             if lat:
                 nominatim_hits += 1
             else:
@@ -170,9 +209,11 @@ def run():
 
     # Final count via fresh connection to avoid stale state
     conn2, cur2 = reconnect()
-    cur2.execute("SELECT COUNT(*) FROM obras WHERE is_lima = TRUE AND lat IS NOT NULL")
+    cur2.execute("SELECT COUNT(*) FROM obras WHERE lat IS NOT NULL")
     geocoded = cur2.fetchone()[0]
-    print(f"\n[ok] Geocoded: {geocoded:,} Lima obras")
+    cur2.execute("SELECT COUNT(*) FROM obras WHERE lat IS NOT NULL AND is_lima = TRUE")
+    geocoded_lima = cur2.fetchone()[0]
+    print(f"\n[ok] Geocoded total: {geocoded:,} ({geocoded_lima:,} Lima)")
     print(f"     centroid: {centroid_hits} | nominatim: {nominatim_hits} | failed: {failed}")
 
     cur.close()
