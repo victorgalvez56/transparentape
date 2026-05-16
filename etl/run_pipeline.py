@@ -187,7 +187,7 @@ def process_year(year: int, conn) -> int:
             if total % 50_000 == 0:
                 print(f"  scanned {total:,} | found {len(records):,}", flush=True)
 
-    print(f"  scanned {total:,} total | {len(records):,} Lima obras")
+    print(f"  scanned {total:,} total | {len(records):,} obras")
 
     if not records:
         return 0
