@@ -125,6 +125,19 @@ function findRegion(center: ViewCenter): string | null {
 }
 
 /**
+ * Une partes con " · " y colapsa duplicados consecutivos
+ * (ej. ["Perú", "Cusco", "Cusco", "Cusco"] → "Perú · Cusco").
+ */
+function compose(parts: (string | undefined | null)[]): string {
+  const out: string[] = [];
+  for (const p of parts) {
+    if (!p) continue;
+    if (out[out.length - 1]?.toLowerCase() !== p.toLowerCase()) out.push(p);
+  }
+  return out.join(" · ");
+}
+
+/**
  * Devuelve el label legible del viewport.
  *
  * Umbrales por ancho del viewport (en grados de longitud):
@@ -146,7 +159,7 @@ export function detectLocation(
 ): string {
   const width = bounds.east - bounds.west;
 
-  // 1. Distrito — 3 niveles: Dep · Prov · Dist
+  // 1. Distrito — Perú · Provincia · Distrito (dedup auto)
   if (width < 0.5) {
     const dist = findOrNearestFeature(
       getPeruDists(),
@@ -155,12 +168,15 @@ export function detectLocation(
       0.15 // ~17km — solo nearest dentro de zona urbana
     );
     if (dist) {
-      const parts = [dist.properties.dep, dist.properties.prov, dist.properties.name].filter(Boolean);
-      return parts.join(" · ");
+      return compose([
+        "Perú",
+        dist.properties.prov,
+        dist.properties.name,
+      ]);
     }
   }
 
-  // 2. Provincia — 2 niveles: Dep · Prov
+  // 2. Provincia — Perú · Departamento · Provincia (dedup auto)
   if (width < 3) {
     const prov = findOrNearestFeature(
       getPeruProvs(),
@@ -169,12 +185,11 @@ export function detectLocation(
       0.5 // ~55km
     );
     if (prov) {
-      const dep = prov.properties.dep;
-      return dep ? `${dep} · ${prov.properties.name}` : prov.properties.name;
+      return compose(["Perú", prov.properties.dep, prov.properties.name]);
     }
   }
 
-  // 3. Departamento — Perú · Dep
+  // 3. Departamento — Perú · Departamento
   if (width < 8) {
     const dep = findOrNearestFeature(
       getPeruDepts(),
@@ -182,7 +197,7 @@ export function detectLocation(
       center.lat,
       2.0 // ~220km — los depts son grandes
     );
-    if (dep) return `Perú · ${dep.properties.name}`;
+    if (dep) return compose(["Perú", dep.properties.name]);
   }
 
   // 4. País

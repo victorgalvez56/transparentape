@@ -1,6 +1,6 @@
 "use client";
 
-import { motion, AnimatePresence } from "motion/react";
+import { motion } from "motion/react";
 
 interface Props {
   obrasCount: number;
@@ -34,27 +34,21 @@ export default function AuthorityHud({
             <span className="text-[var(--brand)]">.</span>
           </span>
           <span
-            className="relative inline-block text-[10px] uppercase tracking-[0.22em] text-[var(--fg-faint)] truncate max-w-[480px]"
-            style={{ fontFamily: "var(--font-mono), monospace", minHeight: 12 }}
+            className="inline-block text-[10px] uppercase tracking-[0.22em] text-[var(--fg-faint)] truncate max-w-[480px] pointer-events-none"
+            style={{ fontFamily: "var(--font-mono), monospace" }}
           >
-            <AnimatePresence mode="wait">
-              <motion.span
-                key={regionLabel}
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-                className="block whitespace-nowrap"
-              >
-                {regionLabel}
-              </motion.span>
-            </AnimatePresence>
+            <span
+              key={regionLabel}
+              className="inline-block whitespace-nowrap animate-[fadeIn_0.25s_ease-out]"
+            >
+              {regionLabel}
+            </span>
           </span>
         </div>
 
         {/* Autoridad + counts */}
         <div
-          className="flex items-center gap-5 text-[10px] tracking-[0.18em] uppercase text-[var(--fg-dim)] flex-wrap"
+          className="flex items-center gap-5 text-[10px] tracking-[0.18em] uppercase text-[var(--fg-dim)] flex-wrap pointer-events-none"
           style={{ fontFamily: "var(--font-mono), monospace" }}
         >
           <span>

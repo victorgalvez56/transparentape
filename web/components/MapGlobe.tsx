@@ -64,6 +64,7 @@ export default function MapGlobe({
   const obrasById = useRef<Map<number, Obra>>(new Map());
   const countryFlewToRef = useRef<string | null>(null);
   const onViewChangeRef = useRef<typeof onViewChange>(onViewChange);
+  const emitViewRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     onViewChangeRef.current = onViewChange;
   }, [onViewChange]);
@@ -106,6 +107,7 @@ export default function MapGlobe({
     };
     map.on("moveend", scheduleEmit);
     map.on("zoomend", scheduleEmit);
+    emitViewRef.current = emitView;
 
     // Cuando los polígonos terminan de cargar, re-emitir por si el user
     // ya hizo zoom adentro y necesita el label de departamento/distrito.
@@ -388,11 +390,16 @@ export default function MapGlobe({
       if (selectedId != null) {
         const o = obrasById.current.get(selectedId);
         if (o?.lat != null && o.lng != null) {
-          map.easeTo({
+          // flyTo cinematográfico — curva alta = arco dramático
+          // (zoom out leve → vuela → zoom in al destino)
+          map.flyTo({
             center: [Number(o.lng), Number(o.lat)],
-            zoom: Math.max(map.getZoom(), 13.5),
-            padding: getMapPadding(),
-            duration: 1400,
+            zoom: 14,
+            pitch: 55,
+            bearing: -12,
+            curve: 1.6,
+            speed: 0.7,
+            essential: true,
           });
         }
       }
