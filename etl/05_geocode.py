@@ -96,9 +96,13 @@ def nominatim(address: str) -> tuple[float, float] | tuple[None, None]:
     return None, None
 
 
-def run():
+def reconnect() -> tuple:
     conn = psycopg.connect(DATABASE_URL)
-    cur = conn.cursor()
+    return conn, conn.cursor()
+
+
+def run():
+    conn, cur = reconnect()
 
     cur.execute("""
         SELECT id, buyer_locality, buyer_street
@@ -121,7 +125,6 @@ def run():
             lng += random.uniform(-JITTER, JITTER)
             centroid_hits += 1
         elif street and nominatim_hits < 500:
-            # Respect Nominatim's 1 req/s rate limit
             time.sleep(1.1)
             lat, lng = nominatim(f"{street}, {locality}, Lima, Peru")
             if lat:
@@ -132,21 +135,50 @@ def run():
             failed += 1
 
         if lat and lng:
-            cur.execute("UPDATE obras SET lat = %s, lng = %s WHERE id = %s", (lat, lng, obra_id))
+            for attempt in range(3):
+                try:
+                    cur.execute("UPDATE obras SET lat = %s, lng = %s WHERE id = %s", (lat, lng, obra_id))
+                    break
+                except psycopg.OperationalError:
+                    print(f"  [reconnect] lost connection at {i+1}, reconnecting…", flush=True)
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+                    conn, cur = reconnect()
 
-        if (i + 1) % 500 == 0:
-            conn.commit()
+        if (i + 1) % 100 == 0:
+            for attempt in range(3):
+                try:
+                    conn.commit()
+                    break
+                except psycopg.OperationalError:
+                    print(f"  [reconnect] commit failed at {i+1}, reconnecting…", flush=True)
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+                    conn, cur = reconnect()
             print(f"  {i+1:,}/{len(pending):,} — centroid:{centroid_hits} nominatim:{nominatim_hits} failed:{failed}", flush=True)
 
-    conn.commit()
+    for attempt in range(3):
+        try:
+            conn.commit()
+            break
+        except psycopg.OperationalError:
+            conn, cur = reconnect()
 
-    cur.execute("SELECT COUNT(*) FROM obras WHERE is_lima = TRUE AND lat IS NOT NULL")
-    geocoded = cur.fetchone()[0]
+    # Final count via fresh connection to avoid stale state
+    conn2, cur2 = reconnect()
+    cur2.execute("SELECT COUNT(*) FROM obras WHERE is_lima = TRUE AND lat IS NOT NULL")
+    geocoded = cur2.fetchone()[0]
     print(f"\n[ok] Geocoded: {geocoded:,} Lima obras")
     print(f"     centroid: {centroid_hits} | nominatim: {nominatim_hits} | failed: {failed}")
 
     cur.close()
     conn.close()
+    cur2.close()
+    conn2.close()
 
 
 if __name__ == "__main__":
