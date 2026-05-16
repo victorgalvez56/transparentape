@@ -1,15 +1,12 @@
 """
 Load Chile public procurement data from ChileCompra OCDS API into obras table.
 
-Fetches licitaciones (tenders) for Santiago (Región Metropolitana) from 2024-2025.
-Uses concurrent requests to avoid spending hours on individual API calls.
-
-Target: ~500-1000 Santiago contracts for presentation demo.
+Fetches licitaciones for all Chilean regions, geocoded by region centroid.
 
 Usage:
     python etl/07_load_chile.py
     python etl/07_load_chile.py --months 3  # last N months
-    python etl/07_load_chile.py --limit 500 # max records to insert
+    python etl/07_load_chile.py --limit 2000
 """
 
 import argparse
@@ -34,63 +31,34 @@ BASE_LIST  = "https://api.mercadopublico.cl/APISOCDS/OCDS/listaOCDSAgnoMes/{year
 BASE_TENDER = "https://api.mercadopublico.cl/APISOCDS/OCDS/tender/{code}"
 BASE_AWARD  = "https://api.mercadopublico.cl/APISOCDS/OCDS/award/{code}"
 
-SANTIAGO_REGION = "Región Metropolitana de Santiago"
-PAGE_SIZE   = 1000
-WORKERS     = 15
-TIMEOUT     = 20
+PAGE_SIZE = 1000
+WORKERS   = 8   # conservative to avoid rate limiting
+TIMEOUT   = 20
 
-# Santiago comunas centroids for geocoding
-SANTIAGO_CENTROIDS = {
-    "SANTIAGO":           (-33.4372, -70.6506),
-    "PROVIDENCIA":        (-33.4326, -70.6141),
-    "LAS CONDES":         (-33.4079, -70.5765),
-    "VITACURA":           (-33.3830, -70.5833),
-    "LO BARNECHEA":       (-33.3500, -70.5167),
-    "ÑUÑOA":              (-33.4561, -70.5997),
-    "NUNOA":              (-33.4561, -70.5997),
-    "LA FLORIDA":         (-33.5167, -70.5833),
-    "MAIPU":              (-33.5133, -70.7697),
-    "MAIPÚ":              (-33.5133, -70.7697),
-    "PUDAHUEL":           (-33.4333, -70.7500),
-    "PENALOLEN":          (-33.4833, -70.5333),
-    "PEÑALOLÉN":          (-33.4833, -70.5333),
-    "MACUL":              (-33.4833, -70.5833),
-    "SAN MIGUEL":         (-33.4972, -70.6525),
-    "LA CISTERNA":        (-33.5250, -70.6639),
-    "EL BOSQUE":          (-33.5667, -70.6667),
-    "PEDRO AGUIRRE CERDA":(-33.5000, -70.6667),
-    "LO ESPEJO":          (-33.5167, -70.7000),
-    "CERRILLOS":          (-33.5000, -70.7333),
-    "ESTACION CENTRAL":   (-33.4667, -70.6833),
-    "ESTACIÓN CENTRAL":   (-33.4667, -70.6833),
-    "QUINTA NORMAL":      (-33.4333, -70.7000),
-    "LO PRADO":           (-33.4500, -70.7167),
-    "CERRO NAVIA":        (-33.4167, -70.7333),
-    "RENCA":              (-33.3833, -70.7333),
-    "QUILICURA":          (-33.3667, -70.7333),
-    "CONCHALI":           (-33.3833, -70.6667),
-    "CONCHALÍ":           (-33.3833, -70.6667),
-    "HUECHURABA":         (-33.3500, -70.6500),
-    "RECOLETA":           (-33.4167, -70.6333),
-    "INDEPENDENCIA":      (-33.4167, -70.6500),
-    "LA GRANJA":          (-33.5333, -70.6167),
-    "LA PINTANA":         (-33.5833, -70.6167),
-    "SAN RAMON":          (-33.5333, -70.6333),
-    "SAN RAMÓN":          (-33.5333, -70.6333),
-    "LA REINA":           (-33.4500, -70.5667),
-    "SAN BERNARDO":       (-33.6000, -70.7000),
-    "PUENTE ALTO":        (-33.6167, -70.5833),
-    "COLINA":             (-33.2000, -70.6833),
-    "LAMPA":              (-33.2833, -70.8833),
-    "BUIN":               (-33.7333, -70.7333),
-    "PAINE":              (-33.8167, -70.7500),
-    "PADRE HURTADO":      (-33.5667, -70.8333),
-    "ISLA DE MAIPO":      (-33.7500, -70.9000),
-    "EL MONTE":           (-33.6833, -71.0167),
-    "MELIPILLA":          (-33.6833, -71.2167),
-    "TALAGANTE":          (-33.6667, -70.9333),
-    "PEÑAFLOR":           (-33.6000, -70.9000),
-    "PENALOR":            (-33.6000, -70.9000),
+# Chilean region → (city slug, lat, lng)
+CHILE_REGIONS: dict[str, tuple[str, float, float]] = {
+    "Región de Arica y Parinacota":                          ("arica",          -18.4783, -70.3126),
+    "Región de Tarapacá":                                    ("iquique",         -20.2141, -70.1522),
+    "Región de Antofagasta":                                 ("antofagasta",     -23.6524, -70.3954),
+    "Región de Atacama":                                     ("copiapo",         -27.3668, -70.3323),
+    "Región de Coquimbo":                                    ("la_serena",       -29.9027, -71.2520),
+    "Región de Valparaíso":                                  ("valparaiso",      -33.0472, -71.6127),
+    "Región de Valparaiso":                                  ("valparaiso",      -33.0472, -71.6127),
+    "Región Metropolitana de Santiago":                      ("santiago",        -33.4489, -70.6693),
+    "Región del Libertador General Bernardo O´Higgins":      ("rancagua",        -34.1703, -70.7400),
+    "Región del Libertador General Bernardo O'Higgins":      ("rancagua",        -34.1703, -70.7400),
+    "Región del Maule":                                      ("talca",           -35.4232, -71.6553),
+    "Región del Ñuble":                                      ("chillan",         -36.6063, -72.1033),
+    "Región del Biobío":                                     ("concepcion",      -36.8270, -73.0503),
+    "Región del Biobio":                                     ("concepcion",      -36.8270, -73.0503),
+    "Región de la Araucanía":                                ("temuco",          -38.7359, -72.5904),
+    "Región de La Araucanía":                                ("temuco",          -38.7359, -72.5904),
+    "Región de Los Ríos":                                    ("valdivia",        -39.8196, -73.2452),
+    "Región de los Lagos":                                   ("puerto_montt",    -41.4693, -72.9424),
+    "Región de Los Lagos":                                   ("puerto_montt",    -41.4693, -72.9424),
+    "Región Aysén del General Carlos Ibáñez del Campo":      ("coyhaique",       -45.5712, -72.0638),
+    "Región de Magallanes y de la Antártica":                ("punta_arenas",    -53.1638, -70.9171),
+    "Región de Magallanes y de la Antartica":                ("punta_arenas",    -53.1638, -70.9171),
 }
 
 parser = argparse.ArgumentParser()
@@ -123,12 +91,11 @@ def fetch_tender(item: dict) -> dict | None:
         return None
     r = releases[0]
 
-    # Filter for Santiago
     parties = r.get("parties") or []
     buyer_party = next((p for p in parties if "buyer" in (p.get("roles") or [])), {})
     address = buyer_party.get("address") or {}
     region = address.get("region") or ""
-    if SANTIAGO_REGION not in region:
+    if not region:
         return None
 
     # Also fetch award
@@ -157,21 +124,19 @@ def fetch_tender(item: dict) -> dict | None:
 
     import random
     locality = address.get("locality") or ""
-    lat, lng = None, None
-    key = locality.upper().strip()
-    if key in SANTIAGO_CENTROIDS:
-        lat, lng = SANTIAGO_CENTROIDS[key]
+    region_info = CHILE_REGIONS.get(region) or CHILE_REGIONS.get(region.strip())
+    if region_info:
+        city_slug, base_lat, base_lng = region_info
     else:
-        # Default to Santiago metro area centroid with wide jitter
-        lat, lng = -33.4489, -70.6693
-    lat += random.uniform(-0.08, 0.08)
-    lng += random.uniform(-0.08, 0.08)
+        city_slug, base_lat, base_lng = "chile", -33.4489, -70.6693
+    lat = base_lat + random.uniform(-0.15, 0.15)
+    lng = base_lng + random.uniform(-0.15, 0.15)
 
     return {
         "ocid":                txt(ocid),
         "source_year":         int(r.get("date", "2024")[:4]) if r.get("date") else 2024,
         "country":             "CL",
-        "city":                "santiago",
+        "city":                city_slug,
         "buyer_id":            txt(buyer_party.get("id")),
         "buyer_name":          txt(buyer_party.get("name")),
         "buyer_region":        txt(region),

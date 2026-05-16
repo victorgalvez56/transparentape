@@ -83,12 +83,19 @@ export default function HomePage() {
   // Fetch obras con coordenadas — para el mapa
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/obras?limit=3000&with_coords=true")
-      .then((r) => r.json())
-      .then((data) => {
+    Promise.all([
+      fetch("/api/obras?limit=2800&with_coords=true").then((r) => r.json()),
+      fetch("/api/obras?country=CL&limit=2000&with_coords=true").then((r) => r.json()),
+    ])
+      .then(([pe, cl]) => {
         if (cancelled) return;
-        setObras(data.obras ?? []);
-        setSource(data.source ?? "");
+        const clIds = new Set((cl.obras ?? []).map((o: Obra) => o.id));
+        const merged = [
+          ...(cl.obras ?? []),
+          ...(pe.obras ?? []).filter((o: Obra) => !clIds.has(o.id)),
+        ];
+        setObras(merged);
+        setSource(pe.source ?? "");
       })
       .catch(() => {})
       .finally(() => !cancelled && setLoading(false));
