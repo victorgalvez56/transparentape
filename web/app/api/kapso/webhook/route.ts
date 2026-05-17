@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHash } from "crypto";
 import { WhatsAppClient } from "@kapso/whatsapp-cloud-api";
 import { normalizeWebhook, verifySignature as sdkVerifySignature } from "@kapso/whatsapp-cloud-api/server";
 import { query } from "@/lib/db";
@@ -39,7 +40,10 @@ export const maxDuration = 30;
 // ── signature validation ──────────────────────────────────────────────────────
 function checkSignature(rawBody: string, req: NextRequest): boolean {
   const secret = process.env.KAPSO_WEBHOOK_SECRET;
-  if (!secret) return true;
+  if (!secret) {
+    console.error("[kapso/webhook] KAPSO_WEBHOOK_SECRET not configured — rejecting all requests");
+    return false;
+  }
   // Kapso kind:meta signs with KAPSO_WEBHOOK_SECRET via x-hub-signature-256
   const signatureHeader =
     req.headers.get("x-hub-signature-256") ??
@@ -47,6 +51,15 @@ function checkSignature(rawBody: string, req: NextRequest): boolean {
     req.headers.get("x-webhook-signature");
   if (!signatureHeader) return false;
   return sdkVerifySignature({ appSecret: secret, rawBody, signatureHeader });
+}
+
+// Redact phone numbers before logging: keep last 4 digits + 8-char salted hash.
+// agent_logs lacks RLS, so raw `from` would be PII at rest.
+function redactPhone(phone: string | undefined | null): string {
+  if (!phone) return "unknown";
+  const salt = process.env.KAPSO_WEBHOOK_SECRET ?? "";
+  const hash = createHash("sha256").update(salt + phone).digest("hex").slice(0, 8);
+  return `${hash}…${phone.slice(-4)}`;
 }
 
 const kapso = new WhatsAppClient({
@@ -237,15 +250,16 @@ export async function GET(req: NextRequest) {
   const mode = searchParams.get("hub.mode");
   const token = searchParams.get("hub.verify_token");
   const challenge = searchParams.get("hub.challenge");
-  const verifyToken = process.env.KAPSO_WEBHOOK_SECRET ?? "";
+  const verifyToken = process.env.KAPSO_WEBHOOK_SECRET;
+
+  if (!verifyToken) {
+    console.error("[kapso/webhook] GET verify: KAPSO_WEBHOOK_SECRET not configured");
+    return NextResponse.json({ error: "verify token not configured" }, { status: 500 });
+  }
   if (mode === "subscribe" && token === verifyToken && challenge) {
     return new Response(challenge, { status: 200 });
   }
-  // Accept any challenge when no verify token is configured (Kapso manages it)
-  if (challenge) {
-    return new Response(challenge, { status: 200 });
-  }
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ error: "invalid verify token" }, { status: 403 });
 }
 
 // ── webhook handler ───────────────────────────────────────────────────────────
@@ -257,18 +271,18 @@ export async function POST(req: NextRequest) {
   req.headers.forEach((v, k) => { allHeaders[k] = v; });
 
   if (!checkSignature(rawBody, req)) {
-    // Log headers to identify which signature header Kapso actually sends
+    // Log only header names (no values, no body) — payload is unverified data.
+    const headerNames = Object.keys(allHeaders).sort();
     query(
       `INSERT INTO agent_logs(endpoint, params, n_resultados, latencia_ms) VALUES ($1, $2, $3, $4)`,
       [
         "/api/kapso/webhook/sig_fail",
-        JSON.stringify({ headers: allHeaders, body_preview: rawBody.slice(0, 500) }),
+        JSON.stringify({ header_names: headerNames, body_len: rawBody.length }),
         0,
         0,
       ]
     ).catch(() => {});
-    // Return 200 temporarily so Kapso keeps retrying while we diagnose
-    // TODO: restore 401 once signature is confirmed working end-to-end
+    return new NextResponse("invalid signature", { status: 401 });
   }
 
   let payload: Record<string, unknown>;
@@ -282,13 +296,14 @@ export async function POST(req: NextRequest) {
   const normalized = normalizeWebhook(payload);
   const msg = normalized.messages[0];
 
-  // If no messages parsed, log raw payload for inspection and skip
+  // If no messages parsed, log shape only (signature is verified by now, but
+  // payload may still contain user PII — log only structural metadata).
   if (!msg || !msg.from) {
     query(
       `INSERT INTO agent_logs(endpoint, params, n_resultados, latencia_ms) VALUES ($1, $2, $3, $4)`,
       [
         "/api/kapso/webhook/skipped",
-        JSON.stringify({ body_preview: rawBody.slice(0, 500) }),
+        JSON.stringify({ has_msg: !!msg, has_from: !!(msg && msg.from), body_len: rawBody.length }),
         0,
         0,
       ]
@@ -297,7 +312,15 @@ export async function POST(req: NextRequest) {
   }
 
   const from = msg.from;
-  const phoneNumberId = normalized.phoneNumberId ?? process.env.KAPSO_PHONE_NUMBER_ID!;
+  // E.164-ish validation: digits only, optional leading +, 7-15 digits per spec.
+  if (!/^\+?\d{7,15}$/.test(from)) {
+    return NextResponse.json({ ok: true, skipped: true });
+  }
+  const phoneNumberId = normalized.phoneNumberId ?? process.env.KAPSO_PHONE_NUMBER_ID;
+  if (!phoneNumberId) {
+    console.error("[kapso/webhook] no phoneNumberId in payload and KAPSO_PHONE_NUMBER_ID env var missing");
+    return NextResponse.json({ ok: true, skipped: true });
+  }
   const to = from.startsWith("+") ? from : `+${from}`;
   const t0 = Date.now();
 
@@ -329,7 +352,7 @@ export async function POST(req: NextRequest) {
           }
           query(
             `INSERT INTO agent_logs(endpoint, params, n_resultados, latencia_ms) VALUES ($1, $2, $3, $4)`,
-            ["/api/kapso/webhook", JSON.stringify({ from, text: "location", lat: latitude, lng: longitude }), 1, Date.now() - t0]
+            ["/api/kapso/webhook", JSON.stringify({ from: redactPhone(from), kind: "location" }), 1, Date.now() - t0]
           ).catch(() => {});
         } catch (e) {
           console.error("[kapso/webhook] location error:", e);
@@ -378,7 +401,7 @@ export async function POST(req: NextRequest) {
       }
       query(
         `INSERT INTO agent_logs(endpoint, params, n_resultados, latencia_ms) VALUES ($1, $2, $3, $4)`,
-        ["/api/kapso/webhook", JSON.stringify({ from, text }), 1, Date.now() - t0]
+        ["/api/kapso/webhook", JSON.stringify({ from: redactPhone(from), text_len: text!.length }), 1, Date.now() - t0]
       ).catch(() => {});
     } catch (e) {
       console.error("[kapso/webhook] error:", e);

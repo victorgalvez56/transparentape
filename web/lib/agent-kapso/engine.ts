@@ -17,13 +17,29 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 }
 
 const DANGEROUS_SQL =
-  /\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|GRANT|REVOKE|EXEC|EXECUTE|COPY|VACUUM|ANALYZE)\b/i;
+  /\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|GRANT|REVOKE|EXEC|EXECUTE|COPY|VACUUM|ANALYZE|PG_SLEEP|PG_READ_FILE|PG_LS_DIR|LO_IMPORT|LO_EXPORT)\b/i;
+
+// Whitelist of tables the agent is allowed to query. Anything else (including
+// agent_sessions, agent_logs, webhook_dedup, pg_catalog.*) gets rejected even
+// if it's a SELECT — protects against prompt injection making the LLM read PII.
+const ALLOWED_TABLES = new Set(["obras", "red_flags"]);
 
 function isValidSelectQuery(sql: string): boolean {
   const trimmed = sql.trim();
   if (!trimmed.toUpperCase().startsWith("SELECT")) return false;
   if (trimmed.includes(";")) return false;
+  // SQL comments can hide intent or chain payloads; just reject.
+  if (trimmed.includes("--") || trimmed.includes("/*")) return false;
   if (DANGEROUS_SQL.test(trimmed)) return false;
+
+  // Every FROM/JOIN target must be in the whitelist. Captures bare identifiers
+  // like `FROM obras` or `JOIN red_flags rf` — schema-qualified or quoted refs
+  // (e.g. `pg_catalog.pg_tables`, `"obras"`) won't match and get rejected.
+  const tableRefs = [...trimmed.matchAll(/\b(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_]*)/gi)];
+  if (!tableRefs.length) return false;
+  for (const m of tableRefs) {
+    if (!ALLOWED_TABLES.has(m[1].toLowerCase())) return false;
+  }
   return true;
 }
 
