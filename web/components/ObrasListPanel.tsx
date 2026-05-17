@@ -73,8 +73,8 @@ export default function ObrasListPanel({
       initial={{ x: 30, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       transition={{ delay: 0.5, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-      className={`absolute top-0 right-0 z-10 h-full flex flex-col bg-[var(--ink-1)]/85 backdrop-blur-xl border-l border-[var(--rule)] text-[var(--fg)] pt-[60px] ${
-        fullWidth ? "w-full" : "w-full max-w-md"
+      className={`absolute top-[104px] right-0 z-10 bottom-0 flex flex-col bg-[var(--ink-1)]/85 backdrop-blur-xl border-l border-[var(--rule)] text-[var(--fg)] ${
+        fullWidth ? "left-0 w-auto" : "w-full max-w-md"
       }`}
     >
       {/* HEADER editorial */}

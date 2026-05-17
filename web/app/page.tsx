@@ -3,12 +3,18 @@
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { Obra } from "@/lib/types";
-import { CountryView, DEFAULT_COUNTRY } from "@/lib/countries";
+import {
+  CountryView,
+  DEFAULT_COUNTRY,
+  availableCountriesWithCount,
+  getCountryView,
+} from "@/lib/countries";
 import ObrasListPanel from "@/components/ObrasListPanel";
 import ObraDetailPanel from "@/components/ObraDetailPanel";
 import ForensicsPanel from "@/components/ForensicsPanel";
 import ColdOpen from "@/components/ColdOpen";
 import Topbar from "@/components/Topbar";
+import CountryChips from "@/components/CountryChips";
 import CustomCursor from "@/components/CustomCursor";
 
 const MapGlobe = dynamic(() => import("@/components/MapGlobe"), {
@@ -39,6 +45,8 @@ export default function HomePage() {
   const [userCountry, setUserCountry] = useState<CountryView | null>(null);
   const [regionLabel, setRegionLabel] = useState<string>("Perú");
   const [view, setView] = useState<"globe" | "list">("globe");
+  const [filterCountry, setFilterCountry] = useState<string | null>(null);
+  const [flyTarget, setFlyTarget] = useState<CountryView | null>(null);
 
   // Reset cold open con ?reset=1
   useEffect(() => {
@@ -105,6 +113,23 @@ export default function HomePage() {
     };
   }, []);
 
+  // Derived: lista de países con count y obras filtradas
+  const countriesWithCount = availableCountriesWithCount(obras);
+  const visibleObras = filterCountry
+    ? obras.filter((o) => o.country?.toUpperCase() === filterCountry)
+    : obras;
+
+  const handleSelectCountry = (code: string | null) => {
+    setFilterCountry(code);
+    if (code) {
+      const cv = getCountryView(code);
+      setFlyTarget({ ...cv });
+    } else {
+      // "Todos" — zoom out a vista global
+      setFlyTarget({ code: "WORLD", name: "Vista global", center: [0, 5], zoom: 1.5 });
+    }
+  };
+
   return (
     <main className="relative w-screen h-screen overflow-hidden globe-bg">
       {showColdOpen && (
@@ -123,23 +148,36 @@ export default function HomePage() {
         }`}
       >
         <MapGlobe
-          obras={obras}
+          obras={visibleObras}
           selectedId={selected?.id ?? null}
           onSelect={setSelected}
-          flyToCountry={showColdOpen === false ? userCountry : null}
+          flyToCountry={
+            flyTarget ?? (showColdOpen === false ? userCountry : null)
+          }
           onViewChange={setRegionLabel}
         />
       </div>
 
       {!showColdOpen && (
-        <Topbar
-          obrasCount={stats?.total_obras ?? obras.length}
-          redFlagsCount={stats?.total_red_flags ?? 0}
-          source={stats?.source ?? source}
-          regionLabel={regionLabel}
-          view={view}
-          onToggleView={() => setView((v) => (v === "globe" ? "list" : "globe"))}
-        />
+        <>
+          <Topbar
+            obrasCount={visibleObras.length}
+            redFlagsCount={
+              filterCountry
+                ? visibleObras.filter((o) => o.is_red_flag).length
+                : stats?.total_red_flags ?? 0
+            }
+            source={stats?.source ?? source}
+            regionLabel={regionLabel}
+            view={view}
+            onToggleView={() => setView((v) => (v === "globe" ? "list" : "globe"))}
+          />
+          <CountryChips
+            countries={countriesWithCount}
+            selectedCode={filterCountry}
+            onSelect={handleSelectCountry}
+          />
+        </>
       )}
 
       {loading && (
@@ -149,10 +187,10 @@ export default function HomePage() {
       )}
 
       <ObrasListPanel
-        obras={obras}
+        obras={visibleObras}
         selectedId={selected?.id ?? null}
         onSelect={setSelected}
-        total={stats?.total_obras ?? obras.length}
+        total={visibleObras.length}
         source={stats?.source ?? source}
         fullWidth={view === "list"}
       />

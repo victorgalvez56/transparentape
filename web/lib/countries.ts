@@ -37,8 +37,37 @@ const COUNTRIES: Record<string, CountryView> = {
 
 export const DEFAULT_COUNTRY: CountryView = COUNTRIES.PE;
 
+export const ALL_COUNTRIES: CountryView[] = Object.values(COUNTRIES);
+
 export function getCountryView(code: string | null | undefined): CountryView {
   if (!code) return DEFAULT_COUNTRY;
   const upper = code.toUpperCase().slice(0, 2);
   return COUNTRIES[upper] ?? DEFAULT_COUNTRY;
+}
+
+/**
+ * Cuenta obras por país, devuelve solo los países con presencia
+ * ordenados por count descendente. Los que están en COUNTRIES pero
+ * sin obras quedan disponibles pero con count 0.
+ */
+export function availableCountriesWithCount<
+  T extends { country?: string | null | undefined }
+>(obras: T[]): Array<CountryView & { count: number }> {
+  const counts = new Map<string, number>();
+  for (const o of obras) {
+    if (!o.country) continue;
+    const code = o.country.toUpperCase();
+    counts.set(code, (counts.get(code) ?? 0) + 1);
+  }
+  // Países con presencia primero, ordenados por count DESC
+  const present = [...counts.entries()]
+    .filter(([code]) => COUNTRIES[code])
+    .sort((a, b) => b[1] - a[1])
+    .map(([code, count]) => ({ ...COUNTRIES[code], count }));
+  // Países sin obras pero conocidos van al final con count 0
+  const presentCodes = new Set(present.map((c) => c.code));
+  const empty = ALL_COUNTRIES.filter((c) => !presentCodes.has(c.code)).map(
+    (c) => ({ ...c, count: 0 })
+  );
+  return [...present, ...empty];
 }
