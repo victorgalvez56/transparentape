@@ -20,7 +20,7 @@ export default function ContextLostListener({
     const handleLost = (e: Event) => {
       e.preventDefault();
       onLost();
-      console.error("[transparentape] WebGL context lost. Recarga la pagina.");
+      console.warn("[transparentape] WebGL context lost. Recarga la pagina.");
     };
     canvas.addEventListener("webglcontextlost", handleLost, false);
     return () => {
