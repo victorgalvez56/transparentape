@@ -1,14 +1,13 @@
 #!/usr/bin/env node
 /**
- * Parches para iwer 2.x corriendo en Chrome desktop:
+ * Parches para hacer funcionar el emulator IWER en Chrome desktop:
  *
- * 1. XRSession.onDeviceFrame asume getParameter(COLOR_CLEAR_VALUE) devuelve
- *    Float32Array. En WebGL2 puede devolver null y revienta con
- *    "Cannot read properties of null (reading '0')".
+ * 1. iwer XRSession.onDeviceFrame: gl.getParameter(COLOR_CLEAR_VALUE) puede
+ *    devolver null en WebGL2 → currentClearColor[0] revienta.
  *
- * 2. @iwer/devui bundlea su propia three.js — al renderizar el overlay del
- *    Quest tira "material.onBuild is not a function" por version mismatch
- *    con three.js de root. Envolvemos devui.render en try/catch.
+ * 2. @pmndrs/xr emulate: instala @iwer/devui que bundlea three@0.165, que
+ *    choca con three@0.184 del root del proyecto ("material.onBuild is not
+ *    a function" + render en blanco). Saltamos installDevUI().
  *
  * Idempotente — busca markers comment, si ya parcheado no toca.
  */
@@ -17,72 +16,68 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const target = resolve(
-  __dirname,
-  "..",
-  "node_modules",
-  "iwer",
-  "lib",
-  "session",
-  "XRSession.js"
-);
+const root = resolve(__dirname, "..");
 
-if (!existsSync(target)) {
-  console.log("[patch-iwer] iwer no instalado, skip.");
-  process.exit(0);
+function patch({ target, marker, buggy, fixed, label }) {
+  if (!existsSync(target)) {
+    console.log(`[patch-iwer] ${label}: archivo no existe, skip.`);
+    return;
+  }
+  const source = readFileSync(target, "utf8");
+  if (source.includes(marker)) {
+    console.log(`[patch-iwer] ${label}: ya parcheado.`);
+    return;
+  }
+  if (!source.includes(buggy)) {
+    console.warn(
+      `[patch-iwer] ${label}: codigo buggy no encontrado — version cambio?`
+    );
+    return;
+  }
+  writeFileSync(target, source.replace(buggy, fixed), "utf8");
+  console.log(`[patch-iwer] ${label}: parcheado.`);
 }
 
-const MARKER_CLEAR = "PATCH transparentape clear:";
-const MARKER_DEVUI = "PATCH transparentape devui:";
-
-let source = readFileSync(target, "utf8");
-let changed = false;
-
-// Patch 1: clearColor/Depth/Stencil null safety
-const buggy1 = `                if (this[P_SESSION].mode != 'inline') {
+// Patch 1 — iwer XRSession.js: null safety en getParameter
+patch({
+  label: "iwer getParameter null",
+  target: resolve(root, "node_modules/iwer/lib/session/XRSession.js"),
+  marker: "PATCH transparentape clear:",
+  buggy: `                if (this[P_SESSION].mode != 'inline') {
                     const currentClearColor = context.getParameter(context.COLOR_CLEAR_VALUE);
                     const currentClearDepth = context.getParameter(context.DEPTH_CLEAR_VALUE);
-                    const currentClearStencil = context.getParameter(context.STENCIL_CLEAR_VALUE);`;
-
-const fixed1 = `                if (this[P_SESSION].mode != 'inline') {
-                    // ${MARKER_CLEAR} WebGL2 puede devolver null en algunos browsers
+                    const currentClearStencil = context.getParameter(context.STENCIL_CLEAR_VALUE);`,
+  fixed: `                if (this[P_SESSION].mode != 'inline') {
+                    // PATCH transparentape clear: WebGL2 puede devolver null
                     const currentClearColor = context.getParameter(context.COLOR_CLEAR_VALUE) || [0, 0, 0, 1];
                     const currentClearDepth = context.getParameter(context.DEPTH_CLEAR_VALUE) ?? 1;
-                    const currentClearStencil = context.getParameter(context.STENCIL_CLEAR_VALUE) ?? 0;`;
+                    const currentClearStencil = context.getParameter(context.STENCIL_CLEAR_VALUE) ?? 0;`,
+});
 
-if (source.includes(MARKER_CLEAR)) {
-  // ya parcheado
-} else if (source.includes(buggy1)) {
-  source = source.replace(buggy1, fixed1);
-  changed = true;
-} else {
-  console.warn("[patch-iwer] patch 1: codigo buggy no encontrado, iwer pudo haber cambiado.");
-}
-
-// Patch 2: devui.render try/catch
-const buggy2 = `                const devui = this[P_SESSION].device[P_DEVICE].devui;
+// Patch 2 — iwer XRSession.js: try/catch devui.render (defense in depth)
+patch({
+  label: "iwer devui.render try/catch",
+  target: resolve(root, "node_modules/iwer/lib/session/XRSession.js"),
+  marker: "PATCH transparentape devui:",
+  buggy: `                const devui = this[P_SESSION].device[P_DEVICE].devui;
                 if (devui) {
                     devui.render(time);
-                }`;
-
-const fixed2 = `                const devui = this[P_SESSION].device[P_DEVICE].devui;
+                }`,
+  fixed: `                const devui = this[P_SESSION].device[P_DEVICE].devui;
                 if (devui) {
-                    // ${MARKER_DEVUI} devui bundlea su propia three.js (material.onBuild mismatch)
+                    // PATCH transparentape devui: bundle tiene three@0.165 mismatch
                     try { devui.render(time); } catch (_) { /* devui overlay falla, XR sigue */ }
-                }`;
+                }`,
+});
 
-if (source.includes(MARKER_DEVUI)) {
-  // ya parcheado
-} else if (source.includes(buggy2)) {
-  source = source.replace(buggy2, fixed2);
-  changed = true;
-} else {
-  console.warn("[patch-iwer] patch 2: codigo buggy no encontrado, iwer pudo haber cambiado.");
-}
-
-if (changed) {
-  writeFileSync(target, source, "utf8");
-  console.log("[patch-iwer] iwer XRSession.js parcheado OK.");
-} else {
-  console.log("[patch-iwer] todos los parches ya aplicados o codigo no coincide, skip.");
-}
+// Patch 3 — @pmndrs/xr emulate.js: NO instalar devui (raiz del problema)
+patch({
+  label: "@pmndrs/xr skip installDevUI",
+  target: resolve(root, "node_modules/@pmndrs/xr/dist/emulate.js"),
+  marker: "PATCH transparentape: skip devui",
+  buggy: `    xrdevice.installRuntime();
+    xrdevice.installDevUI(DevUI);`,
+  fixed: `    xrdevice.installRuntime();
+    // PATCH transparentape: skip devui — bundlea three@0.165 que choca con root three@0.184
+    // xrdevice.installDevUI(DevUI);`,
+});
