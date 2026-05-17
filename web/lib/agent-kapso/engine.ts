@@ -28,7 +28,6 @@ export async function chatEngine(message: string): Promise<string> {
     return "Consulta muy larga. Intenta con una pregunta más corta.";
   }
 
-  // Step 1: translate to SQL
   const sqlResponse = await groq.chat.completions.create({
     messages: [
       { role: "system", content: SYSTEM_PROMPT_SQL },
@@ -46,7 +45,6 @@ export async function chatEngine(message: string): Promise<string> {
     return "No pude entender tu consulta. Intenta preguntar por obras en una región o año específico.";
   }
 
-  // Step 2: execute (cap at 10 rows before synthesis)
   let dbResults: unknown[];
   try {
     const rows = await query(sqlQuery);
@@ -55,7 +53,6 @@ export async function chatEngine(message: string): Promise<string> {
     return "Ocurrió un error al consultar la base de datos de obras.";
   }
 
-  // Step 3: synthesize
   const synthesisResponse = await groq.chat.completions.create({
     messages: [
       { role: "system", content: SYSTEM_PROMPT_SYNTHESIS },
