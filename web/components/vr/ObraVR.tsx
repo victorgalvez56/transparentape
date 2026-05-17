@@ -11,9 +11,15 @@ import Link from "next/link";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { DeviceOrientationControls } from "three-stdlib";
-import { XR, createXRStore, useXR } from "@react-three/xr";
+import {
+  XR,
+  createXRStore,
+  useXR,
+  useXRInputSourceState,
+} from "@react-three/xr";
 import type { Obra } from "@/lib/types";
 import { formatMontoCompact, truncate } from "@/lib/vr/format";
+import { usePanoLinks, type PanoLink } from "@/lib/vr/streetview-links";
 import VRSessionButton from "./VRSessionButton";
 
 /* ────────────────────────────────────────────────────────────────────────
@@ -253,6 +259,126 @@ function CardboardRenderer() {
   return null;
 }
 
+/* ── Navegación entre panoramas (caminar por la calle) ─────────────────── */
+
+// Si la dirección de giro saliera invertida en el headset, cambia a -1.
+const HEADING_SIGN = 1;
+
+function wrap180(d: number): number {
+  return ((((d + 180) % 360) + 360) % 360) - 180;
+}
+
+/** Rumbo brújula (grados) al que mira la cámara, dado el centro de imagen. */
+function cameraHeadingDeg(
+  camera: THREE.Camera,
+  centerHeading: number
+): number {
+  const dir = camera.getWorldDirection(new THREE.Vector3());
+  // Cámara por defecto (mira a -Z) = centro de la imagen = centerHeading.
+  const sceneAz = Math.atan2(dir.x, -dir.z); // 0 al frente, +derecha
+  return centerHeading + HEADING_SIGN * THREE.MathUtils.radToDeg(sceneAz);
+}
+
+/** El link más cercano a donde miras (o a tu espalda si reverse). */
+function chooseLink(
+  links: PanoLink[],
+  viewHeading: number,
+  reverse: boolean
+): PanoLink | null {
+  if (links.length === 0) return null;
+  const target = reverse ? viewHeading + 180 : viewHeading;
+  let best: PanoLink | null = null;
+  let bestDiff = Infinity;
+  for (const l of links) {
+    const diff = Math.abs(wrap180(l.heading - target));
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      best = l;
+    }
+  }
+  // Sólo si hay un link razonablemente en esa dirección (cono ~75°).
+  return bestDiff <= 75 ? best : null;
+}
+
+/**
+ * Avanza al panorama de delante: stick del mando en Quest, deslizar en
+ * móvil, flechas/W-S en desktop, o el evento "obravr-move" del HUD.
+ */
+function NavController({
+  links,
+  centerHeading,
+  onMove,
+}: {
+  links: PanoLink[];
+  centerHeading: number;
+  onMove: (pano: string) => void;
+}) {
+  const { camera } = useThree();
+  const right = useXRInputSourceState("controller", "right");
+  const left = useXRInputSourceState("controller", "left");
+  const cooldown = useRef(0);
+
+  const trigger = useCallback(
+    (reverse: boolean) => {
+      const now = performance.now();
+      if (now - cooldown.current < 750) return;
+      const target = chooseLink(
+        links,
+        cameraHeadingDeg(camera, centerHeading),
+        reverse
+      );
+      if (!target) return;
+      cooldown.current = now;
+      onMove(target.pano);
+    },
+    [links, centerHeading, camera, onMove]
+  );
+
+  // Teclado + swipe + botones del HUD (no-XR).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const k = e.key.toLowerCase();
+      if (k === "arrowup" || k === "w") trigger(false);
+      else if (k === "arrowdown" || k === "s") trigger(true);
+    };
+    let touchY: number | null = null;
+    const onTS = (e: TouchEvent) => {
+      touchY = e.touches[0]?.clientY ?? null;
+    };
+    const onTE = (e: TouchEvent) => {
+      if (touchY == null) return;
+      const dy = (e.changedTouches[0]?.clientY ?? touchY) - touchY;
+      if (dy < -60) trigger(false);
+      else if (dy > 60) trigger(true);
+      touchY = null;
+    };
+    const onHud = (e: Event) =>
+      trigger(Boolean((e as CustomEvent).detail?.reverse));
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("touchstart", onTS, { passive: true });
+    window.addEventListener("touchend", onTE, { passive: true });
+    window.addEventListener("obravr-move", onHud as EventListener);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("touchstart", onTS);
+      window.removeEventListener("touchend", onTE);
+      window.removeEventListener("obravr-move", onHud as EventListener);
+    };
+  }, [trigger]);
+
+  // Stick del mando (Quest): adelante = avanzar, atrás = retroceder.
+  useFrame(() => {
+    const ts =
+      right?.gamepad?.["xr-standard-thumbstick"] ??
+      left?.gamepad?.["xr-standard-thumbstick"];
+    const y = ts?.yAxis ?? 0;
+    if (y < -0.65) trigger(false);
+    else if (y > 0.65) trigger(true);
+  });
+
+  return null;
+}
+
 /* ── HUD detector de sesión XR (vive dentro del Canvas) ────────────────── */
 function XRBridge({ onChange }: { onChange: (b: boolean) => void }) {
   const inXR = useXR((s) => Boolean(s.session));
@@ -289,16 +415,24 @@ export default function ObraVR({
     typeof window !== "undefined" &&
     ("ontouchstart" in window || navigator.maxTouchPoints > 0);
 
-  const activeId = hasHistory
+  // Pano canónico de la obra (antes/después) …
+  const baseId = hasHistory
     ? showBefore
       ? beforePanoId!
       : afterPanoId!
     : panoId;
+  // … o el pano al que el usuario caminó.
+  const [navPano, setNavPano] = useState<string | null>(null);
+  const displayedPano = navPano ?? baseId;
+
+  const { links, centerHeading } = usePanoLinks(displayedPano);
 
   const monto =
     obra.contract_amount ?? obra.award_amount ?? obra.tender_amount ?? 0;
 
+  // Antes/Después vuelve al pano de la obra (sale del recorrido).
   const switchPano = useCallback((before: boolean) => {
+    setNavPano(null);
     setShowBefore(before);
   }, []);
 
@@ -335,8 +469,13 @@ export default function ObraVR({
       >
         <XR store={xrStore}>
           <XRBridge onChange={setInXR} />
-          <PanoSphere panoId={activeId} />
+          <PanoSphere panoId={displayedPano} />
           <LookControls mode={mode} />
+          <NavController
+            links={links}
+            centerHeading={centerHeading}
+            onMove={setNavPano}
+          />
           {mode === "cardboard" && !inXR && <CardboardRenderer />}
         </XR>
       </Canvas>
@@ -413,6 +552,50 @@ export default function ObraVR({
               {label}
             </button>
           ))}
+        </div>
+      )}
+
+      {/* Navegación entre panoramas (caminar) — no-XR */}
+      {!inXR && links.length > 0 && (
+        <div
+          className="absolute bottom-32 inset-x-0 z-10 flex flex-col items-center gap-2 pointer-events-none"
+          style={{ fontFamily: "var(--font-mono), monospace" }}
+        >
+          <div className="pointer-events-auto flex items-center gap-2">
+            <button
+              aria-label="Avanzar"
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent("obravr-move", { detail: { reverse: false } })
+                )
+              }
+              className="w-11 h-11 flex items-center justify-center text-[16px] bg-[var(--brand)] text-black border border-[var(--brand)] hover:bg-white transition"
+            >
+              ▲
+            </button>
+            <button
+              aria-label="Retroceder"
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent("obravr-move", { detail: { reverse: true } })
+                )
+              }
+              className="w-11 h-11 flex items-center justify-center text-[16px] text-white/60 border border-white/15 hover:text-white hover:border-white/35 transition"
+            >
+              ▼
+            </button>
+            {navPano && (
+              <button
+                onClick={() => setNavPano(null)}
+                className="ml-1 px-3 h-11 text-[10px] uppercase tracking-[0.16em] text-white/55 border border-white/15 hover:text-white hover:border-white/35 transition"
+              >
+                Volver a la obra
+              </button>
+            )}
+          </div>
+          <span className="text-[9px] uppercase tracking-[0.24em] text-white/35">
+            Mira y avanza · stick / desliza ↑ / ↑↓
+          </span>
         </div>
       )}
 
