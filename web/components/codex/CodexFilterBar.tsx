@@ -78,9 +78,10 @@ const RIESGO_LABEL: Record<RiesgoFiltro, string> = {
 export default function CodexFilterBar(p: Props) {
   return (
     <div
-      className="flex items-center gap-2 px-3 sm:px-6 py-2 border-b shrink-0 overflow-x-auto"
+      className="flex items-center gap-2 px-3 sm:px-6 py-2 border-b shrink-0 overflow-x-auto backdrop-blur-xl"
       style={{
         borderColor: "var(--cx-border)",
+        background: "var(--cx-bg-blur)",
         maskImage:
           "linear-gradient(to right, black calc(100% - 24px), transparent)",
         WebkitMaskImage:

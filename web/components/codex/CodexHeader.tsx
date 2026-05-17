@@ -1,7 +1,12 @@
 "use client";
 
 interface Props {
-  stats: string;
+  /** Conteo de contratos (filtrados) — se muestra en el centro */
+  obrasCount: number;
+  /** Conteo de alertas (red_flags) — se muestra en el centro */
+  redFlagsCount: number;
+  /** Etiqueta de region/pais a mostrar a la derecha del centro */
+  regionLabel: string;
   view: "globe" | "grid";
   onViewChange: (v: "globe" | "grid") => void;
   theme: "light" | "dark";
@@ -35,7 +40,9 @@ function Seg({
 }
 
 export default function CodexHeader({
-  stats,
+  obrasCount,
+  redFlagsCount,
+  regionLabel,
   view,
   onViewChange,
   theme,
@@ -43,35 +50,86 @@ export default function CodexHeader({
   hasFilters,
   onClearFilters,
 }: Props) {
+  const nf = (n: number) => n.toLocaleString("es-PE");
+
   return (
     <header
-      className="flex items-center justify-between px-3 sm:px-5 py-2.5 shrink-0 border-b"
+      className="flex items-center px-3 sm:px-5 py-2.5 shrink-0 border-b gap-3 sm:gap-6"
       style={{ borderColor: "var(--cx-border)" }}
     >
-      <div className="flex items-center gap-3 sm:gap-4 min-w-0">
-        <div className="flex items-center gap-2 shrink-0">
-          <span
-            className="grid place-items-center w-6 h-6 rounded-md text-[13px] font-bold"
-            style={{
-              background: "var(--cx-brand)",
-              color: "var(--cx-brand-fg)",
-            }}
-          >
-            S/
-          </span>
-          <span className="text-[15px] sm:text-base font-semibold tracking-tight">
-            Sigue&nbsp;el&nbsp;Billete
-          </span>
-        </div>
-        <p
-          className="text-[10px] sm:text-xs hidden sm:block truncate"
+      {/* IZQUIERDA — wordmark + nav (paridad con / local) */}
+      <div className="flex items-center gap-4 sm:gap-6 shrink-0">
+        <a
+          href="/"
+          className="text-[18px] leading-none font-medium tracking-tight hover:opacity-90 transition"
           style={{
-            color: "var(--cx-muted)",
-            fontFamily: "var(--font-mono), monospace",
+            fontFamily: "var(--font-display), serif",
+            color: "var(--cx-fg)",
           }}
         >
-          {stats}
-        </p>
+          Transparentape
+          <span style={{ color: "var(--cx-brand)" }}>.</span>
+        </a>
+        <nav
+          className="hidden md:flex items-center gap-4 text-[10px] uppercase tracking-[0.22em]"
+          style={{
+            fontFamily: "var(--font-mono), monospace",
+            color: "var(--cx-faint)",
+          }}
+        >
+          <a
+            href="/end"
+            className="pb-0.5 border-b"
+            style={{
+              color: "var(--cx-fg)",
+              borderColor: "var(--cx-brand)",
+            }}
+          >
+            Mapa
+          </a>
+          <a
+            href="/vr"
+            className="hover:opacity-80 transition"
+          >
+            Audit Room VR
+          </a>
+        </nav>
+      </div>
+
+      {/* CENTRO — stats vivos (paridad con / local) */}
+      <div
+        className="flex-1 hidden md:flex items-center justify-center gap-5 text-[10px] tracking-[0.18em] uppercase min-w-0"
+        style={{
+          fontFamily: "var(--font-mono), monospace",
+          color: "var(--cx-muted)",
+        }}
+      >
+        <span className="whitespace-nowrap">
+          <span
+            className="font-medium tabular-nums"
+            style={{ color: "var(--cx-fg)" }}
+          >
+            {nf(obrasCount)}
+          </span>{" "}
+          contratos auditados
+        </span>
+        <span style={{ color: "var(--cx-faint)" }}>·</span>
+        <span className="whitespace-nowrap">
+          <span
+            className="font-medium tabular-nums"
+            style={{ color: "var(--cx-alarm)" }}
+          >
+            {nf(redFlagsCount)}
+          </span>{" "}
+          alertas
+        </span>
+        <span style={{ color: "var(--cx-faint)" }}>·</span>
+        <span
+          key={regionLabel}
+          className="whitespace-nowrap inline-block animate-[fadeIn_0.25s_ease-out]"
+        >
+          {regionLabel}
+        </span>
       </div>
 
       <div className="flex items-center gap-1.5 sm:gap-2">
