@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { XR, createXRStore } from "@react-three/xr";
+import DesktopControls from "./DesktopControls";
 import type { Group, Vector3 } from "three";
 import Floor from "./Floor";
 import Skybox from "./Skybox";
@@ -101,6 +102,8 @@ export default function AuditRoom() {
           <AmbientAudio />
           {/* Bloom solo en desktop (postproc no plays well con XR) */}
           <Postprocessing />
+          {/* Drag-rotate + wheel-zoom para inspeccionar en navegador */}
+          <DesktopControls />
         </XR>
       </Canvas>
     </>
