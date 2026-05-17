@@ -205,6 +205,23 @@ async function saveHistory(
   });
 }
 
+// ── Meta webhook verification (GET) ──────────────────────────────────────────
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const mode = searchParams.get("hub.mode");
+  const token = searchParams.get("hub.verify_token");
+  const challenge = searchParams.get("hub.challenge");
+  const verifyToken = process.env.KAPSO_WEBHOOK_SECRET ?? "";
+  if (mode === "subscribe" && token === verifyToken && challenge) {
+    return new Response(challenge, { status: 200 });
+  }
+  // Accept any challenge when no verify token is configured (Kapso manages it)
+  if (challenge) {
+    return new Response(challenge, { status: 200 });
+  }
+  return NextResponse.json({ ok: true });
+}
+
 // ── webhook handler ───────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
