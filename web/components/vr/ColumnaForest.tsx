@@ -10,7 +10,6 @@ import { projectToFloor, montoToHeight } from "@/lib/vr/projection";
 const COLOR_ALTO = new THREE.Color("#ef4444"); // red_flag
 const COLOR_BAJO = new THREE.Color("#42dc3a"); // brand
 
-const SPAWN_DURATION = 1.5;
 const XR_INSTANCE_CAP = 30000; // bajo Quest 3S, limitamos para mantener 90fps
 const DESKTOP_INSTANCE_CAP = 70000;
 
@@ -32,8 +31,6 @@ export default function ColumnaForest({
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const matRef = useRef<THREE.MeshStandardMaterial>(null);
   const pulseTime = useRef(0);
-  const spawnStartRef = useRef<number | null>(null);
-  const progressUniformRef = useRef<{ value: number } | null>(null);
 
   // Filtrar por año + cap segun XR session
   const visible = useMemo(() => {
@@ -50,23 +47,9 @@ export default function ColumnaForest({
       .slice(0, cap);
   }, [obras, yearFilter, inXR]);
 
-  // Inyectar shader para spawn animation
-  useEffect(() => {
-    const mat = matRef.current;
-    if (!mat) return;
-    mat.onBeforeCompile = (shader) => {
-      shader.uniforms.uProgress = { value: 0 };
-      progressUniformRef.current = shader.uniforms.uProgress as {
-        value: number;
-      };
-      shader.vertexShader = "uniform float uProgress;\n" + shader.vertexShader;
-      shader.vertexShader = shader.vertexShader.replace(
-        "mvPosition = modelViewMatrix * mvPosition;",
-        "mvPosition.y *= uProgress; mvPosition = modelViewMatrix * mvPosition;"
-      );
-    };
-    mat.needsUpdate = true;
-  }, []);
+  // Spawn animation: shader injection desactivada temporalmente porque el
+  // race con onBeforeCompile dejaba uProgress=0 y las columnas planas/invisibles.
+  // TODO: re-enable con initial value 1 + animar hacia abajo y arriba.
 
   // Posicionar y colorear las instancias cuando cambia el dataset
   useEffect(() => {
@@ -96,25 +79,14 @@ export default function ColumnaForest({
 
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-
-    // Re-arrancar la spawn animation cuando cambia el dataset (filtro de año)
-    spawnStartRef.current = performance.now();
-    if (progressUniformRef.current) {
-      progressUniformRef.current.value = 0;
-    }
   }, [visible]);
 
-  // Pulso de emissive + spawn animation
+  // Pulso de emissive intensity
   useFrame((_, delta) => {
     pulseTime.current += delta;
     if (matRef.current) {
       matRef.current.emissiveIntensity =
         0.6 + Math.sin(pulseTime.current * 2.0) * 0.2;
-    }
-    if (spawnStartRef.current !== null && progressUniformRef.current) {
-      const elapsed = (performance.now() - spawnStartRef.current) / 1000;
-      const t = Math.min(1, elapsed / SPAWN_DURATION);
-      progressUniformRef.current.value = 1 - Math.pow(1 - t, 3); // easeOutCubic
     }
   });
 

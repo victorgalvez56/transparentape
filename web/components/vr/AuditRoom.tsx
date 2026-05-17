@@ -101,10 +101,10 @@ function AuditRoomScene() {
             intensity={0.5}
             color="#ffffff"
           />
-          {/* <Player ref={playerRef} /> -- disabled for debug */}
+          <Player ref={playerRef} />
           <Floor onTeleport={handleTeleport} />
           <GeoLabels />
-          {/* <RedFlagPulses /> -- disabled for debug */}
+          <RedFlagPulses />
           <ColumnaForest
             yearFilter={yearFilter}
             onPointerOver={(id) => setHovered(id)}
