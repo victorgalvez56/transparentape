@@ -77,6 +77,17 @@ function getKapso() {
   return _kapso;
 }
 
+// Fire-and-forget: mark inbound as read + show "typing…" indicator.
+// Meta keeps the indicator alive ~25s or until we send the actual reply,
+// whichever comes first. UX hides cold-start + LLM latency.
+function showTyping(phoneNumberId: string, messageId: string): void {
+  getKapso().messages.markRead({
+    phoneNumberId,
+    messageId,
+    typingIndicator: { type: "text" },
+  }).catch(() => { /* non-fatal */ });
+}
+
 // ── button helpers ────────────────────────────────────────────────────────────
 const BUTTON_MAP: Record<string, string> = {
   btn_buscar: "obras en",
@@ -436,6 +447,12 @@ export async function POST(req: NextRequest) {
   const to = from.startsWith("+") ? from : `+${from}`;
   const t0 = Date.now();
   const msgId = (msg as Record<string, unknown>).id as string | undefined;
+
+  // Show "typing…" + mark as read ASAP. Hides cold-start + LLM latency.
+  // Skip for status updates (no msgId) and for media types where reply is canned.
+  if (msgId && (msg.type === "text" || msg.type === "interactive" || msg.type === "location")) {
+    showTyping(phoneNumberId, msgId);
+  }
 
   // Dedup runs in background — checking it inline costs ~500ms cold-start
   // latency on every request. Since we return 200 fast, Kapso rarely retries,

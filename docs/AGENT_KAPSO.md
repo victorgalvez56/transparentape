@@ -270,6 +270,7 @@ Bajo `supabase/migrations/`:
 | Sugerencias indexadas en session | `d20029d` | Usuario puede responder `"1"` `"2"` `"3"` sin retipear. |
 | Fast-path saludo | `20ea997` | Salta `getSession` + `parseIntent` para `hola` → ~1s ahorrado. |
 | Dedup INSERT en background | `20ea997` | ~500ms ahorrado en critical path. |
+| Typing indicator + read receipt | (próximo commit) | `markRead({typingIndicator:{type:"text"}})` fire-and-forget al recibir. WhatsApp muestra ✓✓ azul + "escribiendo…" hasta 25s. Esconde latencia cold-start + LLM. |
 
 ---
 
