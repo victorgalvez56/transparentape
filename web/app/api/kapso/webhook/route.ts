@@ -173,6 +173,33 @@ async function sendAyudaWithButtons(
   }
 }
 
+// Resolve "1", "2", "1️⃣", "opcion 1" etc to the matching stored suggestion.
+// Returns null if text doesn't look like an index reference.
+const INDEX_EMOJI_TO_NUM: Record<string, number> = {
+  "1️⃣": 1, "2️⃣": 2, "3️⃣": 3, "4️⃣": 4, "5️⃣": 5,
+  "6️⃣": 6, "7️⃣": 7, "8️⃣": 8, "9️⃣": 9, "🔟": 10,
+};
+function resolveIndexFromText(text: string, suggestions: string[] | undefined): string | null {
+  if (!suggestions?.length) return null;
+  const t = text.trim();
+  // Bare digit "1" through "10"
+  if (/^\d{1,2}$/.test(t)) {
+    const n = parseInt(t, 10);
+    if (n >= 1 && n <= suggestions.length) return suggestions[n - 1];
+  }
+  // Emoji "1️⃣" etc.
+  for (const [emoji, n] of Object.entries(INDEX_EMOJI_TO_NUM)) {
+    if (t.startsWith(emoji) && n <= suggestions.length) return suggestions[n - 1];
+  }
+  // "opcion 2", "opción 2", "la 3", "#3"
+  const m = t.match(/^(?:opcion|opción|la|el|#)\s*(\d{1,2})$/i);
+  if (m) {
+    const n = parseInt(m[1], 10);
+    if (n >= 1 && n <= suggestions.length) return suggestions[n - 1];
+  }
+  return null;
+}
+
 // ── intent routing ────────────────────────────────────────────────────────────
 async function handleMessage(
   text: string,
@@ -181,7 +208,12 @@ async function handleMessage(
   to: string
 ): Promise<string | null> {
   const session = await getSession(conversationId);
-  const parsed = parseIntent(text, session.country);
+
+  // Index-based reply: user typed "1", "2", "1️⃣", "opcion 2" referring to
+  // previously sent suggestions → expand to the original question text.
+  const resolved = resolveIndexFromText(text, session.lastSuggestions);
+  const effectiveText = resolved ?? text;
+  const parsed = parseIntent(effectiveText, session.country);
 
   if (parsed.country && parsed.country !== session.country) {
     await updateSession(conversationId, { country: parsed.country });
@@ -224,7 +256,7 @@ async function handleMessage(
       const cercanas = await buscarCercanas(loc.lat, loc.lng, country, 5);
       await updateSession(conversationId, {
         lastResultIds: cercanas.map((o) => o.id),
-        lastQuery: text,
+        lastQuery: effectiveText,
       });
       return fmtCercanas(cercanas, country);
     }
@@ -240,7 +272,7 @@ async function handleMessage(
       }
       await updateSession(conversationId, {
         lastResultIds: obras.map((o) => o.id),
-        lastQuery: text,
+        lastQuery: effectiveText,
       });
       return fmtObras(obras, country, yearSugerido);
     }
@@ -265,7 +297,7 @@ async function handleMessage(
     }
 
     case "RANKING_CONTRATISTAS": {
-      const porAlertas = /\balerta[s]?\b/i.test(text);
+      const porAlertas = /\balerta[s]?\b/i.test(effectiveText);
       const list = await rankingContratistas(country, porAlertas ? "alertas" : "monto", 5);
       return fmtRankingContratistas(list, country);
     }
@@ -300,18 +332,23 @@ async function handleMessage(
       // Use shared pipeline (web + WhatsApp). On failure, fallback to legacy engine.
       const history: ChatMessage[] = [
         ...((session.lastMessages ?? []) as ChatMessage[]),
-        { role: "user", content: text },
+        { role: "user", content: effectiveText },
       ];
       try {
         const result = await runChatPipeline(history);
         if (result.suggested_questions?.length) {
           await sendReplyWithSuggestions(phoneNumberId, to, result.reply, result.suggested_questions);
+          await updateSession(conversationId, { lastSuggestions: result.suggested_questions });
           return null;
+        }
+        // Clear stale suggestions so an old "2" doesn't get reused
+        if (session.lastSuggestions?.length) {
+          await updateSession(conversationId, { lastSuggestions: [] });
         }
         return result.reply;
       } catch (e) {
         console.error("[kapso/webhook] core pipeline failed, fallback:", e);
-        return chatEngine(text, session.lastMessages ?? []);
+        return chatEngine(effectiveText, session.lastMessages ?? []);
       }
     }
   }
