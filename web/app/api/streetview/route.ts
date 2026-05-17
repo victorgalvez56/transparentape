@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-const KEY = process.env.GOOGLE_MAPS_KEY ?? "";
+const KEY = (process.env.GOOGLE_MAPS_KEY ?? "").trim();
 const SV_BASE = "https://maps.googleapis.com/maps/api/streetview";
 
 export interface PanoResult {

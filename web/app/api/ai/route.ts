@@ -26,7 +26,7 @@ type ObraRow = {
 
 let _anthropic: Anthropic | null = null;
 function getAnthropic() {
-  if (!_anthropic) _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  if (!_anthropic) _anthropic = new Anthropic({ apiKey: (process.env.ANTHROPIC_API_KEY ?? "").trim() });
   return _anthropic;
 }
 
