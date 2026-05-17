@@ -62,16 +62,16 @@ export default function VRSessionButton({ store }: { store: XRStore }) {
       {support === "supported" && (
         <button
           onClick={enter}
-          className="pointer-events-auto px-7 py-3.5 bg-[var(--brand)] text-black font-semibold tracking-wide hover:bg-white transition-colors shadow-[0_0_30px_rgba(66,220,58,0.35)]"
+          className="pointer-events-auto px-7 py-3.5 bg-[var(--brand)] text-black font-semibold tracking-tight hover:bg-white transition-colors shadow-[0_0_30px_rgba(66,220,58,0.35)]"
           style={{ fontFamily: "var(--font-body), sans-serif" }}
         >
-          ▶ ENTRAR EN VR
+          ▶ Entrar en VR
         </button>
       )}
       {support === "unsupported" && (
         <p
-          className="px-4 py-2 text-[11px] uppercase tracking-[0.22em] text-white/45 text-center max-w-md"
-          style={{ fontFamily: "var(--font-mono), monospace" }}
+          className="px-4 py-2 text-[12px] tracking-tight text-white/65 text-center max-w-md"
+          style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
         >
           Este dispositivo no soporta WebXR. Abre esta página en Quest 2/3/3S,
           Vision Pro u otro headset para entrar en modo inmersivo.
@@ -79,8 +79,8 @@ export default function VRSessionButton({ store }: { store: XRStore }) {
       )}
       {support === "insecure" && (
         <p
-          className="px-4 py-2 text-[11px] uppercase tracking-[0.22em] text-[var(--alarm)] text-center max-w-md"
-          style={{ fontFamily: "var(--font-mono), monospace" }}
+          className="px-4 py-2 text-[12px] tracking-tight text-[var(--alarm)] text-center max-w-md font-medium"
+          style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
         >
           WebXR requiere HTTPS — abre la URL de producción (https) en el headset,
           no la IP local.
@@ -88,8 +88,8 @@ export default function VRSessionButton({ store }: { store: XRStore }) {
       )}
       {err && (
         <p
-          className="px-4 py-2 text-[11px] uppercase tracking-[0.18em] text-[var(--alarm)] text-center max-w-md"
-          style={{ fontFamily: "var(--font-mono), monospace" }}
+          className="px-4 py-2 text-[12px] tracking-tight text-[var(--alarm)] text-center max-w-md font-medium"
+          style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
         >
           {err}
         </p>

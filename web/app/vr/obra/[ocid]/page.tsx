@@ -10,8 +10,8 @@ const ObraVR = dynamic(() => import("@/components/vr/ObraVR"), {
   loading: () => (
     <div className="h-screen w-screen flex items-center justify-center bg-black">
       <p
-        className="text-white/40 text-[11px] uppercase tracking-[0.3em]"
-        style={{ fontFamily: "var(--font-mono), monospace" }}
+        className="text-white/60 text-[12px] tracking-tight font-medium"
+        style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
       >
         Cargando escena…
       </p>
@@ -32,16 +32,16 @@ function Screen({ msg, showBack = true }: { msg: string; showBack?: boolean }) {
   return (
     <main className="fixed inset-0 bg-black flex flex-col items-center justify-center gap-5">
       <p
-        className="text-white/40 text-[11px] uppercase tracking-[0.3em]"
-        style={{ fontFamily: "var(--font-mono), monospace" }}
+        className="text-white/60 text-[12px] tracking-tight font-medium"
+        style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
       >
         {msg}
       </p>
       {showBack && (
         <a
           href="/vr"
-          className="text-[10px] uppercase tracking-[0.2em] text-white/25 hover:text-white transition"
-          style={{ fontFamily: "var(--font-mono), monospace" }}
+          className="text-[11.5px] tracking-tight text-white/50 hover:text-white transition font-medium"
+          style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
         >
           ← Audit Room
         </a>

@@ -58,13 +58,14 @@ export default function VRPage() {
                 Transparentape
                 <span className="text-[var(--brand)]">.</span>
               </span>
-              <span className="text-[9px] uppercase tracking-[0.28em] text-white/35">
+              <span className="text-[11px] tracking-tight text-white/55 font-medium" style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}>
                 Obras en VR 360°
               </span>
             </div>
             <Link
               href="/"
-              className="text-[10px] uppercase tracking-[0.2em] text-white/30 hover:text-white transition"
+              className="text-[11.5px] tracking-tight text-white/50 hover:text-white transition font-medium"
+              style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
             >
               Mapa
             </Link>
@@ -79,11 +80,12 @@ export default function VRPage() {
             />
             <button
               onClick={() => setOnlyRedFlag((v) => !v)}
-              className={`px-4 py-2.5 text-[10px] uppercase tracking-[0.18em] border transition whitespace-nowrap ${
+              className={`px-4 py-2.5 text-[11.5px] tracking-tight border transition whitespace-nowrap font-medium ${
                 onlyRedFlag
                   ? "bg-[var(--alarm)] text-black border-[var(--alarm)]"
-                  : "text-white/50 border-white/15 hover:text-white hover:border-white/35"
+                  : "text-white/60 border-white/15 hover:text-white hover:border-white/35"
               }`}
+              style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
             >
               Alertas
             </button>
@@ -94,11 +96,11 @@ export default function VRPage() {
       {/* Grid */}
       <div className="max-w-5xl mx-auto px-6 py-8">
         {loading ? (
-          <p className="text-[11px] uppercase tracking-[0.3em] text-white/35 py-20 text-center">
+          <p className="text-[12px] tracking-tight text-white/55 py-20 text-center font-medium" style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}>
             Cargando obras…
           </p>
         ) : obras.length === 0 ? (
-          <p className="text-[11px] uppercase tracking-[0.3em] text-white/35 py-20 text-center">
+          <p className="text-[12px] tracking-tight text-white/55 py-20 text-center font-medium" style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}>
             Sin obras con panorámica
           </p>
         ) : (
@@ -116,7 +118,7 @@ export default function VRPage() {
                   {o.is_red_flag && (
                     <span className="absolute top-3 right-3 flex items-center gap-1.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-[var(--alarm)] animate-pulse" />
-                      <span className="text-[8px] uppercase tracking-[0.2em] text-[var(--alarm)]">
+                      <span className="text-[11px] tracking-tight text-[var(--alarm)] font-semibold" style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}>
                         Alerta
                       </span>
                     </span>
@@ -138,12 +140,12 @@ export default function VRPage() {
                       {formatMontoCompact(monto)}
                     </span>
                     {o.buyer_locality && (
-                      <span className="text-[9px] uppercase tracking-[0.18em] text-white/35 truncate">
+                      <span className="text-[11px] tracking-tight text-white/55 truncate font-medium" style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}>
                         {o.buyer_locality}
                       </span>
                     )}
                   </div>
-                  <span className="mt-3 inline-block text-[9px] uppercase tracking-[0.22em] text-white/30 group-hover:text-[var(--brand)] transition">
+                  <span className="mt-3 inline-block text-[11px] tracking-tight text-white/50 group-hover:text-[var(--brand)] transition font-medium" style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}>
                     Ver en 360° →
                   </span>
                 </Link>

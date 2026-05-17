@@ -125,8 +125,8 @@ export default function GoogleStreetView({
             <div className="absolute inset-3 rounded-full bg-white/60" />
           </div>
           <p
-            className="text-[11px] uppercase tracking-[0.3em] text-white/40"
-            style={{ fontFamily: "var(--font-mono), monospace" }}
+            className="text-[12px] tracking-tight text-white/60 font-medium"
+            style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
           >
             Cargando Street View…
           </p>
@@ -148,7 +148,7 @@ export default function GoogleStreetView({
           {obra.is_red_flag && (
             <div className="mb-2 flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-[var(--alarm)] animate-pulse" />
-              <span className="text-[10px] uppercase tracking-[0.28em] text-[var(--alarm)]">
+              <span className="text-[11.5px] tracking-tight text-[var(--alarm)] font-semibold" style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}>
                 Alerta OECE · Proveedor sancionado
               </span>
             </div>
@@ -170,7 +170,7 @@ export default function GoogleStreetView({
               {formatMontoCompact(monto)}
             </span>
             {obra.buyer_locality && (
-              <span className="text-[10px] uppercase tracking-[0.2em] text-white/40">
+              <span className="text-[11.5px] tracking-tight text-white/60 font-medium" style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}>
                 {obra.buyer_locality}
               </span>
             )}
@@ -191,22 +191,24 @@ export default function GoogleStreetView({
             <div className="pointer-events-auto flex items-center gap-2">
               <button
                 onClick={() => switchPano(true)}
-                className={`px-4 py-2 text-[10px] uppercase tracking-[0.18em] border transition ${
+                className={`px-4 py-2 text-[11.5px] tracking-tight border transition font-medium tabular-nums ${
                   showBefore
                     ? "bg-white/90 text-black border-white"
-                    : "text-white/50 border-white/15 hover:text-white hover:border-white/35"
+                    : "text-white/60 border-white/15 hover:text-white hover:border-white/35"
                 }`}
+                style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
               >
                 Antes · {beforeDate ?? "—"}
               </button>
               <span className="text-white/20">→</span>
               <button
                 onClick={() => switchPano(false)}
-                className={`px-4 py-2 text-[10px] uppercase tracking-[0.18em] border transition ${
+                className={`px-4 py-2 text-[11.5px] tracking-tight border transition font-medium tabular-nums ${
                   !showBefore
                     ? "bg-[var(--brand)] text-black border-[var(--brand)]"
-                    : "text-white/50 border-white/15 hover:text-white hover:border-white/35"
+                    : "text-white/60 border-white/15 hover:text-white hover:border-white/35"
                 }`}
+                style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
               >
                 Después · {afterDate ?? "—"}
               </button>
