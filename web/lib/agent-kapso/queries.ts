@@ -52,7 +52,7 @@ export interface BuscarObrasFilters {
   contratista?: string;
   ruc?: string;
   procurement_method?: string;
-  q?: string; // searches title, supplier, locality, and region — no hardcoded lists
+  q?: string; // searches buyer_region, buyer_locality, supplier_name — NOT tender_description (avoids street-name false positives)
   limit?: number;
 }
 

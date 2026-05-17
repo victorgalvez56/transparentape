@@ -63,8 +63,8 @@ Contexto de conversación disponible — úsalo para resolver pronombres ("esa o
 ESQUEMA — tabla "obras":
 - id (int), ocid (text)
 - country (text, código ISO: 'PE', 'CL', 'CO', etc.)
-- tender_title (text, código de proceso — NO usar como nombre)
-- tender_description (text, nombre humano de la obra — usar para mostrar al usuario)
+- tender_title (text, código de proceso — NO usar como nombre visible)
+- tender_description (text, nombre humano de la obra — SIEMPRE usar COALESCE(tender_description, tender_title) AS titulo para evitar NULLs)
 - buyer_region (text, departamento/región)
 - buyer_locality (text, provincia/distrito)
 - buyer_name (text, entidad compradora)
@@ -93,7 +93,7 @@ REGLAS:
 
 const SYSTEM_PROMPT_SYNTHESIS = `Sintetiza resultados de BD para el usuario de WhatsApp. Restricciones:
 1. Máximo 1 párrafo introductorio + 3 viñetas.
-2. Cada viñeta: *Nombre de obra* (usar tender_description, no tender_title), 💰 monto resumido (S/ 15M), estado.
+2. Cada viñeta: *Nombre de obra* (usar COALESCE(tender_description, tender_title) — nunca mostrar tender_title como nombre), 💰 monto resumido (S/ 15M), estado.
 3. Agregar contratista o alertas solo si el usuario los pidió explícitamente.
 4. Si hay is_red_flag=true, agregar ⚠️ al inicio de esa viñeta.
 5. No usar tender_title ni ocid ni id como nombre — son códigos ilegibles.
@@ -248,5 +248,7 @@ export async function chatEngine(
     AGENT.timeoutMs.synthesis
   );
 
-  return synthesisRes.choices[0]?.message?.content?.trim() ?? "Sin respuesta.";
+  const raw = synthesisRes.choices[0]?.message?.content?.trim() ?? "Sin respuesta.";
+  // LLMs often emit **bold** despite instructions — normalize to WhatsApp *bold*
+  return raw.replace(/\*\*([^*]+)\*\*/g, "*$1*");
 }

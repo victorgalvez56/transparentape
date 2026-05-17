@@ -116,14 +116,15 @@ export function parseIntent(text: string, sessionCountry: Country): ParsedIntent
   if (newCountry && /\bcambiar?\b|\bseleccionar?\b|\bquiero.*pa[ií]s\b/i.test(t)) {
     return { intent: "CAMBIAR_PAIS", country: newCountry };
   }
-  if (newCountry && t.split(/\s+/).length <= 3) {
+  const ACTION_KEYWORDS = /\bestad[ií]sticas?\b|\bresumen\b|\branking\b|\bobras?\b|\binhabilitados?\b|\badjudicaci[oó]n\b|\bmonto\b|\binvestigar?\b|\bcontratistas?\b|\bentidades?\b|\balertas?\b/i;
+  if (newCountry && t.split(/\s+/).length <= 3 && !ACTION_KEYWORDS.test(t)) {
     return { intent: "CAMBIAR_PAIS", country: newCountry };
   }
 
   const country: Country = newCountry ?? sessionCountry;
 
-  // ── Gratitude → deterministic, no LLM ──
-  if (/^\s*(gracias|thank[s]?|ok|okay|okey|dale|entendido|perfecto|listo|claro|genial|excelente|bu[eé]n[ií]simo|👍|🙏)\s*[!.?]*\s*$/i.test(t)) {
+  // ── Gratitude / farewell → deterministic, no LLM ──
+  if (/^\s*(gracias|thank[s]?|ok\s+gracias|okey|dale|entendido|perfecto|listo|claro|genial|excelente|bu[eé]n[ií]simo|adi[oó]s|hasta\s+luego|bye|chau[o]?|👍|🙏)\s*[!.?]*\s*$/i.test(t)) {
     return { intent: "AGRADECIMIENTO", country };
   }
 

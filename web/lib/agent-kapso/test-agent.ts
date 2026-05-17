@@ -117,7 +117,7 @@ section("L1: parseIntent — filter extraction");
   const r2 = parseIntent("obras con alerta en Piura", "PE");
   assert("red_flag=true",     r2.filters?.red_flag, true);
   const r3 = parseIntent("adjudicación directa Lima", "PE");
-  assert("method=direct",     r3.filters?.procurement_method, "direct");
+  assert("adj directa → ADJUDICACION_DIRECTA", r3.intent, "ADJUDICACION_DIRECTA");
   const r4 = parseIntent("detalle #99", "PE");
   assert("obraId=99",         r4.obraId, 99);
 }
@@ -125,9 +125,9 @@ section("L1: parseIntent — filter extraction");
 section("L1: cleanTitle (wa-format)");
 {
   assert(
-    "ALLCAPS → Title Case",
+    "ALLCAPS → Title Case (prepositions stay lower)",
     cleanTitle("CONSTRUCCIÓN DE CARRETERA EN LIMA"),
-    "Construcción De Carretera En Lima"
+    "Construcción de Carretera en Lima"
   );
   assert(
     "strips quotes",
