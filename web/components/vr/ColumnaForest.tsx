@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { useXR } from "@react-three/xr";
 import * as THREE from "three";
 import { useObrasVR } from "@/lib/vr/obras-source";
 import { projectToFloor, montoToHeight } from "@/lib/vr/projection";
@@ -27,7 +26,11 @@ export default function ColumnaForest({
   onSelect,
 }: Props) {
   const { obras, loading } = useObrasVR();
-  const inXR = useXR((s) => Boolean(s.session));
+  // En modo XR usamos el cap mas chico — detectamos via navigator.xr session
+  // en vez de useXR hook para que el componente funcione fuera del <XR> wrapper
+  const inXR =
+    typeof navigator !== "undefined" &&
+    Boolean((navigator as { xr?: { session?: unknown } }).xr?.session);
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const matRef = useRef<THREE.MeshStandardMaterial>(null);
   const pulseTime = useRef(0);
@@ -129,7 +132,7 @@ export default function ColumnaForest({
       onClick={handleClick}
       frustumCulled={false}
     >
-      <cylinderGeometry args={[0.04, 0.04, 1, 4]} />
+      <cylinderGeometry args={[0.08, 0.08, 1, 4]} />
       <meshStandardMaterial
         ref={matRef}
         vertexColors={false}
