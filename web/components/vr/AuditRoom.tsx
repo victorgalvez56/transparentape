@@ -28,8 +28,11 @@ import { projectToFloor } from "@/lib/vr/projection";
 const store = createXRStore({
   controller: true,
   hand: true,
-  // iwer auto-emulator habilitado. Su bug de null en getParameter
-  // (COLOR_CLEAR_VALUE) lo parcheamos via scripts/patch-iwer.mjs en postinstall.
+  // iwer emulator deshabilitado — incompatible con three@0.184 (devui bundlea
+  // three@0.165 y la pipeline de render se corrompe). Quest 3S real funciona
+  // perfecto porque usa WebXR nativo. Para preview en desktop sin Quest, no
+  // hay solucion en el horizonte sin downgrade global de three.
+  emulate: false,
 });
 
 export default function AuditRoom() {
