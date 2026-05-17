@@ -87,20 +87,21 @@ const BUTTON_MAP: Record<string, string> = {
 
 // Send reply + suggested questions as a WhatsApp interactive list.
 // Meta caps: row title 24 chars, description 72, buttonText 20, up to 10 rows.
+// Index-based suggestions: title shows "1️⃣ Opción 1", description holds the
+// full question (truncated to 72), id stores the full question (max 200) so the
+// taps map back deterministically without session state.
+const INDEX_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"];
 async function sendReplyWithSuggestions(
   phoneNumberId: string,
   to: string,
   reply: string,
   suggestions: string[]
 ): Promise<void> {
-  const rows = suggestions.slice(0, 10).map((q, i) => {
-    const clean = q.trim().replace(/^¿|\?$/g, "");
-    return {
-      id: `sug_${i}`,
-      title: clean.length > 24 ? clean.slice(0, 23) + "…" : clean,
-      ...(clean.length > 24 ? { description: clean.length > 72 ? clean.slice(0, 71) + "…" : clean } : {}),
-    };
-  });
+  const rows = suggestions.slice(0, 10).map((q, i) => ({
+    id: q.length > 200 ? q.slice(0, 200) : q,
+    title: `${INDEX_EMOJIS[i] ?? `${i + 1}.`} Opción ${i + 1}`,
+    description: q.length > 72 ? q.slice(0, 71) + "…" : q,
+  }));
   try {
     const truncatedBody = reply.length > 1024 ? reply.slice(0, 1020) + "…" : reply;
     await getKapso().messages.sendInteractiveList({
@@ -112,7 +113,7 @@ async function sendReplyWithSuggestions(
     });
   } catch {
     // Fallback to plain text with numbered options
-    const numbered = suggestions.map((q, i) => `${i + 1}️⃣ ${q}`).join("\n");
+    const numbered = suggestions.map((q, i) => `${INDEX_EMOJIS[i] ?? `${i + 1}.`} ${q}`).join("\n");
     const body = `${reply}\n\n${numbered}`;
     const truncated = body.length > AGENT.limits.waMaxChars ? body.slice(0, AGENT.limits.waMaxChars - 6) + "…" : body;
     await getKapso().messages.sendText({ phoneNumberId, to, body: truncated });
