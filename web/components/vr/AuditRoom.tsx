@@ -16,6 +16,9 @@ import TimelineYears from "./TimelineYears";
 import GeoLabels from "./GeoLabels";
 import Postprocessing from "./Postprocessing";
 import Narrator from "./Narrator";
+import MultiplayerProvider from "./MultiplayerProvider";
+import PresenceTracker from "./PresenceTracker";
+import RemoteAvatars from "./RemoteAvatars";
 import { useObrasVR } from "@/lib/vr/obras-source";
 import { projectToFloor } from "@/lib/vr/projection";
 
@@ -25,6 +28,14 @@ const store = createXRStore({
 });
 
 export default function AuditRoom() {
+  return (
+    <MultiplayerProvider>
+      <AuditRoomScene />
+    </MultiplayerProvider>
+  );
+}
+
+function AuditRoomScene() {
   const [hovered, setHovered] = useState<number | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [yearFilter, setYearFilter] = useState<number | null>(null);
@@ -59,6 +70,9 @@ export default function AuditRoom() {
     playerRef.current.position.set(bestX, 0, bestZ + 2);
     setSelected(bestId);
   };
+
+  // Lo que estoy mirando ahora se broadcastea como pointingObraId
+  const myPointing = selected ?? hovered;
 
   return (
     <>
@@ -100,6 +114,9 @@ export default function AuditRoom() {
           {selected != null && <ObraPanel obraId={selected} variant="selected" />}
           {/* Audio ambiental: zumbido proporcional a la corrupción cercana */}
           <AmbientAudio />
+          {/* Multiplayer — avatares + tracking de mi presencia */}
+          <PresenceTracker pointingObraId={myPointing} />
+          <RemoteAvatars />
           {/* Bloom solo en desktop (postproc no plays well con XR) */}
           <Postprocessing />
           {/* Drag-rotate + wheel-zoom para inspeccionar en navegador */}
