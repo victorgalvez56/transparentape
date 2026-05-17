@@ -385,6 +385,21 @@ export async function runChatPipeline(
 
   // STEP 2b: ANSWER_FROM_CONTEXT
   if (intent === "ANSWER_FROM_CONTEXT") {
+    // Guard: router sometimes picks this branch on the first turn of a
+    // conversation. There's no history to read from, so calling the
+    // context-summariser just produces "no tenemos conversación previa…"
+    // Better to bounce straight to an adaptive clarification.
+    const hasAssistantHistory = chatHistory.some(
+      (m) => m.role === "assistant" || m.role === "bot"
+    );
+    if (!hasAssistantHistory) {
+      const fb = await adaptiveFallback(chatHistory, "invalid_sql");
+      return {
+        reply: fb.reply,
+        intent: "NEEDS_CLARIFICATION",
+        suggested_questions: fb.suggested_questions,
+      };
+    }
     try {
       const ctxRes = await withTimeout(
         getGroq().chat.completions.create({
