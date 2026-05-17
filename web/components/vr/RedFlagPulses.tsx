@@ -76,7 +76,7 @@ export default function RedFlagPulses() {
       args={[undefined, undefined, MAX_PULSES]}
       frustumCulled={false}
     >
-      <ringGeometry args={[0.12, 0.22, 16]} />
+      <ringGeometry args={[0.18, 0.32, 16]} />
       <meshBasicMaterial
         ref={matRef}
         color={PULSE_COLOR}

@@ -77,13 +77,11 @@ export default function ColumnaForest({
 
     for (let i = 0; i < visible.length; i++) {
       const o = visible[i];
-      // Escalar la altura para que sea visible relativa al globo
-      const h = montoToHeight(o.monto) * 2.5;
+      // Altura proporcional al monto pero compacta — pines cortos en el globo
+      const h = montoToHeight(o.monto) * 0.6;
       const surfacePoint = lngLatToVec3(o.lng, o.lat, GLOBE_RADIUS);
       const normal = getNormal(o.lng, o.lat);
-      // Posicion = punto en superficie + offset radial de h/2
-      // (el cilindro tiene su origen en el centro, asi que offset hace que
-      // la base toque la superficie y la cima quede a distancia h hacia afuera)
+      // Centro del cilindro = surface + normal * h/2 → base sobre superficie
       const center = surfacePoint
         .clone()
         .add(normal.clone().multiplyScalar(h / 2));
@@ -146,7 +144,7 @@ export default function ColumnaForest({
       onClick={handleClick}
       frustumCulled={false}
     >
-      <cylinderGeometry args={[0.15, 0.15, 1, 4]} />
+      <cylinderGeometry args={[0.08, 0.08, 1, 4]} />
       <meshStandardMaterial
         ref={matRef}
         vertexColors={false}

@@ -15,14 +15,14 @@ export interface CityPreset {
 }
 
 export const CITY_PRESETS: CityPreset[] = [
-  // Vista general de Peru — camara lejos
-  { key: "peru", label: "Perú", lng: -75, lat: -9.5, distance: 70 },
-  // Ciudades — camara cerca
-  { key: "lima", label: "Lima", lng: -77.05, lat: -12.05, distance: 14 },
-  { key: "cusco", label: "Cusco", lng: -71.97, lat: -13.52, distance: 14 },
-  { key: "arequipa", label: "Arequipa", lng: -71.54, lat: -16.4, distance: 14 },
-  { key: "trujillo", label: "Trujillo", lng: -79.03, lat: -8.11, distance: 14 },
-  { key: "piura", label: "Piura", lng: -80.63, lat: -5.19, distance: 14 },
+  // Vista global del planeta sobre Peru
+  { key: "peru", label: "Perú", lng: -75, lat: -9.5, distance: 45 },
+  // Ciudades — camara cerca de la superficie
+  { key: "lima", label: "Lima", lng: -77.05, lat: -12.05, distance: 8 },
+  { key: "cusco", label: "Cusco", lng: -71.97, lat: -13.52, distance: 8 },
+  { key: "arequipa", label: "Arequipa", lng: -71.54, lat: -16.4, distance: 8 },
+  { key: "trujillo", label: "Trujillo", lng: -79.03, lat: -8.11, distance: 8 },
+  { key: "piura", label: "Piura", lng: -80.63, lat: -5.19, distance: 8 },
 ];
 
 /**
