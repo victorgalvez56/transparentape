@@ -1,13 +1,26 @@
 "use client";
 
 import { motion } from "motion/react";
+import { useEffect, useState } from "react";
 import { Obra, riesgoDeObra } from "@/lib/types";
 import { fmtSolesLong, fmtSolesShort, fmtFecha, displayTitle, truncar } from "@/lib/format";
+import dynamic from "next/dynamic";
+
+const BeforeAfterSlider = dynamic(() => import("@/components/BeforeAfterSlider"), { ssr: false });
+
+interface AiPatch {
+  id: number;
+  ai_score: number | null;
+  ai_description: string | null;
+  streetview_before: string | null;
+  streetview_after: string | null;
+}
 
 interface Props {
   obra: Obra;
   onClose: () => void;
   onInvestigar: () => void;
+  onAiResult?: (patch: AiPatch) => void;
 }
 
 function calcDelta(base: number | null, comp: number | null) {
@@ -15,22 +28,128 @@ function calcDelta(base: number | null, comp: number | null) {
   return comp / base - 1;
 }
 
+type SvData = {
+  beforeUrl: string | null;
+  afterUrl: string;
+  beforeDate: string | null;
+  afterDate: string | null;
+  hasHistory: boolean;
+  totalPanos?: number;
+  cached?: boolean;
+};
+
+type AiState = {
+  status: "idle" | "loading" | "done" | "error" | "no_sv";
+  score: number | null;
+  description: string | null;
+  sv: SvData | null;
+};
+
+type InfobrasPhoto = { url: string; label: string };
+type InfobrasData = {
+  nombre: string | null;
+  estado: string | null;
+  avance_fisico_pct: number | null;
+  fecha_ultimo_avance: string | null;
+  fecha_inicio: string | null;
+  fecha_fin_programada: string | null;
+  n_avances_mensuales: number | null;
+  n_fotos: number | null;
+  n_modificaciones_plazo: number | null;
+  tiene_informe_control: boolean | null;
+  photos: InfobrasPhoto[];
+  infobras_url: string;
+};
+
 export default function ObraDetailPanel({
   obra,
   onClose,
   onInvestigar,
+  onAiResult,
 }: Props) {
   const riesgo = riesgoDeObra(obra);
+  const [infobras, setInfobras] = useState<InfobrasData | null>(null);
+  const [infobrasLoaded, setInfobrasLoaded] = useState(false);
   const monto = obra.contract_amount ?? obra.award_amount ?? obra.tender_amount;
   const tituloDisplay = displayTitle(obra);
   const tweetText = `${truncar(tituloDisplay, 120)} · ${obra.buyer_locality} · ${fmtSolesLong(monto)} · Transparentape`;
   const tweetUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/obras/${obra.ocid}`;
   const twitterHref = `https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetText)}&url=${encodeURIComponent(tweetUrl)}`;
-  const gmapsKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
-  const hasStreetView = Boolean(gmapsKey && obra.lat && obra.lng);
-  const streetViewUrl = hasStreetView
-    ? `https://maps.googleapis.com/maps/api/streetview?size=600x300&location=${obra.lat},${obra.lng}&fov=80&key=${gmapsKey}`
-    : null;
+
+  // Pre-populate from cached DB values if available
+  const hasCachedSv =
+    obra.streetview_after &&
+    obra.streetview_before &&
+    obra.streetview_before !== obra.streetview_after;
+
+  const [ai, setAi] = useState<AiState>({
+    status: obra.ai_description ? "done" : "idle",
+    score: obra.ai_score ?? null,
+    description: obra.ai_description ?? null,
+    sv: hasCachedSv
+      ? {
+          beforeUrl: obra.streetview_before!,
+          afterUrl: obra.streetview_after!,
+          beforeDate: null,
+          afterDate: null,
+          hasHistory: true,
+          cached: true,
+        }
+      : obra.streetview_after
+      ? {
+          beforeUrl: null,
+          afterUrl: obra.streetview_after,
+          beforeDate: null,
+          afterDate: null,
+          hasHistory: false,
+          cached: true,
+        }
+      : null,
+  });
+
+  // Auto-run AI analysis on mount for obras with coordinates
+  useEffect(() => {
+    if (!obra.lat || !obra.lng) return;
+    if (ai.status === "done" && ai.sv) return;
+    runAiAnalysis();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [obra.id]);
+
+  // Load INFOBRAS data if available
+  useEffect(() => {
+    if (!obra.infobras_code || infobrasLoaded) return;
+    setInfobrasLoaded(true);
+    fetch(`/api/infobras?code=${obra.infobras_code}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d) setInfobras(d); })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [obra.infobras_code]);
+
+  async function runAiAnalysis(force = false) {
+    if (!obra.lat || !obra.lng) { setAi((p) => ({ ...p, status: "no_sv" })); return; }
+    setAi((p) => ({ ...p, status: "loading" }));
+    try {
+      const url = `/api/ai?id=${obra.id}${force ? "&force=1" : ""}`;
+      const res = await fetch(url);
+      if (!res.ok) { setAi((p) => ({ ...p, status: "no_sv" })); return; }
+      const d = await res.json();
+      const sv: SvData | null = d.streetview ?? null;
+      setAi({ status: "done", score: d.score ?? null, description: d.description ?? null, sv });
+      // Patch parent so re-selecting this obra skips re-analysis
+      if (d.score != null && !d.streetview?.cached) {
+        onAiResult?.({
+          id: obra.id,
+          ai_score: d.score,
+          ai_description: d.description,
+          streetview_before: sv?.beforeUrl ?? null,
+          streetview_after: sv?.afterUrl ?? null,
+        });
+      }
+    } catch {
+      setAi((p) => ({ ...p, status: "error" }));
+    }
+  }
 
   const deltaAdj = calcDelta(obra.tender_amount, obra.award_amount);
   const deltaCon = calcDelta(obra.award_amount, obra.contract_amount);
@@ -128,28 +247,211 @@ export default function ObraDetailPanel({
           </div>
         </section>
 
-        {/* STREET VIEW */}
-        {hasStreetView ? (
+        {/* STREET VIEW + AI */}
+        {obra.lat && obra.lng && (
           <div className="border-b border-[var(--rule)]">
-            <img
-              src={streetViewUrl!}
-              alt="Street View"
-              className="w-full h-44 object-cover"
-            />
-            <p
-              className="text-[9px] tracking-[0.2em] uppercase text-[var(--fg-faint)] px-2 py-1.5 border-t border-[var(--rule)]"
-              style={{ fontFamily: "var(--font-mono), monospace" }}
-            >
-              Street View · Google
-            </p>
+
+            {/* Loading state */}
+            {ai.status === "loading" && (
+              <div className="flex flex-col items-center justify-center h-32 gap-2 bg-[var(--ink-0)]/60">
+                <span className="text-2xl animate-spin">🛰</span>
+                <p className="text-[10px] uppercase tracking-[0.22em] text-[var(--fg-faint)] animate-pulse"
+                   style={{ fontFamily: "var(--font-mono), monospace" }}>
+                  Buscando imágenes históricas…
+                </p>
+              </div>
+            )}
+
+            {/* No Street View coverage */}
+            {(ai.status === "no_sv" || ai.status === "error") && (
+              <div className="flex flex-col items-center justify-center h-20 gap-1 bg-[var(--ink-0)]/40">
+                <p className="text-[10px] uppercase tracking-[0.22em] text-[var(--fg-faint)]"
+                   style={{ fontFamily: "var(--font-mono), monospace" }}>
+                  Sin cobertura Street View en esta zona
+                </p>
+              </div>
+            )}
+
+            {/* Images */}
+            {(ai.status === "done" || ai.status === "idle") && ai.sv && (
+              <>
+                {ai.sv.hasHistory ? (
+                  /* BEFORE + AFTER: thumbnails side-by-side + draggable slider */
+                  <>
+                    <div className="grid grid-cols-2 gap-0.5 bg-[var(--rule)]">
+                      <div className="relative">
+                        <img src={ai.sv.beforeUrl!} alt="Antes" className="w-full h-28 object-cover block" />
+                        <span className="absolute bottom-1 left-1 text-[8px] uppercase tracking-wider bg-black/70 text-white px-1.5 py-0.5"
+                              style={{ fontFamily: "var(--font-mono), monospace" }}>
+                          Antes · {ai.sv.beforeDate ?? "—"}
+                        </span>
+                      </div>
+                      <div className="relative">
+                        <img src={ai.sv.afterUrl} alt="Ahora" className="w-full h-28 object-cover block" />
+                        <span className="absolute bottom-1 right-1 text-[8px] uppercase tracking-wider bg-[var(--brand)]/80 text-black px-1.5 py-0.5"
+                              style={{ fontFamily: "var(--font-mono), monospace" }}>
+                          Ahora · {ai.sv.afterDate ?? "—"}
+                        </span>
+                      </div>
+                    </div>
+                    <BeforeAfterSlider
+                      beforeUrl={ai.sv.beforeUrl!}
+                      afterUrl={ai.sv.afterUrl}
+                      beforeLabel={ai.sv.beforeDate ? `Antes · ${ai.sv.beforeDate}` : "Antes"}
+                      afterLabel={ai.sv.afterDate ? `Ahora · ${ai.sv.afterDate}` : "Ahora"}
+                    />
+                  </>
+                ) : (
+                  /* Single image — no genuine historical comparison available */
+                  <div className="relative">
+                    <img src={ai.sv.afterUrl} alt="Street View" className="w-full h-40 object-cover block" />
+                    <span className="absolute bottom-1 left-1 text-[8px] uppercase tracking-wider bg-black/70 text-white px-1.5 py-0.5"
+                          style={{ fontFamily: "var(--font-mono), monospace" }}>
+                      {ai.sv.afterDate ?? "Actual"} · Sin histórico disponible
+                    </span>
+                    {ai.score !== null && (
+                      <span className={`absolute top-1 right-1 text-[10px] font-bold px-2 py-0.5 ${
+                        ai.score <= 30 ? "bg-[var(--alarm)]/90 text-white" :
+                        ai.score <= 60 ? "bg-[var(--warn)]/90 text-black" :
+                        "bg-[var(--safe)]/90 text-black"
+                      }`} style={{ fontFamily: "var(--font-mono), monospace" }}>
+                        IA {ai.score}/100
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* Footer row */}
+                <div className="flex items-center justify-between px-3 py-1.5 border-t border-[var(--rule)]">
+                  <p className="text-[8px] uppercase tracking-[0.2em] text-[var(--fg-faint)]"
+                     style={{ fontFamily: "var(--font-mono), monospace" }}>
+                    Google Street View
+                    {ai.sv.totalPanos != null && ` · ${ai.sv.totalPanos} panoramas`}
+                  </p>
+                  <button
+                    onClick={() => runAiAnalysis(true)}
+                    className="text-[8px] uppercase tracking-[0.18em] text-[var(--fg-faint)] hover:text-white transition"
+                    style={{ fontFamily: "var(--font-mono), monospace" }}
+                  >
+                    Actualizar ↺
+                  </button>
+                </div>
+
+                {/* AI verdict */}
+                {ai.description && (
+                  <div className="px-4 py-3 border-t border-[var(--rule)] bg-[var(--ink-0)]/60">
+                    <p className={`text-[9px] uppercase tracking-[0.26em] mb-1.5 ${
+                      ai.score != null && ai.score <= 30 ? "text-[var(--alarm)]" :
+                      ai.score != null && ai.score <= 60 ? "text-[var(--warn)]" : "text-[var(--safe)]"
+                    }`} style={{ fontFamily: "var(--font-mono), monospace" }}>
+                      Veredicto IA · Claude Vision
+                      {ai.score != null && ` · ${ai.score}/100`}
+                      {ai.sv.hasHistory && " · comparación antes/ahora"}
+                    </p>
+                    <p className="text-[13px] text-white/80 italic leading-relaxed"
+                       style={{ fontFamily: "var(--font-display), serif" }}>
+                      "{ai.description}"
+                    </p>
+                    {!ai.sv.cached && (
+                      <p className="text-[8px] text-[var(--fg-faint)] mt-1.5 text-right"
+                         style={{ fontFamily: "var(--font-mono), monospace" }}>
+                        análisis en vivo
+                      </p>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+
           </div>
-        ) : (
-          <div
-            className="border-b border-[var(--rule)] px-5 py-3 text-[10px] uppercase tracking-[0.22em] text-[var(--fg-faint)]"
-            style={{ fontFamily: "var(--font-mono), monospace" }}
-          >
-            Sin Street View · configura GOOGLE_MAPS_KEY
-          </div>
+        )}
+
+        {/* INFOBRAS — technical photos & progress */}
+        {infobras && (
+          <section className="border-b border-[var(--rule)]">
+            <div className="px-5 py-3 flex items-center justify-between">
+              <p className="text-[9px] uppercase tracking-[0.26em] text-[var(--fg-faint)]"
+                 style={{ fontFamily: "var(--font-mono), monospace" }}>
+                INFOBRAS · Contraloría · avance real
+              </p>
+              <a
+                href={infobras.infobras_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[8px] uppercase tracking-[0.18em] text-[var(--fg-faint)] hover:text-[var(--brand)] transition"
+                style={{ fontFamily: "var(--font-mono), monospace" }}
+              >
+                Ver en INFOBRAS ↗
+              </a>
+            </div>
+
+            {/* Progress bar */}
+            {infobras.avance_fisico_pct != null && (
+              <div className="px-5 pb-3">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[9px] text-[var(--fg-faint)]"
+                        style={{ fontFamily: "var(--font-mono), monospace" }}>
+                    Avance físico
+                  </span>
+                  <span className={`text-[11px] font-bold tabular-nums ${
+                    infobras.avance_fisico_pct >= 90 ? "text-[var(--safe)]" :
+                    infobras.avance_fisico_pct >= 50 ? "text-[var(--warn)]" :
+                    "text-[var(--alarm)]"
+                  }`} style={{ fontFamily: "var(--font-mono), monospace" }}>
+                    {infobras.avance_fisico_pct.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="h-1 bg-[var(--ink-0)] rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${
+                      infobras.avance_fisico_pct >= 90 ? "bg-[var(--safe)]" :
+                      infobras.avance_fisico_pct >= 50 ? "bg-[var(--warn)]" :
+                      "bg-[var(--alarm)]"
+                    }`}
+                    style={{ width: `${Math.min(100, infobras.avance_fisico_pct)}%` }}
+                  />
+                </div>
+                <div className="mt-1.5 flex gap-4 text-[8px] text-[var(--fg-faint)]"
+                     style={{ fontFamily: "var(--font-mono), monospace" }}>
+                  <span>Estado: {infobras.estado ?? "—"}</span>
+                  {infobras.n_avances_mensuales != null && (
+                    <span>{infobras.n_avances_mensuales} reportes mensuales</span>
+                  )}
+                  {infobras.tiene_informe_control && (
+                    <span className="text-[var(--alarm)]">⚠ Control gubernamental</span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Technical photos from INFOBRAS */}
+            {infobras.photos.length > 0 && (
+              <div className="px-5 pb-4">
+                <p className="text-[8px] uppercase tracking-[0.18em] text-[var(--fg-faint)] mb-2"
+                   style={{ fontFamily: "var(--font-mono), monospace" }}>
+                  Fotos técnicas ({infobras.n_fotos ?? infobras.photos.length})
+                </p>
+                <div className="grid grid-cols-4 gap-0.5">
+                  {infobras.photos.slice(0, 8).map((p, i) => (
+                    <div key={i} className="relative group">
+                      <img
+                        src={p.url}
+                        alt={p.label}
+                        className="w-full h-16 object-cover block"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                      />
+                      {p.label && (
+                        <span className="absolute bottom-0 left-0 right-0 text-[6px] text-center bg-black/70 text-white py-0.5 opacity-0 group-hover:opacity-100 transition truncate px-1"
+                              style={{ fontFamily: "var(--font-mono), monospace" }}>
+                          {p.label}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
         )}
 
         {/* QUIÉN RECIBIÓ */}
@@ -230,29 +532,6 @@ export default function ObraDetailPanel({
           <p className="text-sm text-white">{obra.buyer_name ?? "—"}</p>
         </section>
 
-        {/* AI */}
-        {obra.ai_description && (
-          <section className="px-5 py-4 border-b border-[var(--rule)]">
-            <p
-              className="text-[9px] uppercase tracking-[0.26em] text-[var(--fg-faint)] mb-2"
-              style={{ fontFamily: "var(--font-mono), monospace" }}
-            >
-              Análisis automático
-              {obra.ai_score != null && (
-                <span className="text-[var(--fg-dim)]">
-                  {" "}
-                  · score {obra.ai_score}/100
-                </span>
-              )}
-            </p>
-            <p
-              className="text-sm text-white/80 italic leading-relaxed"
-              style={{ fontFamily: "var(--font-display), serif" }}
-            >
-              "{obra.ai_description}"
-            </p>
-          </section>
-        )}
       </div>
 
       {/* CTAs */}

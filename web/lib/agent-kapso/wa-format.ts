@@ -1,4 +1,4 @@
-import type { ObraResumen, ObraCercana, ContratistaStat } from "./queries";
+import type { ObraResumen, ObraCercana, ContratistaStat, BuscarObrasFilters } from "./queries";
 
 export const COUNTRY_NAMES: Record<string, string> = {
   PE: "Perú 🇵🇪",
@@ -64,7 +64,12 @@ function hint(text: string): string {
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
-export function fmtObras(obras: ObraResumen[], country: string, yearSugerido?: number): string {
+export function fmtObras(
+  obras: ObraResumen[],
+  country: string,
+  yearSugerido?: number,
+  filters?: BuscarObrasFilters
+): string {
   if (!obras.length) {
     const sugerencia = yearSugerido
       ? `\n\n💡 No hay datos para ese año. Prueba: *obras ${yearSugerido}*`
@@ -72,11 +77,25 @@ export function fmtObras(obras: ObraResumen[], country: string, yearSugerido?: n
     return "No encontré obras con esos filtros." + sugerencia;
   }
   const nation = COUNTRY_NAMES[country] ?? country;
-  const lines = [`📋 *Obras en ${nation}:*\n`];
+  // Header explains *why* these N rows (criterio + filtros aplicados) so the
+  // user never has to guess if it's a top-N, alerts-only, or arbitrary list.
+  const place = filters?.q ? `${filters.q}, ` : "";
+  const yearTag = filters?.year ? ` · año ${filters.year}` : "";
+  const flagTag = filters?.red_flag === true ? " con alertas" : "";
+  const directTag = filters?.procurement_method === "direct" ? " (adj. directa)" : "";
+  const count = obras.length;
+  const header =
+    `📋 *${count} obra${count > 1 ? "s" : ""} en ${place}${nation}${flagTag}${directTag}${yearTag}*\n` +
+    `_Ordenadas por ⚠️ alertas y 💰 mayor monto · máx 5._\n`;
+  const lines = [header];
+  const showContratista = Boolean(filters?.contratista || filters?.ruc);
   obras.forEach((o, i) => {
+    const contratistaLine =
+      showContratista && o.contratista ? `\n  🏗️ ${o.contratista}` : "";
     lines.push(
       `${i + 1}. *${cleanTitle(o.titulo)}*${flagIcon(o)}\n` +
-      `  💰 ${fmt(o.monto, country)} | 📍 ${o.region ?? "—"}${o.localidad ? ` · ${o.localidad}` : ""}\n` +
+      `  💰 ${fmt(o.monto, country)} | 📍 ${o.region ?? "—"}${o.localidad ? ` · ${o.localidad}` : ""}` +
+      contratistaLine + `\n` +
       `  Año: ${o.source_year ?? "—"} | ID: ${o.id}`
     );
   });

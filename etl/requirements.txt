@@ -1,5 +1,7 @@
 ijson==3.5.0
 psycopg[binary]>=3.2.10
+psycopg2-binary>=2.9.9
 python-dotenv==1.1.0
 requests==2.32.3
 tqdm==4.67.1
+beautifulsoup4>=4.12.0

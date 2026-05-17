@@ -9,7 +9,16 @@
  */
 
 import { parseIntent } from "./intent";
-import { chatEngine } from "./engine";
+import { runChatPipeline, type ChatMessage } from "@/lib/agent/core";
+
+// Shim preserving the previous (message, history) → string surface for
+// existing assertions. Routes everything through the shared pipeline.
+async function chatEngine(message: string, history: ChatMessage[] = []): Promise<string> {
+  if (message.length > 600) return "Consulta muy larga. Intenta con una pregunta más corta.";
+  const r = await runChatPipeline([...history, { role: "user", content: message }]);
+  return r.reply;
+}
+
 import {
   buscarObras,
   statsPorPais,

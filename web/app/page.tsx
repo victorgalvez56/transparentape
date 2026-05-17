@@ -152,6 +152,15 @@ export default function HomePage() {
           obra={selected}
           onClose={() => setSelected(null)}
           onInvestigar={() => setShowForensics(true)}
+          onAiResult={(patch) => {
+            // Update the obra in the list so re-selecting it skips re-analysis
+            setObras((prev) =>
+              prev.map((o) => (o.id === patch.id ? { ...o, ...patch } : o))
+            );
+            setSelected((prev) =>
+              prev?.id === patch.id ? { ...prev, ...patch } : prev
+            );
+          }}
         />
       )}
 

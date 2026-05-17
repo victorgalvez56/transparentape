@@ -84,6 +84,8 @@ function toFeatureCollection(obras: Obra[]): GeoJSON.FeatureCollection {
         amount: o.contract_amount ?? o.award_amount ?? o.tender_amount ?? 0,
         is_red_flag: o.is_red_flag ?? false,
         riesgo: riesgoDeObra(o),
+        procurement_method: o.procurement_method ?? "",
+        country: o.country ?? "PE",
       },
     }));
   return { type: "FeatureCollection", features };
@@ -365,12 +367,13 @@ export default function MapGlobe({
         filter: ["!", ["has", "point_count"]],
         paint: {
           "circle-color": [
-            "match",
-            ["get", "riesgo"],
-            "alto",
-            "#ef4444",
-            "medio",
-            "#f59e0b",
+            "case",
+            ["==", ["get", "is_red_flag"], true], "#ef4444",
+            ["any",
+              ["==", ["get", "procurement_method"], "direct"],
+              ["==", ["get", "procurement_method"], "AS"],
+            ], "#eab308",
+            ["==", ["get", "country"], "CL"], "#3b82f6",
             "#10b981",
           ],
           "circle-radius": [

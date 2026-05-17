@@ -12,13 +12,24 @@ export function fmtSolesShort(n: number | null | undefined): string {
   return `${n.toFixed(0)}`;
 }
 
-export function fmtSolesLong(n: number | null | undefined): string {
+export function fmtSolesLong(n: number | null | undefined, country?: string | null): string {
   if (n === null || n === undefined || Number.isNaN(n)) return "—";
+  if (country === "CL") {
+    return new Intl.NumberFormat("es-CL", {
+      style: "currency",
+      currency: "CLP",
+      maximumFractionDigits: 0,
+    }).format(n);
+  }
   return new Intl.NumberFormat("es-PE", {
     style: "currency",
     currency: "PEN",
     maximumFractionDigits: 0,
   }).format(n);
+}
+
+export function fmtMonto(n: number | null | undefined, country?: string | null): string {
+  return fmtSolesLong(n, country);
 }
 
 export function fmtFecha(s: string | null | undefined): string {

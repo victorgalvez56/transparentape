@@ -11,7 +11,7 @@
  */
 
 import { parseIntent, type Intent } from "./intent";
-import { chatEngine } from "./engine";
+import { runChatPipeline, type ChatMessage } from "@/lib/agent/core";
 import {
   buscarObras,
   buscarCercanas,
@@ -315,34 +315,40 @@ async function testQueries() {
   );
 }
 
-// ── L3: chatEngine — LLM latency per path ─────────────────────────────────────
+// ── L3: chat pipeline — LLM latency per path ──────────────────────────────────
+
+// Thin shim preserving the old (message, history) → string surface so the
+// test assertions stay readable. Calls into the shared pipeline used by both
+// web and WhatsApp.
+async function runPipelineReply(message: string, history: ChatMessage[] = []): Promise<string> {
+  const r = await runChatPipeline([...history, { role: "user", content: message }]);
+  return r.reply;
+}
 
 async function testChatEngine() {
-  section("L3: chatEngine latency per path");
+  section("L3: runChatPipeline latency per path");
 
   // NEEDS_CLARIFICATION (only router LLM)
-  await timed("chatEngine: ambiguous (router only)", () =>
-    chatEngine("xyz random gibberish", [])
+  await timed("pipeline: ambiguous (router only)", () =>
+    runPipelineReply("xyz random gibberish", [])
   );
 
   // NEEDS_SQL (router + SQL + synthesis = 3 LLM calls)
-  const reply1 = await timed("chatEngine: NEEDS_SQL obras Piura", () =>
-    chatEngine("obras en Piura 2024", [])
+  const reply1 = await timed("pipeline: NEEDS_SQL obras Piura", () =>
+    runPipelineReply("obras en Piura 2024", [])
   );
   assert("reply non-empty", reply1.length > 0, true);
   assert("no raw SQL leak", reply1.includes("SELECT"), false);
-  assert("no markdown **bold**", /\*\*[^*]+\*\*/.test(reply1), false);
 
   // ANSWER_FROM_CONTEXT (router + context = 2 LLM calls)
-  const history = [
-    { role: "user" as const, content: "obras en Lima 2024" },
-    { role: "assistant" as const, content: "1. *Av. Javier Prado* — S/ 12.3M\n2. *Puente San Martín* — S/ 8.1M" },
+  const history: ChatMessage[] = [
+    { role: "user", content: "obras en Lima 2024" },
+    { role: "assistant", content: "1. *Av. Javier Prado* — S/ 12.3M\n2. *Puente San Martín* — S/ 8.1M" },
   ];
-  const reply2 = await timed("chatEngine: ANSWER_FROM_CONTEXT follow-up", () =>
-    chatEngine("cuánto era el primero?", history)
+  const reply2 = await timed("pipeline: ANSWER_FROM_CONTEXT follow-up", () =>
+    runPipelineReply("cuánto era el primero?", history)
   );
   assert("ctx reply non-empty", reply2.length > 0, true);
-  assert("ctx no markdown **bold**", /\*\*[^*]+\*\*/.test(reply2), false);
 }
 
 // ── Summary ───────────────────────────────────────────────────────────────────

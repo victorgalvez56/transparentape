@@ -40,13 +40,19 @@ function normalize(s: string): string {
 
 // ── Ordinal context ───────────────────────────────────────────────────────────
 
+// Bare digits no longer count as ordinals — must be prefixed with "#",
+// an article ("el/la"), or a context word ("obra/opción/item/número").
+// Prevents "5+5" or "tengo 3 hijos" from being parsed as ordinal positions.
+// Index-only inputs ("1", "2") are still handled by resolveIndexFromText
+// in the webhook when lastSuggestions are present.
+const ORDINAL_CTX = "(?:el|la|obra|opci[oó]n|item|n[uú]mero)";
 const ORDINAL_MAP: [RegExp, number][] = [
-  [/\bel\s+primer[ao]?\b|\b#?1\b|\buno\b/i, 1],
-  [/\bel\s+segund[ao]?\b|\b#?2\b|\bdos\b/i, 2],
-  [/\bel\s+tercer[ao]?\b|\b#?3\b|\btres\b/i, 3],
-  [/\bel\s+cuart[ao]?\b|\b#?4\b|\bcuatro\b/i, 4],
-  [/\bel\s+quint[ao]?\b|\b#?5\b|\bcinco\b/i, 5],
-  [/\bultim[ao]\b/i, -1],
+  [new RegExp(`\\b(?:el\\s+)?primer[ao]\\b|\\b#1\\b|\\b${ORDINAL_CTX}\\s+1\\b|\\buno\\b`, "i"), 1],
+  [new RegExp(`\\b(?:el\\s+)?segund[ao]\\b|\\b#2\\b|\\b${ORDINAL_CTX}\\s+2\\b|\\bdos\\b`, "i"), 2],
+  [new RegExp(`\\b(?:el\\s+)?tercer[ao]\\b|\\b#3\\b|\\b${ORDINAL_CTX}\\s+3\\b|\\btres\\b`, "i"), 3],
+  [new RegExp(`\\b(?:el\\s+)?cuart[ao]\\b|\\b#4\\b|\\b${ORDINAL_CTX}\\s+4\\b|\\bcuatro\\b`, "i"), 4],
+  [new RegExp(`\\b(?:el\\s+)?quint[ao]\\b|\\b#5\\b|\\b${ORDINAL_CTX}\\s+5\\b|\\bcinco\\b`, "i"), 5],
+  [/\b[uú]ltim[ao]\b/i, -1],
 ];
 
 function extractContextPosition(text: string): number | null {
@@ -77,7 +83,10 @@ export function detectCountry(text: string): Country | null {
 // ── Year extraction ───────────────────────────────────────────────────────────
 
 const YEAR_RE = /\b(20\d{2})\b/;
-const RUC_RE = /\b(\d{8,12})\b/;
+// RUC strict: 11 digits (Peru standard). Phone numbers (9 digits) won't match.
+// Explicit "ruc:" keyword still accepts 8-12 to support Chile RUT (CL) etc.
+const RUC_RE = /\b(\d{11})\b/;
+const RUC_KW_RE = /\bruc\s*:?\s*(\d{8,12})\b/i;
 const THIS_YEAR = new Date().getFullYear();
 
 // Expects ASCII-normalized input ("año" → "ano")
@@ -170,14 +179,25 @@ export function parseIntent(text: string, sessionCountry: Country): ParsedIntent
   }
 
   // ── Investigate contractor ──
+  // Try explicit "ruc:" keyword first (accepts 8-12 digits for non-PE),
+  // fall back to bare 11-digit PE RUC if intent keyword is present.
+  const rucKwMatch = tn.match(RUC_KW_RE);
+  if (rucKwMatch) {
+    return { intent: "INVESTIGAR_CONTRATISTA", country, ruc: rucKwMatch[1] };
+  }
   const rucMatch = tn.match(RUC_RE);
   if (rucMatch && /\bcontratista\b|\bempresa\b|\bruc\b|\binvestigar?\b/i.test(tn)) {
     return { intent: "INVESTIGAR_CONTRATISTA", country, ruc: rucMatch[1] };
   }
   if (/\binvestigar?\b/i.test(tn)) {
-    // Use original t for name to preserve case/accents in DB ILIKE
-    const nameMatch = t.match(/investiga[r]?\s+(.+)/i);
-    return { intent: "INVESTIGAR_CONTRATISTA", country, contratista: nameMatch?.[1]?.trim() };
+    // Use original t for name to preserve case/accents in DB ILIKE.
+    // Strip URLs and cap length to prevent garbage from leaking into ILIKE.
+    let name = t.match(/investiga[r]?\s+(.+)/i)?.[1]?.trim();
+    if (name) {
+      name = name.replace(/https?:\/\/\S+/gi, "").replace(/\s+/g, " ").trim();
+      if (name.length > 60) name = name.slice(0, 60);
+    }
+    return { intent: "INVESTIGAR_CONTRATISTA", country, contratista: name || undefined };
   }
 
   // ── Inhabilitados ──
