@@ -9,34 +9,43 @@ import type { XRStore } from "@react-three/xr";
  * página web — los headsets no ofrecen "Enter VR".
  */
 export default function VRSessionButton({ store }: { store: XRStore }) {
+  // Checks síncronos (secure context / presencia de navigator.xr) en el
+  // inicializador perezoso — el componente es client-only (ssr:false).
   const [support, setSupport] = useState<
     "checking" | "supported" | "unsupported" | "insecure"
-  >("checking");
-  const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
+  >(() => {
+    if (typeof window === "undefined") return "checking";
+    if (!window.isSecureContext) return "insecure";
     const xr = (
       navigator as Navigator & {
         xr?: { isSessionSupported?: (m: string) => Promise<boolean> };
       }
     ).xr;
-    // WebXR exige secure context (https) salvo en localhost.
-    if (!window.isSecureContext) {
-      setSupport("insecure");
-      return;
-    }
-    if (!xr?.isSessionSupported) {
-      setSupport("unsupported");
-      return;
-    }
+    return xr?.isSessionSupported ? "checking" : "unsupported";
+  });
+  const [err, setErr] = useState<string | null>(null);
+
+  // Sólo el chequeo asíncrono real vive en el efecto (setState en callback).
+  useEffect(() => {
+    if (support !== "checking" || typeof window === "undefined") return;
+    const xr = (
+      navigator as Navigator & {
+        xr?: { isSessionSupported?: (m: string) => Promise<boolean> };
+      }
+    ).xr;
+    if (!xr?.isSessionSupported) return;
+    let cancelled = false;
     xr.isSessionSupported("immersive-vr")
-      .then((ok) => !cancelled && setSupport(ok ? "supported" : "unsupported"))
-      .catch(() => !cancelled && setSupport("unsupported"));
+      .then((ok) => {
+        if (!cancelled) setSupport(ok ? "supported" : "unsupported");
+      })
+      .catch(() => {
+        if (!cancelled) setSupport("unsupported");
+      });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [support]);
 
   const enter = async () => {
     setErr(null);

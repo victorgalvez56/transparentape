@@ -5,22 +5,19 @@ import { useParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import type { Obra } from "@/lib/types";
 
-const PanoramaRoom = dynamic(
-  () => import("@/components/vr/PanoramaRoom"),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="h-screen w-screen flex items-center justify-center bg-black">
-        <p
-          className="text-white/40 text-[11px] uppercase tracking-[0.3em]"
-          style={{ fontFamily: "var(--font-mono), monospace" }}
-        >
-          Cargando escena…
-        </p>
-      </div>
-    ),
-  }
-);
+const ObraVR = dynamic(() => import("@/components/vr/ObraVR"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-screen w-screen flex items-center justify-center bg-black">
+      <p
+        className="text-white/40 text-[11px] uppercase tracking-[0.3em]"
+        style={{ fontFamily: "var(--font-mono), monospace" }}
+      >
+        Cargando escena…
+      </p>
+    </div>
+  ),
+});
 
 interface PanoData {
   obra: Obra;
@@ -119,7 +116,7 @@ export default function VRObraPage() {
   const { data } = state;
   return (
     <main className="fixed inset-0 bg-black overflow-hidden">
-      <PanoramaRoom
+      <ObraVR
         obra={data.obra}
         panoId={data.panoId}
         beforePanoId={data.beforePanoId}
