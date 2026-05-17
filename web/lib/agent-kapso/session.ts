@@ -16,7 +16,6 @@ export interface Session {
   updatedAt: number;
 }
 
-const SESSION_TTL_MS = 30 * 60 * 1000;
 const MAX_HISTORY = 6; // 3 user + 3 assistant pairs
 
 export async function getSession(conversationId: string): Promise<Session> {
@@ -26,9 +25,10 @@ export async function getSession(conversationId: string): Promise<Session> {
       last_query: string | null;
       last_result_ids: number[] | null;
       last_messages: ChatMsg[] | null;
+      last_location: { lat: number; lng: number } | null;
       updated_at: string;
     }>(
-      `SELECT country, last_query, last_result_ids, last_messages, updated_at
+      `SELECT country, last_query, last_result_ids, last_messages, last_location, updated_at
        FROM agent_sessions WHERE conversation_id = $1
          AND updated_at > NOW() - INTERVAL '30 minutes'`,
       [conversationId]
@@ -39,6 +39,7 @@ export async function getSession(conversationId: string): Promise<Session> {
         lastQuery: row.last_query ?? undefined,
         lastResultIds: row.last_result_ids ?? undefined,
         lastMessages: row.last_messages ?? undefined,
+        lastLocation: row.last_location ?? undefined,
         updatedAt: new Date(row.updated_at).getTime(),
       };
     }
@@ -56,16 +57,17 @@ export async function updateSession(
   const merged = { ...current, ...patch };
   try {
     await query(
-      `INSERT INTO agent_sessions(conversation_id, country, last_query, last_result_ids, last_messages, updated_at)
-       VALUES ($1, $2, $3, $4, $5, NOW())
+      `INSERT INTO agent_sessions(conversation_id, country, last_query, last_result_ids, last_messages, last_location, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())
        ON CONFLICT (conversation_id)
-       DO UPDATE SET country = $2, last_query = $3, last_result_ids = $4, last_messages = $5, updated_at = NOW()`,
+       DO UPDATE SET country = $2, last_query = $3, last_result_ids = $4, last_messages = $5, last_location = $6, updated_at = NOW()`,
       [
         conversationId,
         merged.country ?? "PE",
         merged.lastQuery ?? null,
         merged.lastResultIds ?? null,
         merged.lastMessages ? JSON.stringify(merged.lastMessages) : null,
+        merged.lastLocation ? JSON.stringify(merged.lastLocation) : null,
       ]
     );
   } catch {
