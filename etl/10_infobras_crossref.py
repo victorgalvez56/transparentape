@@ -1,13 +1,15 @@
 """
 Step 10: Cross-reference obras (OCDS) ↔ infobras_full.
 
-Matching strategy per obra:
-  1. CUI exact match (extracted from tender_description via regex)
-  2. Distinctive name substring + amount band ±60%
-  3. Tie-break by contratista name similarity
+Matching strategy:
+  Pass 1 (SQL): CUI regex extracted from tender_description matched against
+                infobras_full.cui — one bulk UPDATE, instant.
+  Pass 2 (Python): For each unmatched infobras record, search obras by
+                   distinctive name chunk + amount band ±60%, tie-break by
+                   contratista similarity.  Only 575 iterations max.
 
 Also updates obras.lat/lng when INFOBRAS has real coordinates and the obra
-currently has buyer-office coordinates (common geocoding problem in the OCDS data).
+currently has buyer-office coordinates (common geocoding problem in OCDS data).
 
 Usage:
   DATABASE_URL='postgresql://...' python etl/10_infobras_crossref.py
@@ -26,11 +28,6 @@ from typing import Optional
 
 import psycopg2
 
-CUI_RE = re.compile(
-    r"(?:CUI|C[óo]digo\s+(?:Único|Unico)\s+de\s+Inversi[óo]n)[\s°N°.:]*(\d{6,8})",
-    re.IGNORECASE,
-)
-
 
 def get_db():
     url = os.environ.get("DATABASE_URL")
@@ -41,13 +38,6 @@ def get_db():
     return conn
 
 
-def extract_cui(text: Optional[str]) -> Optional[str]:
-    if not text:
-        return None
-    m = CUI_RE.search(text)
-    return m.group(1) if m else None
-
-
 def normalize(s: Optional[str]) -> str:
     if not s:
         return ""
@@ -56,143 +46,141 @@ def normalize(s: Optional[str]) -> str:
     return re.sub(r"[^A-Z0-9 ]", " ", ascii_s.upper())
 
 
-def best_chunk(desc: str) -> str:
+def best_chunk(name: str) -> str:
+    """Extract a distinctive 50-char chunk from an obra name for ILIKE matching."""
     cleaned = re.sub(
         r"^[\s,;:.\-\"']*(EJECUCION|EJECUCIÓN|CONTRATACION|CONTRATACIÓN|CONSULTORIA|"
         r"CONSULTORÍA|SERVICIO|OBRA|SUPERVISION|SUPERVISIÓN)\s+"
         r"(DE\s+(LA\s+)?(OBRA|EJECUCIÓN|EJECUCION)\s*)?[,:;.\s\-]*",
         "",
-        desc,
+        name,
         flags=re.IGNORECASE,
     ).strip()
-    return cleaned[:60]
+    return cleaned[:50]
 
 
-def cross_one(cur, obra: dict) -> Optional[int]:
-    desc = obra.get("tender_description") or ""
-    supplier = obra.get("supplier_name") or ""
-    amount = float(obra.get("contract_amount") or obra.get("tender_amount") or 0)
+# ── Pass 1: bulk CUI match in SQL ────────────────────────────────────────────
 
-    # 1) CUI exact match
-    cui = extract_cui(desc)
-    if cui:
-        cur.execute(
-            "SELECT codigo_infobras FROM infobras_full WHERE cui = %s LIMIT 1", (cui,)
-        )
-        row = cur.fetchone()
-        if row:
-            return row[0]
-
-    # 2) Distinctive chunk + amount band
-    chunk = best_chunk(desc)
-    if len(chunk) < 20:
-        return None
-
-    if amount > 0:
-        cur.execute(
-            """
-            SELECT codigo_infobras, contratista_nombre
-              FROM infobras_full
-             WHERE nombre ILIKE %s
-               AND monto_aprobacion BETWEEN %s AND %s
-             LIMIT 5
-            """,
-            (f"%{chunk[:50]}%", amount * 0.4, amount * 2.5),
-        )
-    else:
-        cur.execute(
-            "SELECT codigo_infobras, contratista_nombre FROM infobras_full "
-            "WHERE nombre ILIKE %s LIMIT 5",
-            (f"%{chunk[:50]}%",),
-        )
-
-    candidates = cur.fetchall()
-    if not candidates:
-        return None
-    if len(candidates) == 1:
-        return candidates[0][0]
-
-    # 3) Tie-break by contratista name similarity
-    sup_norm = normalize(supplier)
-    if sup_norm:
-        for cod, contratista in candidates:
-            cn = normalize(contratista)
-            if cn and (cn[:10] in sup_norm or sup_norm[:10] in cn):
-                return cod
-
-    return candidates[0][0]
+CUI_SQL = r"""
+WITH cui_extracted AS (
+    SELECT id,
+           (regexp_matches(
+               COALESCE(tender_description, ''),
+               '(?:CUI|C[Óó]digo\s+(?:[UÚú]nico)\s+de\s+Inversi[Óó]n)[\s°N°.:]*(\d{6,8})',
+               'i'
+           ))[1] AS cui
+    FROM obras
+    WHERE country = 'PE'
+      AND infobras_code IS NULL
+)
+UPDATE obras o
+   SET infobras_code = i.codigo_infobras::text
+  FROM cui_extracted c
+  JOIN infobras_full i ON i.cui = c.cui
+ WHERE o.id = c.id
+   AND c.cui IS NOT NULL
+RETURNING o.id
+"""
 
 
-def run_crossref(conn, limit: Optional[int], reset: bool):
-    cur = conn.cursor()
+def pass1_cui(cur) -> int:
+    print("Pass 1: CUI bulk match (SQL)...", flush=True)
+    cur.execute(CUI_SQL)
+    n = cur.rowcount
+    print(f"  → {n:,} obras matched by CUI", flush=True)
+    return n
 
-    if reset:
-        print("Reset: clearing all infobras_code values...")
-        cur.execute("UPDATE obras SET infobras_code = NULL WHERE infobras_code IS NOT NULL")
-        print(f"  cleared {cur.rowcount} rows")
 
+# ── Pass 2: iterate infobras records, search obras ───────────────────────────
+
+def pass2_fuzzy(cur, limit: Optional[int]) -> int:
     cur.execute(
         """
-        SELECT id, tender_description, buyer_name, supplier_name,
-               contract_amount, tender_amount
-          FROM obras
-         WHERE country = 'PE'
-           AND infobras_code IS NULL
-         ORDER BY contract_amount DESC NULLS LAST
+        SELECT codigo_infobras, nombre, monto_aprobacion, contratista_nombre
+          FROM infobras_full
+         WHERE codigo_infobras::text NOT IN (
+             SELECT infobras_code FROM obras WHERE infobras_code IS NOT NULL
+         )
         """
         + (f" LIMIT {int(limit)}" if limit else "")
     )
     rows = cur.fetchall()
-    cols = [c[0] for c in cur.description]
-    obras = [dict(zip(cols, r)) for r in rows]
-    print(f"Pending obras: {len(obras):,}", flush=True)
+    print(f"Pass 2: fuzzy match for {len(rows):,} unmatched infobras records...", flush=True)
 
-    matched = no_match = 0
+    matched = 0
     start = time.time()
-    last_log = start
 
-    for i, obra in enumerate(obras, 1):
-        try:
-            cod = cross_one(cur, obra)
-            if cod is not None:
-                cur.execute(
-                    "UPDATE obras SET infobras_code = %s WHERE id = %s",
-                    (str(cod), obra["id"]),
-                )
-                matched += 1
-            else:
-                no_match += 1
-        except Exception as e:
-            print(f"  ERR id={obra['id']}: {str(e)[:80]}", file=sys.stderr)
-            no_match += 1
+    for i, (codigo, nombre, monto, contratista) in enumerate(rows, 1):
+        chunk = best_chunk(nombre or "")
+        if len(chunk) < 20:
+            continue
 
-        now = time.time()
-        if now - last_log > 5 or i == len(obras):
-            last_log = now
-            rate = i / (now - start) if now > start else 0
-            eta = (len(obras) - i) / rate if rate > 0 else 0
+        amount = float(monto or 0)
+
+        if amount > 0:
+            cur.execute(
+                """
+                SELECT id, supplier_name
+                  FROM obras
+                 WHERE country = 'PE'
+                   AND infobras_code IS NULL
+                   AND tender_description ILIKE %s
+                   AND COALESCE(contract_amount, tender_amount) BETWEEN %s AND %s
+                 LIMIT 5
+                """,
+                (f"%{chunk}%", amount * 0.4, amount * 2.5),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT id, supplier_name
+                  FROM obras
+                 WHERE country = 'PE'
+                   AND infobras_code IS NULL
+                   AND tender_description ILIKE %s
+                 LIMIT 5
+                """,
+                (f"%{chunk}%",),
+            )
+
+        candidates = cur.fetchall()
+        if not candidates:
+            continue
+
+        obra_id = candidates[0][0]
+
+        # tie-break by contratista similarity
+        if len(candidates) > 1 and contratista:
+            cn = normalize(contratista)
+            for cid, supplier in candidates:
+                sn = normalize(supplier or "")
+                if sn and (cn[:10] in sn or sn[:10] in cn):
+                    obra_id = cid
+                    break
+
+        cur.execute(
+            "UPDATE obras SET infobras_code = %s WHERE id = %s",
+            (str(codigo), obra_id),
+        )
+        matched += 1
+
+        if i % 50 == 0 or i == len(rows):
+            elapsed = time.time() - start
+            rate = i / elapsed if elapsed > 0 else 0
             print(
-                f"  [{time.strftime('%H:%M:%S')}] {i:>6}/{len(obras)} · "
-                f"matched={matched} no_match={no_match} · "
-                f"hit_rate={100*matched/i:.0f}% · {rate:.0f}/s · ETA {eta/60:.0f}min",
+                f"  [{time.strftime('%H:%M:%S')}] {i:>4}/{len(rows)} · "
+                f"matched={matched} · {rate:.1f}/s",
                 flush=True,
             )
 
-    print(f"\nDONE: {matched:,} matched · {no_match:,} no_match · "
-          f"{100*matched/max(1, len(obras)):.0f}% hit rate")
-    cur.close()
+    print(f"  → {matched:,} obras matched by fuzzy name+amount", flush=True)
+    return matched
 
+
+# ── Coordinate update ─────────────────────────────────────────────────────────
 
 def run_update_coords(conn):
-    """
-    Copy lat/lng from infobras_full to obras when:
-    - The obra has an infobras_code match
-    - infobras_full has non-null coordinates
-    - The current obra coordinates look like a Lima centroid (buyer office geocoding)
-    """
     cur = conn.cursor()
-
-    # Lima centroid area: many obras geocoded to ~(-12.04, -77.04) ± 0.02
     cur.execute(
         """
         UPDATE obras o
@@ -202,11 +190,8 @@ def run_update_coords(conn):
          WHERE o.infobras_code = i.codigo_infobras::text
            AND i.lat IS NOT NULL
            AND i.lng IS NOT NULL
-           AND (
-               -- current coords are buyer-office centroid (Lima downtown square)
-               o.lat BETWEEN -12.06 AND -12.02
-               AND o.lng BETWEEN -77.06 AND -77.02
-           )
+           AND o.lat BETWEEN -12.06 AND -12.02
+           AND o.lng BETWEEN -77.06 AND -77.02
         RETURNING o.id
         """
     )
@@ -215,9 +200,33 @@ def run_update_coords(conn):
     cur.close()
 
 
+# ── Main ──────────────────────────────────────────────────────────────────────
+
+def run_crossref(conn, limit: Optional[int], reset: bool):
+    cur = conn.cursor()
+
+    if reset:
+        print("Reset: clearing all infobras_code values...")
+        cur.execute("UPDATE obras SET infobras_code = NULL WHERE infobras_code IS NOT NULL")
+        print(f"  cleared {cur.rowcount} rows")
+
+    t0 = time.time()
+    n1 = pass1_cui(cur)
+    n2 = pass2_fuzzy(cur, limit)
+
+    cur.execute("SELECT COUNT(*) FROM obras WHERE infobras_code IS NOT NULL")
+    total_linked = cur.fetchone()[0]
+
+    print(
+        f"\nDONE in {time.time()-t0:.1f}s: {n1+n2:,} new matches "
+        f"({n1} CUI + {n2} fuzzy) · {total_linked:,} obras total linked"
+    )
+    cur.close()
+
+
 def main():
     ap = argparse.ArgumentParser(description="Cross-reference obras ↔ infobras_full")
-    ap.add_argument("--limit", type=int, help="Process only first N obras (for testing)")
+    ap.add_argument("--limit", type=int, help="Cap Pass 2 infobras records (for testing)")
     ap.add_argument("--reset", action="store_true",
                     help="Clear all infobras_code values before processing")
     ap.add_argument("--update-coords", action="store_true",

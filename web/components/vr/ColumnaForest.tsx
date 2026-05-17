@@ -13,11 +13,11 @@ import {
 } from "@/lib/vr/sphere-projection";
 
 // Paleta jerarquica por monto — el ojo va a las obras grandes naturalmente
-const COLOR_RED_FLAG = new THREE.Color("#ef4444"); // alerta OECE
-const COLOR_HUGE = new THREE.Color("#fbbf24"); // > 100M soles — dorado
-const COLOR_BIG = new THREE.Color("#42dc3a"); // 10-100M — brand verde
-const COLOR_MID = new THREE.Color("#1f7a1c"); // 1-10M — verde apagado
-const COLOR_SMALL = new THREE.Color("#3a4d3a"); // < 1M — verde grisaceo
+const COLOR_RED_FLAG = new THREE.Color("#ff2222"); // alerta OECE — rojo brillante
+const COLOR_HUGE = new THREE.Color("#ffcc00");    // > 100M soles — dorado
+const COLOR_BIG = new THREE.Color("#42dc3a");     // 10-100M — brand verde
+const COLOR_MID = new THREE.Color("#1f7a1c");     // 1-10M — verde apagado
+const COLOR_SMALL = new THREE.Color("#2a3a2a");   // < 1M — verde grisaceo
 
 function pickColor(monto: number, isRedFlag: boolean): THREE.Color {
   if (isRedFlag) return COLOR_RED_FLAG;
@@ -77,8 +77,7 @@ export default function ColumnaForest({
 
     for (let i = 0; i < visible.length; i++) {
       const o = visible[i];
-      // Altura proporcional al monto pero compacta — pines cortos en el globo
-      const h = montoToHeight(o.monto) * 0.6;
+      const h = montoToHeight(o.monto);
       const surfacePoint = lngLatToVec3(o.lng, o.lat, GLOBE_RADIUS);
       const normal = getNormal(o.lng, o.lat);
       // Centro del cilindro = surface + normal * h/2 → base sobre superficie
@@ -108,12 +107,12 @@ export default function ColumnaForest({
     mesh.computeBoundingSphere();
   }, [visible]);
 
-  // Pulso sutil del emissive — vida visual sin lavar los colores
+  // Pulso del emissive — más agresivo para red flags
   useFrame((_, delta) => {
     pulseTime.current += delta;
     if (matRef.current) {
       matRef.current.emissiveIntensity =
-        0.2 + Math.sin(pulseTime.current * 1.5) * 0.08;
+        0.35 + Math.sin(pulseTime.current * 2.0) * 0.2;
     }
   });
 
@@ -144,14 +143,14 @@ export default function ColumnaForest({
       onClick={handleClick}
       frustumCulled={false}
     >
-      <cylinderGeometry args={[0.08, 0.08, 1, 4]} />
+      <cylinderGeometry args={[0.1, 0.06, 1, 5]} />
       <meshStandardMaterial
         ref={matRef}
         vertexColors={false}
-        emissive="#888888"
-        emissiveIntensity={0.25}
-        metalness={0.3}
-        roughness={0.4}
+        emissive="#aaaaaa"
+        emissiveIntensity={0.35}
+        metalness={0.2}
+        roughness={0.5}
         toneMapped={false}
       />
     </instancedMesh>

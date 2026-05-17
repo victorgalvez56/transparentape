@@ -1,101 +1,95 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
-import { Obra } from "@/lib/types";
-import { CountryView, DEFAULT_COUNTRY } from "@/lib/countries";
-import ObrasListPanel from "@/components/ObrasListPanel";
-import ObraDetailPanel from "@/components/ObraDetailPanel";
-import ForensicsPanel from "@/components/ForensicsPanel";
-import ColdOpen from "@/components/ColdOpen";
-import AuthorityHud from "@/components/AuthorityHud";
-import CustomCursor from "@/components/CustomCursor";
+import { useEffect, useMemo, useState } from "react";
+import { Obra, riesgoDeObra } from "@/lib/types";
+import CodexHeader from "@/components/codex/CodexHeader";
+import CodexFilterBar, {
+  PaisFiltro,
+  RiesgoFiltro,
+} from "@/components/codex/CodexFilterBar";
+import CodexObraList from "@/components/codex/CodexObraList";
+import CodexObraCard from "@/components/codex/CodexObraCard";
+import CodexObraDetail from "@/components/codex/CodexObraDetail";
 
-const MapGlobe = dynamic(() => import("@/components/MapGlobe"), {
+const CodexGlobe = dynamic(() => import("@/components/codex/CodexGlobe"), {
   ssr: false,
   loading: () => (
-    <div className="absolute inset-0 flex items-center justify-center bg-black text-white/40 text-sm">
-      Cargando mapa…
+    <div
+      className="absolute inset-0 grid place-items-center text-xs"
+      style={{ color: "var(--cx-faint)" }}
+    >
+      Cargando globo…
     </div>
   ),
 });
 
-interface Stats {
-  total_obras: number;
-  total_red_flags: number;
-  with_coords: number;
-  total_monto: number;
-  source: string;
+const MAX_REGION_CHIPS = 28;
+
+function search(o: Obra, lower: string): boolean {
+  if (!lower) return true;
+  return [
+    o.tender_title,
+    o.tender_description,
+    o.buyer_name,
+    o.supplier_name,
+    o.buyer_locality,
+    o.buyer_region,
+    o.supplier_ruc,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase()
+    .includes(lower);
 }
 
-export default function HomePage() {
+export default function CodexHomePage() {
   const [obras, setObras] = useState<Obra[]>([]);
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [source, setSource] = useState<string>("");
   const [loading, setLoading] = useState(true);
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [view, setView] = useState<"globe" | "grid">("globe");
   const [selected, setSelected] = useState<Obra | null>(null);
-  const [showForensics, setShowForensics] = useState(false);
-  const [showColdOpen, setShowColdOpen] = useState<boolean | null>(null);
-  const [userCountry, setUserCountry] = useState<CountryView | null>(null);
-  const [regionLabel, setRegionLabel] = useState<string>("Perú");
+  const [mobileList, setMobileList] = useState(false);
 
-  // Reset cold open con ?reset=1
+  const [pais, setPais] = useState<PaisFiltro>("todos");
+  const [region, setRegion] = useState<string | null>(null);
+  const [riesgo, setRiesgo] = useState<RiesgoFiltro>("todas");
+  const [soloRedFlags, setSoloRedFlags] = useState(false);
+  const [q, setQ] = useState("");
+
+  // Tema persistido
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("reset") === "1") {
-      sessionStorage.removeItem("coldOpenSeen");
-      window.history.replaceState({}, "", window.location.pathname);
-    }
-    setShowColdOpen(sessionStorage.getItem("coldOpenSeen") !== "1");
+    const saved = localStorage.getItem("cx-theme");
+    const next: "light" | "dark" =
+      saved === "dark" || saved === "light"
+        ? saved
+        : window.matchMedia?.("(prefers-color-scheme: dark)").matches
+          ? "dark"
+          : "light";
+    // Sync inicial desde un sistema externo (localStorage / preferencia del SO).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTheme(next);
   }, []);
-
-  // Stats globales — corre rápido, alimenta cold open + HUD
   useEffect(() => {
-    let cancelled = false;
-    fetch("/api/stats")
-      .then((r) => r.json())
-      .then((data) => {
-        if (!cancelled) setStats(data);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    localStorage.setItem("cx-theme", theme);
+  }, [theme]);
 
-  // Detección del país del usuario (Cloudflare → accept-language → default PE)
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/geo")
-      .then((r) => r.json())
-      .then((data) => {
-        if (!cancelled && data?.country) setUserCountry(data.country);
-      })
-      .catch(() => {
-        if (!cancelled) setUserCountry(DEFAULT_COUNTRY);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // Fetch obras con coordenadas — para el mapa
+  // Carga de obras (PE + CL, con coordenadas) — igual que la vista clásica
   useEffect(() => {
     let cancelled = false;
     Promise.all([
       fetch("/api/obras?limit=2800&with_coords=true").then((r) => r.json()),
-      fetch("/api/obras?country=CL&limit=2000&with_coords=true").then((r) => r.json()),
+      fetch("/api/obras?country=CL&limit=2000&with_coords=true").then((r) =>
+        r.json()
+      ),
     ])
       .then(([pe, cl]) => {
         if (cancelled) return;
         const clIds = new Set((cl.obras ?? []).map((o: Obra) => o.id));
-        const merged = [
+        setObras([
           ...(cl.obras ?? []),
           ...(pe.obras ?? []).filter((o: Obra) => !clIds.has(o.id)),
-        ];
-        setObras(merged);
-        setSource(pe.source ?? "");
+        ]);
       })
       .catch(() => {})
       .finally(() => !cancelled && setLoading(false));
@@ -104,74 +98,273 @@ export default function HomePage() {
     };
   }, []);
 
-  return (
-    <main className="relative w-screen h-screen overflow-hidden globe-bg">
-      {showColdOpen && (
-        <ColdOpen
-          total={stats?.total_monto}
-          onDone={() => {
-            sessionStorage.setItem("coldOpenSeen", "1");
-            setShowColdOpen(false);
-          }}
-        />
-      )}
+  const paisCounts = useMemo<Record<PaisFiltro, number>>(
+    () => ({
+      todos: obras.length,
+      PE: obras.filter((o) => o.country !== "CL").length,
+      CL: obras.filter((o) => o.country === "CL").length,
+    }),
+    [obras]
+  );
 
-      <MapGlobe
-        obras={obras}
-        selectedId={selected?.id ?? null}
-        onSelect={setSelected}
-        flyToCountry={showColdOpen === false ? userCountry : null}
-        onViewChange={setRegionLabel}
+  const byPais = useMemo(
+    () =>
+      pais === "todos"
+        ? obras
+        : obras.filter((o) =>
+            pais === "CL" ? o.country === "CL" : o.country !== "CL"
+          ),
+    [obras, pais]
+  );
+
+  const regions = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const o of byPais) {
+      const r = o.buyer_region?.trim();
+      if (r) m.set(r, (m.get(r) ?? 0) + 1);
+    }
+    return [...m.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, MAX_REGION_CHIPS)
+      .map(([name, count]) => ({ name, count }));
+  }, [byPais]);
+
+  const scope = useMemo(
+    () =>
+      region ? byPais.filter((o) => o.buyer_region?.trim() === region) : byPais,
+    [byPais, region]
+  );
+
+  const riesgoCounts = useMemo<Record<RiesgoFiltro, number>>(() => {
+    const c = { todas: scope.length, alto: 0, medio: 0, bajo: 0 };
+    for (const o of scope) c[riesgoDeObra(o)]++;
+    return c;
+  }, [scope]);
+
+  const redFlagsCount = useMemo(
+    () => scope.filter((o) => o.is_red_flag).length,
+    [scope]
+  );
+
+  const filtered = useMemo(() => {
+    const lower = q.trim().toLowerCase();
+    return scope.filter((o) => {
+      if (riesgo !== "todas" && riesgoDeObra(o) !== riesgo) return false;
+      if (soloRedFlags && !o.is_red_flag) return false;
+      return search(o, lower);
+    });
+  }, [scope, riesgo, soloRedFlags, q]);
+
+  const grouped = useMemo(() => {
+    const m = new Map<string, Obra[]>();
+    for (const o of filtered) {
+      const key =
+        o.buyer_region?.trim() ||
+        (o.country === "CL" ? "Chile" : "Sin región");
+      if (!m.has(key)) m.set(key, []);
+      m.get(key)!.push(o);
+    }
+    return [...m.entries()].sort((a, b) => b[1].length - a[1].length);
+  }, [filtered]);
+
+  const hasFilters =
+    pais !== "todos" ||
+    region !== null ||
+    riesgo !== "todas" ||
+    soloRedFlags ||
+    q.trim() !== "";
+
+  const clearFilters = () => {
+    setPais("todos");
+    setRegion(null);
+    setRiesgo("todas");
+    setSoloRedFlags(false);
+    setQ("");
+  };
+
+  const toggleSelect = (o: Obra | null) => {
+    setSelected((prev) => (prev && o && prev.id === o.id ? null : o));
+    setMobileList(false);
+  };
+
+  const statsLine = loading
+    ? "cargando datos públicos…"
+    : `${filtered.length.toLocaleString("es-PE")} obras · ${
+        regions.length
+      } regiones · ${redFlagsCount} alertas`;
+
+  return (
+    <main
+      className={`cx-scope ${theme === "dark" ? "dark" : ""} h-dvh flex flex-col overflow-hidden`}
+    >
+      <CodexHeader
+        stats={statsLine}
+        view={view}
+        onViewChange={setView}
+        theme={theme}
+        onThemeToggle={() =>
+          setTheme((t) => (t === "dark" ? "light" : "dark"))
+        }
+        hasFilters={hasFilters}
+        onClearFilters={clearFilters}
       />
 
-      {!showColdOpen && (
-        <AuthorityHud
-          obrasCount={stats?.total_obras ?? obras.length}
-          redFlagsCount={stats?.total_red_flags ?? 0}
-          source={stats?.source ?? source}
-          regionLabel={regionLabel}
-        />
-      )}
+      <CodexFilterBar
+        pais={pais}
+        onPais={(p) => {
+          setPais(p);
+          setRegion(null);
+        }}
+        paisCounts={paisCounts}
+        region={region}
+        onRegion={setRegion}
+        regions={regions}
+        riesgo={riesgo}
+        onRiesgo={setRiesgo}
+        riesgoCounts={riesgoCounts}
+        soloRedFlags={soloRedFlags}
+        onRedFlags={setSoloRedFlags}
+        redFlagsCount={redFlagsCount}
+      />
 
-      {loading && (
-        <div className="absolute bottom-4 left-4 z-10 bg-[var(--ink-1)]/80 backdrop-blur-md border border-[var(--rule)] px-3 py-1.5 text-[10px] uppercase tracking-[0.2em] text-[var(--fg-dim)] font-mono">
-          Cargando obras…
+      {view === "globe" ? (
+        <div className="flex-1 flex min-h-0 relative">
+          <div className="flex-1 min-h-0 flex items-center justify-center">
+            <CodexGlobe
+              obras={filtered}
+              selectedId={selected?.id ?? null}
+              onSelect={toggleSelect}
+              theme={theme}
+            />
+          </div>
+
+          <aside
+            className="w-80 border-l shrink-0 hidden lg:flex flex-col"
+            style={{ borderColor: "var(--cx-border)" }}
+          >
+            <CodexObraList
+              obras={filtered}
+              selectedId={selected?.id ?? null}
+              onSelect={toggleSelect}
+              q={q}
+              onQ={setQ}
+              totalAll={obras.length}
+            />
+          </aside>
+
+          {selected && (
+            <CodexObraDetail
+              obra={selected}
+              onClose={() => setSelected(null)}
+            />
+          )}
+
+          {/* Mobile: botón + overlay lista */}
+          <div className="lg:hidden absolute bottom-4 left-0 right-0 flex justify-center z-20">
+            <button
+              onClick={() => setMobileList(true)}
+              className="px-4 py-2 rounded-full text-xs font-medium border shadow-lg active:scale-95 transition-transform"
+              style={{
+                background: "var(--cx-card)",
+                borderColor: "var(--cx-border)",
+                color: "var(--cx-fg)",
+              }}
+            >
+              {filtered.length} obras
+            </button>
+          </div>
+          {mobileList && (
+            <div
+              className="lg:hidden absolute inset-0 z-30 flex flex-col"
+              style={{ background: "var(--cx-bg)" }}
+            >
+              <div
+                className="flex items-center justify-between px-3 py-2.5 border-b"
+                style={{ borderColor: "var(--cx-border)" }}
+              >
+                <span className="text-sm font-semibold">
+                  {filtered.length} obras
+                </span>
+                <button
+                  onClick={() => setMobileList(false)}
+                  className="text-xs"
+                  style={{ color: "var(--cx-muted)" }}
+                >
+                  Cerrar
+                </button>
+              </div>
+              <div className="flex-1 min-h-0">
+                <CodexObraList
+                  obras={filtered}
+                  selectedId={selected?.id ?? null}
+                  onSelect={toggleSelect}
+                  q={q}
+                  onQ={setQ}
+                  totalAll={obras.length}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-6xl mx-auto p-3 sm:p-6 space-y-6">
+            {grouped.length === 0 && (
+              <p
+                className="py-16 text-center text-sm"
+                style={{ color: "var(--cx-faint)" }}
+              >
+                {loading
+                  ? "Cargando obras…"
+                  : "Ninguna obra coincide con el filtro."}
+              </p>
+            )}
+            {grouped.map(([group, members]) => (
+              <div key={group}>
+                <div className="flex items-center gap-2 mb-3">
+                  <h2
+                    className="text-xs sm:text-sm font-semibold uppercase tracking-wider"
+                    style={{ color: "var(--cx-muted)" }}
+                  >
+                    {group}
+                  </h2>
+                  <span
+                    className="text-xs"
+                    style={{
+                      color: "var(--cx-faint)",
+                      fontFamily: "var(--font-mono), monospace",
+                    }}
+                  >
+                    {members.length}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2">
+                  {members.map((o) => (
+                    <CodexObraCard
+                      key={o.id}
+                      obra={o}
+                      compact
+                      selected={selected?.id === o.id}
+                      onClick={() => toggleSelect(o)}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {selected && (
+            <div className="fixed inset-0 z-30 pointer-events-none">
+              <div className="pointer-events-auto">
+                <CodexObraDetail
+                  obra={selected}
+                  onClose={() => setSelected(null)}
+                />
+              </div>
+            </div>
+          )}
         </div>
       )}
-
-      <ObrasListPanel
-        obras={obras}
-        selectedId={selected?.id ?? null}
-        onSelect={setSelected}
-        total={stats?.total_obras ?? obras.length}
-        source={stats?.source ?? source}
-      />
-
-      {selected && !showForensics && (
-        <ObraDetailPanel
-          obra={selected}
-          onClose={() => setSelected(null)}
-          onInvestigar={() => setShowForensics(true)}
-          onAiResult={(patch) => {
-            // Update the obra in the list so re-selecting it skips re-analysis
-            setObras((prev) =>
-              prev.map((o) => (o.id === patch.id ? { ...o, ...patch } : o))
-            );
-            setSelected((prev) =>
-              prev?.id === patch.id ? { ...prev, ...patch } : prev
-            );
-          }}
-        />
-      )}
-
-      {selected && showForensics && (
-        <ForensicsPanel
-          obra={selected}
-          onClose={() => setShowForensics(false)}
-        />
-      )}
-
-      <CustomCursor />
     </main>
   );
 }

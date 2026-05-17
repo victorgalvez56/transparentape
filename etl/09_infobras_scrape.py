@@ -39,8 +39,13 @@ from bs4 import BeautifulSoup
 BASE = "https://infobras.contraloria.gob.pe/InfobrasWeb"
 UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 
+from requests.adapters import HTTPAdapter
+
 session = requests.Session()
 session.headers.update({"User-Agent": UA, "Accept-Language": "es-PE,es;q=0.9,en;q=0.8"})
+_adapter = HTTPAdapter(pool_connections=50, pool_maxsize=50)
+session.mount("https://", _adapter)
+session.mount("http://", _adapter)
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -203,10 +208,11 @@ def _find_near_label(soup: BeautifulSoup, label_text: str) -> Optional[str]:
 def scrape_obra(codigo: int) -> dict[str, Any]:
     out: dict[str, Any] = {"codigo_infobras": codigo, "scraped_at": time.time()}
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
         f_sumario = ex.submit(fetch, f"Mapa/Sumario?obraId={codigo}")
         f_ejec = ex.submit(fetch, f"Mapa/DatosEjecucion?obraId={codigo}")
         f_aereas = ex.submit(_safe_json, f"ImagenAerea/GetImagenesAereasJson?codigoObra={codigo}")
+        f_coords = ex.submit(_safe_json, f"Mapa/MapaEstadistico/ZoomObra?param={codigo}")
         sumario_html = f_sumario.result()
         try:
             ejec_html = f_ejec.result()
@@ -214,6 +220,7 @@ def scrape_obra(codigo: int) -> dict[str, Any]:
             ejec_html = ""
             out["_warn_ejec"] = str(e)
         aereas_data = f_aereas.result()
+        coords_data = f_coords.result()
 
     out["raw_html_size"] = len(sumario_html)
     soup = BeautifulSoup(sumario_html, "html.parser")
@@ -253,6 +260,19 @@ def scrape_obra(codigo: int) -> dict[str, Any]:
         ej_files = {"pdfs": [], "images": []}
 
     out["imagenes_aereas"] = aereas_data.get("Result", []) if isinstance(aereas_data, dict) else []
+
+    # Coordinates: ZoomObra returns Latitud/Longitud with labels swapped;
+    # JS code reads: obraLat=coords.Longitud, obraLng=coords.Latitud
+    coords_result = coords_data.get("Result", []) if isinstance(coords_data, dict) else []
+    if coords_result:
+        try:
+            c = coords_result[0]
+            raw_lat = (c.get("Longitud") or "").replace(",", ".")
+            raw_lng = (c.get("Latitud") or "").replace(",", ".")
+            out["lat"] = float(raw_lat) if raw_lat else None
+            out["lng"] = float(raw_lng) if raw_lng else None
+        except (ValueError, TypeError):
+            pass
 
     sumario_files = extract_files(sumario_html)
     all_pdfs = {(p["filename_id"], p["name"]): p for p in sumario_files["pdfs"]}
@@ -354,16 +374,20 @@ PROBE_END = 600_001
 
 
 def _probe_id(codigo: int) -> Optional[int]:
-    """Return codigo if the Sumario page exists, None otherwise."""
+    """Return codigo if the obra exists, None otherwise.
+
+    Invalid IDs get a 302 redirect in ~80ms.
+    Valid IDs get HTTP 200. We use stream=True to check status without
+    downloading the 500KB body, keeping probing fast.
+    """
     try:
-        r = session.get(
-            f"{BASE}/Mapa/Sumario?obraId={codigo}",
+        with session.get(
+            f"{BASE}/Mapa/DatosGenerales?obraId={codigo}",
             timeout=10,
             allow_redirects=False,
-        )
-        # A valid obra returns 200 with large HTML; an invalid one returns 302/404 or tiny page
-        if r.status_code == 200 and len(r.text) > 10_000:
-            return codigo
+            stream=True,
+        ) as r:
+            return codigo if r.status_code == 200 else None
     except Exception:
         pass
     return None
@@ -389,30 +413,79 @@ def discover_ids_from_db(probe_limit: int | None = None) -> list[int]:
         print("Tip: save results to a CSV with --save-ids and use --batch next time",
               file=sys.stderr)
 
+    # Persist probe state inside the repo (etl/data/) so a session/machine
+    # restart resumes instead of losing hours of probing (was /tmp, which
+    # gets wiped on restart).
+    _STATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+    os.makedirs(_STATE_DIR, exist_ok=True)
+
+    # Load already-found IDs to resume from a partial run
+    save_ids_path = os.path.join(_STATE_DIR, "infobras_ids_partial.csv")
     ids: list[int] = []
+    already_done: set[int] = set()
+    if os.path.exists(save_ids_path):
+        with open(save_ids_path) as f:
+            for line in f:
+                line = line.strip()
+                if line.isdigit():
+                    ids.append(int(line))
+                    already_done.add(int(line))
+        # Also load already-probed IDs range so we can skip them
+        pass  # We'll skip based on a checkpoint file
+
+    checkpoint_path = os.path.join(_STATE_DIR, "infobras_probe_checkpoint.txt")
+    log_path = os.path.join(_STATE_DIR, "infobras_probe.log")
+    resume_from = PROBE_START
+    if os.path.exists(checkpoint_path):
+        try:
+            resume_from = int(open(checkpoint_path).read().strip())
+            print(f"Resuming from ID {resume_from:,} ({resume_from - PROBE_START:,} already probed)",
+                  file=sys.stderr)
+            sys.stderr.flush()
+        except Exception:
+            resume_from = PROBE_START
+
     lock = threading.Lock()
-    done = 0
+    done = resume_from - PROBE_START  # count already-done
     start = time.time()
     total = end - PROBE_START
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=20) as ex:
-        futures = {ex.submit(_probe_id, i): i for i in range(PROBE_START, end)}
+        futures = {ex.submit(_probe_id, i): i for i in range(resume_from, end)}
         for fut in concurrent.futures.as_completed(futures):
-            done += 1
             result = fut.result()
-            if result:
-                with lock:
+            with lock:
+                done += 1
+                if result:
                     ids.append(result)
-            if done % 5000 == 0 or done == total:
-                rate = done / (time.time() - start) if time.time() > start else 0
+                    # Append immediately to partial CSV so we never lose a found ID
+                    try:
+                        with open(save_ids_path, "a") as _f:
+                            _f.write(f"{result}\n")
+                    except Exception:
+                        pass
+
+            if done % 1000 == 0 or done == total:
+                rate = (done - (resume_from - PROBE_START)) / (time.time() - start) if time.time() > start else 0
                 eta = (total - done) / rate if rate > 0 else 0
-                print(
+                line = (
                     f"  Probed {done:,}/{total:,} · found {len(ids):,} valid IDs · "
-                    f"{rate:.0f}/s · ETA {eta/3600:.1f}h",
-                    file=sys.stderr,
+                    f"{rate:.0f}/s · ETA {eta/3600:.1f}h"
                 )
+                sys.stderr.write(line + "\n")
+                sys.stderr.flush()
+                # Save checkpoint (highest ID confirmed probed)
+                try:
+                    with open(checkpoint_path, "w") as _cf:
+                        _cf.write(str(PROBE_START + done))
+                    with open(log_path, "a") as _lf:
+                        _lf.write(line + "\n")
+                        _lf.flush()
+                except Exception:
+                    pass
 
     print(f"Discovery complete: {len(ids):,} valid INFOBRAS IDs", file=sys.stderr)
+    sys.stderr.flush()
     return sorted(ids)
 
 
@@ -475,6 +548,75 @@ def run_batch(codes: list[int], save: bool, workers: int, skip_existing: bool):
     print(f"\nDONE: {ok} ok, {err} err in {elapsed/60:.1f} min", file=sys.stderr)
 
 
+# ── coordinate backfill ───────────────────────────────────────────────────────
+
+def _fetch_coords(codigo: int) -> tuple[int, Optional[float], Optional[float]]:
+    """Fetch lat/lng from ZoomObra for a single codigo. Returns (codigo, lat, lng)."""
+    try:
+        data = _safe_json(f"Mapa/MapaEstadistico/ZoomObra?param={codigo}")
+        results = data.get("Result", []) if isinstance(data, dict) else []
+        if results:
+            c = results[0]
+            raw_lat = (c.get("Longitud") or "").replace(",", ".")
+            raw_lng = (c.get("Latitud") or "").replace(",", ".")
+            lat = float(raw_lat) if raw_lat else None
+            lng = float(raw_lng) if raw_lng else None
+            return (codigo, lat, lng)
+    except Exception:
+        pass
+    return (codigo, None, None)
+
+
+def _backfill_coords(workers: int = 4):
+    """Fetch and update lat/lng for all rows in infobras_full that have NULL coords."""
+    import psycopg2
+
+    db_url = os.environ.get("DATABASE_URL")
+    if not db_url:
+        print("ERROR: DATABASE_URL required", file=sys.stderr)
+        sys.exit(2)
+
+    conn = psycopg2.connect(db_url)
+    conn.autocommit = True
+    cur = conn.cursor()
+    cur.execute("SELECT codigo_infobras FROM infobras_full WHERE lat IS NULL ORDER BY 1")
+    codes = [r[0] for r in cur.fetchall()]
+    print(f"Backfilling coords for {len(codes):,} rows...", file=sys.stderr)
+
+    updated = 0
+    start = time.time()
+    lock = threading.Lock()
+    last_print = start
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = {ex.submit(_fetch_coords, c): c for c in codes}
+        for i, fut in enumerate(concurrent.futures.as_completed(futures), 1):
+            codigo, lat, lng = fut.result()
+            if lat is not None and lng is not None:
+                cur.execute(
+                    "UPDATE infobras_full SET lat = %s, lng = %s WHERE codigo_infobras = %s",
+                    (lat, lng, codigo),
+                )
+                with lock:
+                    updated += 1
+            now = time.time()
+            with lock:
+                if now - last_print > 5 or i == len(codes):
+                    last_print = now
+                    rate = i / (now - start) if now > start else 0
+                    eta = (len(codes) - i) / rate if rate > 0 else 0
+                    print(
+                        f"  [{time.strftime('%H:%M:%S')}] {i:>5}/{len(codes)} · "
+                        f"updated={updated} · {rate:.1f}/s · ETA {int(eta//60):02d}m",
+                        file=sys.stderr,
+                    )
+
+    cur.close()
+    conn.close()
+    print(f"\nDONE: {updated:,} rows got coordinates in {(time.time()-start)/60:.1f} min",
+          file=sys.stderr)
+
+
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 def main():
@@ -491,7 +633,13 @@ def main():
                     help="Skip codes already in infobras_full")
     ap.add_argument("--out", help="Write single-mode output JSON to file")
     ap.add_argument("--save-ids", help="Save discovered IDs to CSV file (e.g. infobras_ids.csv)")
+    ap.add_argument("--backfill-coords", action="store_true",
+                    help="Fetch coords from ZoomObra and UPDATE lat/lng for existing rows")
     args = ap.parse_args()
+
+    if args.backfill_coords:
+        _backfill_coords(args.workers)
+        return
 
     if args.save and not os.environ.get("DATABASE_URL"):
         print("ERROR: --save requires DATABASE_URL env var", file=sys.stderr)
