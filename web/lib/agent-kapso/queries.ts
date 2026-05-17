@@ -80,10 +80,11 @@ export async function buscarObras(f: BuscarObrasFilters): Promise<ObraResumen[]>
   if (f.ruc)         { parts.push(`supplier_ruc = $${i++}`); vals.push(f.ruc); }
   if (f.procurement_method) { parts.push(`procurement_method = $${i++}`); vals.push(f.procurement_method); }
   if (f.q) {
-    // Search across all relevant text columns including region and locality
+    // Geographic/name search — buyer_region and buyer_locality only to avoid
+    // false positives from tender_description (e.g. "Calle Piura" in Iquitos).
+    // supplier_name included for company-name searches ("obras de Odebrecht").
     parts.push(
-      `(tender_description ILIKE $${i} OR tender_title ILIKE $${i} OR ` +
-      `supplier_name ILIKE $${i} OR buyer_region ILIKE $${i} OR buyer_locality ILIKE $${i})`
+      `(buyer_region ILIKE $${i} OR buyer_locality ILIKE $${i} OR supplier_name ILIKE $${i})`
     );
     vals.push(`%${f.q}%`);
     i++;
