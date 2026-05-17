@@ -284,7 +284,8 @@ function fmtDate(raw: string | null | undefined): string {
 export function fmtRetrasadas(
   obras: ObraRetrasada[],
   country: string,
-  scope?: string
+  scope?: string,
+  year?: number
 ): string {
   if (!obras.length) {
     return (
@@ -294,9 +295,10 @@ export function fmtRetrasadas(
   }
   const nation = COUNTRY_NAMES[country] ?? country;
   const where = scope ? `${scope}, ${nation}` : nation;
+  const yearTag = year ? ` · año ${year}` : "";
   const count = obras.length;
   const lines = [
-    `🐢 *${count} obra${count > 1 ? "s" : ""} con retraso excesivo · ${where}*`,
+    `🐢 *${count} obra${count > 1 ? "s" : ""} con retraso excesivo · ${where}${yearTag}*`,
     `_Cronograma vencido >180d, o 3+ adendas de plazo, o cierre >365d tarde._`,
     `_Cobertura: solo obras con datos INFOBRAS._\n`,
   ];

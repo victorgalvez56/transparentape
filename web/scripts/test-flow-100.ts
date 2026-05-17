@@ -329,6 +329,35 @@ const FLOWS: Flow[] = [
       { input: "gracias", intent: "AGRADECIMIENTO" },
     ],
   },
+  {
+    // I. Caso forense — periodista investiga retraso real, incluye T4 que
+    //    descubrió el bug "year filter silenciosamente droppeado" (ahora
+    //    fixeado: obrasRetrasadas y su tool aceptan year).
+    name: "I. Caso forense — periodista investiga retraso Cusco 2024",
+    steps: [
+      { input: "Hola", intent: "AYUDA" },
+      {
+        input: "Quisiera ver las obras en Perú que hayan tenido retrasos excesivos comparados con el cronograma original",
+        intent: "OBRAS_RETRASADAS",
+        expectCountry: "PE",
+      },
+      { input: "el primero", intent: "CONTEXTO_DETALLE", contextPosition: 1 },
+      {
+        input: "obras retrasadas en Cusco 2024",
+        intent: "OBRAS_RETRASADAS",
+        filters: { q_geo: "cusco", year: 2024 },
+      },
+      { input: "los primeros 2", intent: "CONTEXTO_DETALLE", contextPosition: 1, contextCount: 2 },
+      { input: "el segundo", intent: "CONTEXTO_DETALLE", contextPosition: 2 },
+      { input: "investigar Cosapi", intent: "INVESTIGAR_CONTRATISTA" },
+      {
+        input: "obras estancadas en Lima Norte",
+        intent: "OBRAS_RETRASADAS",
+        filters: { q_geo: "lima norte" },
+      },
+      { input: "gracias", intent: "AGRADECIMIENTO" },
+    ],
+  },
 ];
 
 console.log("\n── Multi-turn flows ────────────────────────────────────────");
