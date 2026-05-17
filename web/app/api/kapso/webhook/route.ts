@@ -5,6 +5,7 @@ import { WhatsAppClient } from "@kapso/whatsapp-cloud-api";
 import { normalizeWebhook } from "@kapso/whatsapp-cloud-api/server";
 import { query } from "@/lib/db";
 import { chatEngine } from "@/lib/agent-kapso/engine";
+import { runChatPipeline, type ChatMessage } from "@/lib/agent/core";
 import { parseIntent } from "@/lib/agent-kapso/intent";
 import { getSession, updateSession, appendToHistory } from "@/lib/agent-kapso/session";
 import { AGENT } from "@/lib/agent-kapso/config";
@@ -83,6 +84,40 @@ const BUTTON_MAP: Record<string, string> = {
   btn_adjdirecta: "adjudicación directa",
   btn_entidades: "ranking entidades",
 };
+
+// Send reply + suggested questions as a WhatsApp interactive list.
+// Meta caps: row title 24 chars, description 72, buttonText 20, up to 10 rows.
+async function sendReplyWithSuggestions(
+  phoneNumberId: string,
+  to: string,
+  reply: string,
+  suggestions: string[]
+): Promise<void> {
+  const rows = suggestions.slice(0, 10).map((q, i) => {
+    const clean = q.trim().replace(/^¿|\?$/g, "");
+    return {
+      id: `sug_${i}`,
+      title: clean.length > 24 ? clean.slice(0, 23) + "…" : clean,
+      ...(clean.length > 24 ? { description: clean.length > 72 ? clean.slice(0, 71) + "…" : clean } : {}),
+    };
+  });
+  try {
+    const truncatedBody = reply.length > 1024 ? reply.slice(0, 1020) + "…" : reply;
+    await getKapso().messages.sendInteractiveList({
+      phoneNumberId,
+      to,
+      bodyText: truncatedBody,
+      buttonText: "Ver opciones",
+      sections: [{ title: "Preguntas sugeridas", rows }],
+    });
+  } catch {
+    // Fallback to plain text with numbered options
+    const numbered = suggestions.map((q, i) => `${i + 1}️⃣ ${q}`).join("\n");
+    const body = `${reply}\n\n${numbered}`;
+    const truncated = body.length > AGENT.limits.waMaxChars ? body.slice(0, AGENT.limits.waMaxChars - 6) + "…" : body;
+    await getKapso().messages.sendText({ phoneNumberId, to, body: truncated });
+  }
+}
 
 async function sendAyudaWithButtons(
   phoneNumberId: string,
@@ -234,8 +269,24 @@ async function handleMessage(
       return "¡Con gusto! 😊 Escribe *ayuda* para ver todo lo que puedo consultar.";
 
     case "PREGUNTA_LIBRE":
-    default:
-      return chatEngine(text, session.lastMessages ?? []);
+    default: {
+      // Use shared pipeline (web + WhatsApp). On failure, fallback to legacy engine.
+      const history: ChatMessage[] = [
+        ...((session.lastMessages ?? []) as ChatMessage[]),
+        { role: "user", content: text },
+      ];
+      try {
+        const result = await runChatPipeline(history);
+        if (result.suggested_questions?.length) {
+          await sendReplyWithSuggestions(phoneNumberId, to, result.reply, result.suggested_questions);
+          return null;
+        }
+        return result.reply;
+      } catch (e) {
+        console.error("[kapso/webhook] core pipeline failed, fallback:", e);
+        return chatEngine(text, session.lastMessages ?? []);
+      }
+    }
   }
 }
 
