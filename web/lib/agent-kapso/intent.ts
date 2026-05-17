@@ -1,19 +1,22 @@
 import type { Country } from "./session";
 import type { BuscarObrasFilters } from "./queries";
 
+// Intents kept as regex fast-path are limited to high-confidence patterns
+// (greetings, gratitude, country switch, ordinal/ID detail, proximity,
+// search-obras with explicit "obras|proyectos|..." keyword, and explicit
+// "investigar X"). Verbs like "ranking", "stats", "inhabilitados",
+// "monto en riesgo", "adjudicación directa" no longer have a regex
+// shortcut — they fall through to PREGUNTA_LIBRE → LLM router → TOOL_CALL.
+// This is what unlocks carry-forward: "obras en Piura" → "y el ranking?"
+// now reaches the tool layer with full chat history, instead of being
+// short-circuited to a national ranking.
 export type Intent =
   | "CAMBIAR_PAIS"
   | "BUSCAR_OBRAS"
   | "BUSCAR_CERCANOS"
   | "VER_DETALLE"
   | "CONTEXTO_DETALLE"
-  | "STATS"
-  | "MONTO_EN_RIESGO"
-  | "RANKING_CONTRATISTAS"
-  | "RANKING_ENTIDADES"
-  | "ADJUDICACION_DIRECTA"
   | "INVESTIGAR_CONTRATISTA"
-  | "INHABILITADOS"
   | "AYUDA"
   | "AGRADECIMIENTO"
   | "PREGUNTA_LIBRE";
@@ -24,6 +27,7 @@ export interface ParsedIntent {
   filters?: BuscarObrasFilters;
   obraId?: number;
   contextPosition?: number; // 1-based index into session.lastResultIds; -1 = last
+  contextCount?: number;    // when >1, return a slice (los primeros 3 / los ultimos 5)
   contratista?: string;
   ruc?: string;
 }
@@ -60,6 +64,21 @@ function extractContextPosition(text: string): number | null {
     if (re.test(text)) return pos;
   }
   return null;
+}
+
+// Plural ordinal: "los primeros 3", "primeras 3 obras", "3 primeros",
+// "los últimos 5", "ultimas 2". Returns the head/tail direction (1 / -1)
+// plus how many to slice. Range capped at 10 — anything larger is
+// probably not an ordinal reference at all.
+function extractPluralOrdinal(text: string): { pos: 1 | -1; count: number } | null {
+  const m = text.match(
+    /\b(?:los\s+|las\s+)?(?:(primer|ultim)[oa]s\s+(\d{1,2})|(\d{1,2})\s+(primer|ultim)[oa]s)\b/i
+  );
+  if (!m) return null;
+  const direction = (m[1] || m[4]).toLowerCase();
+  const count = parseInt(m[2] || m[3], 10);
+  if (!Number.isFinite(count) || count < 2 || count > 10) return null;
+  return { pos: direction.startsWith("primer") ? 1 : -1, count };
 }
 
 // ── Country detection ─────────────────────────────────────────────────────────
@@ -152,7 +171,14 @@ export function parseIntent(text: string, sessionCountry: Country): ParsedIntent
   }
 
   // ── Greeting / help ──
-  if (/^\s*(hola|holi|hey|hi|buenos?\s+dias?|buenas?\s+tardes?|buenas?\s+noches?|buenas?|saludos?|que\s+tal|como\s+estas?|ayuda|comandos|\?{2,}|que\s+puedes(?:\s+\w+)?|que\s+haces|que\s+sabes|inicio|empezar|start|menu)\s*[!.?,]*\s*$/i.test(tn)) {
+  // Accepts repeated greetings ("hola hola hola"), 👋 emoji alone, and
+  // emoji + word combinations so the onboarding flow still kicks in for
+  // common warm-up patterns.
+  if (
+    /^\s*(?:(?:hola|holi|hey|hi|👋|buenos?\s+dias?|buenas?\s+tardes?|buenas?\s+noches?|buenas?|saludos?|que\s+tal|como\s+estas?|ayuda|comandos|\?{2,}|que\s+puedes(?:\s+\w+)?|que\s+haces|que\s+sabes|inicio|empezar|start|menu)\s*[!.?,]*\s*)+$/i.test(
+      tn
+    )
+  ) {
     return { intent: "AYUDA", country };
   }
 
@@ -161,7 +187,20 @@ export function parseIntent(text: string, sessionCountry: Country): ParsedIntent
     return { intent: "BUSCAR_CERCANOS", country };
   }
 
-  // ── Context detail: "el primero", "#5", "uno", "más detalle" ──
+  // ── Context detail (plural): "los primeros 3", "ultimas 2" ──
+  // Check before singular ordinal because "primeros 3" would otherwise
+  // match `\bprimer[ao]\b` and lose the count.
+  const plural = extractPluralOrdinal(tn);
+  if (plural) {
+    return {
+      intent: "CONTEXTO_DETALLE",
+      country,
+      contextPosition: plural.pos,
+      contextCount: plural.count,
+    };
+  }
+
+  // ── Context detail (singular): "el primero", "#5", "uno", "más detalle" ──
   // Gate is presence of any ordinal — checked directly via extractContextPosition.
   // "más detalle/info" without ordinal → default to position 1 (first result).
   const pos = extractContextPosition(tn);
@@ -200,35 +239,13 @@ export function parseIntent(text: string, sessionCountry: Country): ParsedIntent
     return { intent: "INVESTIGAR_CONTRATISTA", country, contratista: name || undefined };
   }
 
-  // ── Inhabilitados ──
-  if (/\binhabilitad[oa]s?\b|\bsancionad[oa]s?\b|\bpenalidad\b/i.test(tn)) {
-    return { intent: "INHABILITADOS", country };
-  }
-
-  // ── Adjudicación directa (plural OK) ──
-  if (/\badjudicaci(?:on|ones)\s+direct[ao]s?\b|\bcontrat[ao]s?\s+direct[ao]s?\b/i.test(tn)) {
-    return { intent: "ADJUDICACION_DIRECTA", country };
-  }
-
-  // ── Ranking entidades ──
-  if (/\branking\s+entidades?\b|\bentidades?\s+compradoras?\b|\btop\s+entidades?\b|\bmayores?\s+compradores?\b/i.test(tn)) {
-    return { intent: "RANKING_ENTIDADES", country };
-  }
-
-  // ── Ranking contratistas ──
-  if (/\branking\b|\bmayores?\s+contratistas?\b|\btop\b.*\bcontratistas?\b/i.test(tn)) {
-    return { intent: "RANKING_CONTRATISTAS", country };
-  }
-
-  // ── Monto en riesgo ──
-  if (/\bmonto\s+en\s+riesgo\b|\bcuanto\s+esta\s+en\s+riesgo\b|\bdinero\s+en\s+riesgo\b/i.test(tn)) {
-    return { intent: "MONTO_EN_RIESGO", country };
-  }
-
-  // ── Stats ──
-  if (/\bestadisticas?\b|\bresumen\b|\bcuantas?\s+obras\b|\bpanorama\b/i.test(tn)) {
-    return { intent: "STATS", country };
-  }
+  // (sunset) inhabilitados / adjudicación directa / ranking entidades /
+  // ranking contratistas / monto en riesgo / stats — these used to live
+  // here as fast-path regex. They were brittle (paraphrases missed, carry-
+  // forward broken — "y el ranking?" after "obras en Piura" returned a
+  // national ranking) so they now fall through to PREGUNTA_LIBRE and let
+  // the LLM router pick the matching tool from `tools.ts` with the chat
+  // history visible.
 
   // ── Buscar obras ──
   // Trigger: explicit obra keywords (all plural forms) OR a year extracted.

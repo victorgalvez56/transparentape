@@ -14,25 +14,13 @@ import {
   buscarCercanas,
   yearsDisponibles,
   getObraResumen,
-  rankingContratistas,
   investigarContratista,
-  inhabilitadosVigentes,
-  adjudicacionDirectaAlertas,
-  rankingEntidades,
-  montoEnRiesgo,
-  statsPorPais,
 } from "@/lib/agent-kapso/queries";
 import {
   fmtObras,
   fmtDetalle,
   fmtCercanas,
-  fmtStats,
-  fmtRankingContratistas,
   fmtInvestigacion,
-  fmtInhabilitados,
-  fmtAdjudicacionDirecta,
-  fmtRankingEntidades,
-  fmtMontoEnRiesgo,
   INTRO_MSG,
 } from "@/lib/agent-kapso/wa-format";
 
@@ -260,17 +248,6 @@ async function handleMessage(
       await sendAyudaWithButtons(phoneNumberId, to);
       return null;
 
-    case "STATS": {
-      const stats = await statsPorPais(country);
-      if (!stats) return "No hay datos disponibles para ese país.";
-      return fmtStats({ ...stats, country });
-    }
-
-    case "MONTO_EN_RIESGO": {
-      const data = await montoEnRiesgo(country);
-      return fmtMontoEnRiesgo(data);
-    }
-
     case "BUSCAR_CERCANOS": {
       const loc = session.lastLocation;
       if (!loc) {
@@ -307,6 +284,24 @@ async function handleMessage(
       const ids = session.lastResultIds ?? [];
       if (!ids.length) return "No tengo una búsqueda reciente. Primero pregunta por obras en una región o año.";
       const pos = parsed.contextPosition ?? 1;
+      const count = parsed.contextCount ?? 1;
+
+      // Plural ordinal ("los primeros 3", "ultimas 2") → slice + list format.
+      if (count > 1) {
+        const take = Math.min(count, ids.length);
+        const slice = pos === -1 ? ids.slice(-take) : ids.slice(0, take);
+        const fetched = await Promise.all(slice.map((id) => getObraResumen(id)));
+        const obras = fetched.filter((o): o is NonNullable<typeof o> => o !== null);
+        if (!obras.length) return "No pude recuperar esas obras.";
+        // Persist the narrowed slice so a subsequent "el primero" maps within it.
+        await updateSession(conversationId, {
+          lastResultIds: obras.map((o) => o.id),
+          lastQuery: effectiveText,
+        });
+        return fmtObras(obras, country);
+      }
+
+      // Singular ordinal — original behavior.
       const idx = pos === -1 ? ids.length - 1 : pos - 1;
       const id = ids[idx];
       if (!id) return `Solo tengo ${ids.length} resultado(s) de la última búsqueda.`;
@@ -322,32 +317,11 @@ async function handleMessage(
       return fmtDetalle(obra, country);
     }
 
-    case "RANKING_CONTRATISTAS": {
-      const porAlertas = /\balerta[s]?\b/i.test(effectiveText);
-      const list = await rankingContratistas(country, porAlertas ? "alertas" : "monto", 5);
-      return fmtRankingContratistas(list, country);
-    }
-
-    case "RANKING_ENTIDADES": {
-      const list = await rankingEntidades(country, 5);
-      return fmtRankingEntidades(list, country);
-    }
-
-    case "ADJUDICACION_DIRECTA": {
-      const obras = await adjudicacionDirectaAlertas(country, 5);
-      return fmtAdjudicacionDirecta(obras, country);
-    }
-
     case "INVESTIGAR_CONTRATISTA": {
       const q = parsed.ruc ?? parsed.contratista;
       if (!q) return "Escribe el RUC o nombre de la empresa. Ej: *investigar Odebrecht*";
       const data = await investigarContratista(q, country);
       return fmtInvestigacion(data, country);
-    }
-
-    case "INHABILITADOS": {
-      const list = await inhabilitadosVigentes(country, 8);
-      return fmtInhabilitados(list, country);
     }
 
     case "AGRADECIMIENTO":
@@ -564,7 +538,8 @@ export async function POST(req: NextRequest) {
 
   // Fast-path: pure greeting → skip session lookup + dedup in critical path,
   // fire interactive buttons immediately. Cuts ~1-1.5s vs full handler.
-  const GREETING_RE = /^\s*(hola|holi|hey|hi|buenos?\s+dias?|buenas?\s+tardes?|buenas?\s+noches?|buenas?|saludos?|ayuda|menu|start|inicio|empezar)\s*[!.?,]*\s*$/i;
+  // Accepts repeated greetings ("hola hola hola"), 👋 emoji solo, and emoji+word.
+  const GREETING_RE = /^\s*(?:(?:hola|holi|hey|hi|👋|buenos?\s+dias?|buenas?\s+tardes?|buenas?\s+noches?|buenas?|saludos?|ayuda|menu|start|inicio|empezar)\s*[!.?,]*\s*)+$/i;
   if (GREETING_RE.test(text)) {
     waitUntil((async () => {
       const tFast = Date.now();

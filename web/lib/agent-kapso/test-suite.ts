@@ -177,28 +177,26 @@ async function testIntent() {
     }
   }
 
-  section("L1: parseIntent — rankings, stats, investigations");
+  section("L1: parseIntent — high-confidence fast-path intents");
+  // Rankings/stats/inhabilitados/adjudicación/monto were intentionally
+  // sunsetted from the regex layer — they now route through PREGUNTA_LIBRE
+  // so the LLM router can pick the matching tool with chat-history context
+  // (carry-forward).  Only intents that still own a fast-path are asserted
+  // here; the dropped ones get a PREGUNTA_LIBRE expectation instead.
   const cmds: [string, Intent][] = [
-    ["estadísticas", "STATS"],
-    ["estadísticas Perú", "STATS"],
-    ["resumen", "STATS"],
-    ["resumen Chile", "STATS"],
-    ["cuántas obras hay", "STATS"],
-    ["ranking", "RANKING_CONTRATISTAS"],
-    ["ranking contratistas", "RANKING_CONTRATISTAS"],
-    ["top contratistas", "RANKING_CONTRATISTAS"],
-    ["mayores contratistas", "RANKING_CONTRATISTAS"],
-    ["ranking entidades", "RANKING_ENTIDADES"],
-    ["top entidades", "RANKING_ENTIDADES"],
-    ["mayores compradores", "RANKING_ENTIDADES"],
-    ["entidades compradoras", "RANKING_ENTIDADES"],
-    ["inhabilitados", "INHABILITADOS"],
-    ["sancionados", "INHABILITADOS"],
-    ["adjudicación directa", "ADJUDICACION_DIRECTA"],
-    ["adjudicaciones directas", "ADJUDICACION_DIRECTA"],
-    ["monto en riesgo", "MONTO_EN_RIESGO"],
-    ["cuanto está en riesgo", "MONTO_EN_RIESGO"],
-    ["dinero en riesgo", "MONTO_EN_RIESGO"],
+    ["estadísticas", "PREGUNTA_LIBRE"],
+    ["resumen", "PREGUNTA_LIBRE"],
+    ["ranking", "PREGUNTA_LIBRE"],
+    ["ranking contratistas", "PREGUNTA_LIBRE"],
+    ["top contratistas", "PREGUNTA_LIBRE"],
+    ["ranking entidades", "PREGUNTA_LIBRE"],
+    ["top entidades", "PREGUNTA_LIBRE"],
+    ["inhabilitados", "PREGUNTA_LIBRE"],
+    ["sancionados", "PREGUNTA_LIBRE"],
+    ["adjudicación directa", "PREGUNTA_LIBRE"],
+    ["adjudicaciones directas", "PREGUNTA_LIBRE"],
+    ["monto en riesgo", "PREGUNTA_LIBRE"],
+    ["dinero en riesgo", "PREGUNTA_LIBRE"],
     ["investigar Odebrecht", "INVESTIGAR_CONTRATISTA"],
     ["investigar 20123456789", "INVESTIGAR_CONTRATISTA"],
     ["detalle #42", "VER_DETALLE"],
