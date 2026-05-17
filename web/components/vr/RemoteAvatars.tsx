@@ -47,7 +47,7 @@ function RemoteAvatar({ other }: { other: OtherUser }) {
 
   useFrame(() => {
     const p = other.presence;
-    if (!p || !groupRef.current) return;
+    if (!p || !p.headPos || !p.headQuat || !groupRef.current) return;
     // Lerp suave hacia la posición/rot recibida
     const g = groupRef.current;
     g.position.lerp(
@@ -66,7 +66,7 @@ function RemoteAvatar({ other }: { other: OtherUser }) {
   });
 
   const p = other.presence;
-  if (!p) return null;
+  if (!p || !p.headPos || !p.headQuat) return null;
   const color = p.color || "#ffffff";
   const name = p.name || "Auditor";
   const isPointing = p.pointingObraId != null;
