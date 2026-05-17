@@ -7,7 +7,10 @@ export type Intent =
   | "VER_DETALLE"
   | "CONTEXTO_DETALLE"
   | "STATS"
+  | "MONTO_EN_RIESGO"
   | "RANKING_CONTRATISTAS"
+  | "RANKING_ENTIDADES"
+  | "ADJUDICACION_DIRECTA"
   | "INVESTIGAR_CONTRATISTA"
   | "INHABILITADOS"
   | "AYUDA"
@@ -138,9 +141,24 @@ export function parseIntent(text: string, sessionCountry: Country): ParsedIntent
     return { intent: "INHABILITADOS", country };
   }
 
+  // Adjudicación directa con alertas
+  if (/\badjudicaci[oó]n\s+direct[ao]\b|\bdirect[ao]\s+con\s+alert[ao]\b|\bcontrat[ao]s?\s+direct[ao]s?\b/i.test(t)) {
+    return { intent: "ADJUDICACION_DIRECTA", country };
+  }
+
+  // Ranking entidades compradoras
+  if (/\branking\s+entidades?\b|\bentidades?\s+compradoras?\b|\btop\s+entidades?\b|\bmayores?\s+compradores?\b/i.test(t)) {
+    return { intent: "RANKING_ENTIDADES", country };
+  }
+
   // Ranking contractors
   if (/\branking\b|\bmayores?\s+contratistas?\b|\btop\b.*\bcontratistas?\b/i.test(t)) {
     return { intent: "RANKING_CONTRATISTAS", country };
+  }
+
+  // Monto en riesgo
+  if (/\bmonto\s+en\s+riesgo\b|\bcuanto\s+est[aá]\s+en\s+riesgo\b|\btotal\s+alertas?\b|\bdinero\s+en\s+riesgo\b/i.test(t)) {
+    return { intent: "MONTO_EN_RIESGO", country };
   }
 
   // Stats

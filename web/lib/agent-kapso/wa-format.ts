@@ -143,6 +143,45 @@ export function fmtInhabilitados(
   return lines.join("\n");
 }
 
+export function fmtAdjudicacionDirecta(obras: ObraResumen[], country: string): string {
+  if (!obras.length) return "No se encontraron adjudicaciones directas con alertas.";
+  const nation = COUNTRY_NAMES[country] ?? country;
+  const lines = [`⚡ *Adjudicaciones directas con alerta en ${nation}:*\n`];
+  obras.forEach((o, i) => {
+    lines.push(
+      `${i + 1}. *${o.titulo ?? "Sin título"}* ⚠️\n` +
+      `   💰 ${fmt(o.monto, country)} | 📍 ${o.region ?? "—"} | ID: ${o.id}`
+    );
+  });
+  return lines.join("\n");
+}
+
+export function fmtRankingEntidades(
+  list: { buyer_name: string; obras: number; obras_alertadas: number; monto_total: number | null }[],
+  country: string
+): string {
+  if (!list.length) return "No hay entidades con datos suficientes.";
+  const nation = COUNTRY_NAMES[country] ?? country;
+  const lines = [`🏛️ *Top entidades compradoras en ${nation}:*\n`];
+  list.forEach((e, i) => {
+    lines.push(
+      `${i + 1}. *${e.buyer_name ?? "—"}*\n` +
+      `   ${e.obras} obras${e.obras_alertadas > 0 ? ` | ⚠️ ${e.obras_alertadas} alertas` : ""} | ${fmt(e.monto_total, country)}`
+    );
+  });
+  return lines.join("\n");
+}
+
+export function fmtMontoEnRiesgo(data: { obras: number; monto_total: number; country: string }): string {
+  const nation = COUNTRY_NAMES[data.country] ?? data.country;
+  return (
+    `🚨 *Monto en riesgo — ${nation}*\n\n` +
+    `Obras con alerta: ${data.obras.toLocaleString()}\n` +
+    `💰 Total comprometido: *${fmt(data.monto_total, data.country)}*\n\n` +
+    `_Monto de contratos donde se detectaron red flags (adjudicación directa, inhabilitado, etc.)_`
+  );
+}
+
 export const AYUDA_MSG = `🤖 *Transparentape — Agente de Obras Públicas*
 
 Comandos disponibles:
@@ -156,10 +195,12 @@ Comandos disponibles:
 
 📊 *Estadísticas*
   _estadísticas Perú_ · _resumen Chile_
+  _monto en riesgo Perú_
 
-🏆 *Ranking contratistas*
+🏆 *Rankings*
   _ranking contratistas Perú_
-  _ranking por alertas Chile_
+  _ranking entidades Chile_
+  _adjudicación directa Perú_
 
 🔎 *Investigar empresa*
   _investigar 20123456789_

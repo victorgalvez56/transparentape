@@ -10,6 +10,9 @@ import {
   rankingContratistas,
   investigarContratista,
   inhabilitadosVigentes,
+  adjudicacionDirectaAlertas,
+  rankingEntidades,
+  montoEnRiesgo,
   statsPorPais,
 } from "@/lib/agent-kapso/queries";
 import {
@@ -19,6 +22,9 @@ import {
   fmtRankingContratistas,
   fmtInvestigacion,
   fmtInhabilitados,
+  fmtAdjudicacionDirecta,
+  fmtRankingEntidades,
+  fmtMontoEnRiesgo,
   AYUDA_MSG,
 } from "@/lib/agent-kapso/wa-format";
 import crypto from "node:crypto";
@@ -38,12 +44,19 @@ function verifySignature(rawBody: string, signature: string | null): boolean {
   return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
 }
 
-type KapsoEvent = {
-  message?: {
+type KapsoMessage = {
+  type?: string;
+  from?: string;
+  text?: { body?: string };
+  interactive?: {
     type?: string;
-    from?: string;
-    text?: { body?: string };
+    button_reply?: { id?: string; title?: string };
+    list_reply?: { id?: string; title?: string };
   };
+};
+
+type KapsoEvent = {
+  message?: KapsoMessage;
   whatsapp_config?: { phone_number_id?: string };
 };
 
@@ -54,13 +67,53 @@ function extractEvents(body: Record<string, unknown>): KapsoEvent[] {
   return [];
 }
 
-async function handleMessage(text: string, conversationId: string): Promise<string> {
-  const session = getSession(conversationId);
+// Map button IDs to text commands for intent parsing
+function resolveButtonReply(id: string): string {
+  const MAP: Record<string, string> = {
+    btn_buscar: "obras en",
+    btn_stats: "estadísticas",
+    btn_ranking: "ranking contratistas",
+    btn_inhabilitados: "inhabilitados",
+    btn_adjdirecta: "adjudicación directa",
+    btn_entidades: "ranking entidades",
+  };
+  return MAP[id] ?? id;
+}
+
+async function sendAyudaWithButtons(
+  phoneNumberId: string,
+  to: string
+): Promise<void> {
+  try {
+    await kapso.messages.sendInteractiveButtons({
+      phoneNumberId,
+      to,
+      bodyText: "🤖 *Transparentape* — ¿Qué quieres consultar?",
+      footerText: "Datos: OCDS · SEACE · Mercado Público",
+      header: { type: "text", text: "Obras Públicas" },
+      buttons: [
+        { id: "btn_buscar", title: "🔍 Buscar obras" },
+        { id: "btn_stats", title: "📊 Estadísticas" },
+        { id: "btn_ranking", title: "🏆 Ranking" },
+      ],
+    });
+  } catch {
+    // Fallback to plain text if interactive fails
+    await kapso.messages.sendText({ phoneNumberId, to, body: AYUDA_MSG });
+  }
+}
+
+async function handleMessage(
+  text: string,
+  conversationId: string,
+  phoneNumberId: string,
+  to: string
+): Promise<string | null> {
+  const session = await getSession(conversationId);
   const parsed = parseIntent(text, session.country);
 
-  // Persist country change
   if (parsed.country && parsed.country !== session.country) {
-    updateSession(conversationId, { country: parsed.country });
+    await updateSession(conversationId, { country: parsed.country });
   }
 
   const country = parsed.country ?? session.country;
@@ -75,7 +128,8 @@ async function handleMessage(text: string, conversationId: string): Promise<stri
     }
 
     case "AYUDA":
-      return AYUDA_MSG;
+      await sendAyudaWithButtons(phoneNumberId, to);
+      return null; // already sent interactively
 
     case "STATS": {
       const stats = await statsPorPais(country);
@@ -83,11 +137,15 @@ async function handleMessage(text: string, conversationId: string): Promise<stri
       return fmtStats({ ...stats, country });
     }
 
+    case "MONTO_EN_RIESGO": {
+      const data = await montoEnRiesgo(country);
+      return fmtMontoEnRiesgo(data);
+    }
+
     case "BUSCAR_OBRAS": {
       const filters = parsed.filters ?? { country };
       const obras = await buscarObras({ ...filters, limit: 5 });
-      // Store result IDs for conversational context
-      updateSession(conversationId, {
+      await updateSession(conversationId, {
         lastResultIds: obras.map((o) => o.id),
         lastQuery: text,
       });
@@ -119,6 +177,16 @@ async function handleMessage(text: string, conversationId: string): Promise<stri
       const porAlertas = /\balerta[s]?\b/i.test(text);
       const list = await rankingContratistas(country, porAlertas ? "alertas" : "monto", 5);
       return fmtRankingContratistas(list, country);
+    }
+
+    case "RANKING_ENTIDADES": {
+      const list = await rankingEntidades(country, 5);
+      return fmtRankingEntidades(list, country);
+    }
+
+    case "ADJUDICACION_DIRECTA": {
+      const obras = await adjudicacionDirectaAlertas(country, 5);
+      return fmtAdjudicacionDirecta(obras, country);
     }
 
     case "INVESTIGAR_CONTRATISTA": {
@@ -158,23 +226,35 @@ export async function POST(req: NextRequest) {
 
   for (const event of events) {
     const msg = event.message;
-    if (!msg || msg.type !== "text") continue;
+    if (!msg) continue;
 
-    const text = msg.text?.body?.trim();
     const from = msg.from;
     const phoneNumberId =
       event.whatsapp_config?.phone_number_id ?? process.env.KAPSO_PHONE_NUMBER_ID!;
 
-    if (!text || !from) continue;
+    if (!from) continue;
 
     const to = from.startsWith("+") ? from : `+${from}`;
     const t0 = Date.now();
 
-    try {
-      const reply = await handleMessage(text, from);
-      const truncated = reply.length > 4096 ? reply.slice(0, 4090) + "…" : reply;
+    // Resolve text: plain text OR interactive button reply
+    let text: string | undefined;
+    if (msg.type === "text") {
+      text = msg.text?.body?.trim();
+    } else if (msg.type === "interactive") {
+      const btnId = msg.interactive?.button_reply?.id ?? msg.interactive?.list_reply?.id;
+      if (btnId) text = resolveButtonReply(btnId);
+    }
 
-      await kapso.messages.sendText({ phoneNumberId, to, body: truncated });
+    if (!text) continue;
+
+    try {
+      const reply = await handleMessage(text, from, phoneNumberId, to);
+
+      if (reply !== null) {
+        const truncated = reply.length > 4096 ? reply.slice(0, 4090) + "…" : reply;
+        await kapso.messages.sendText({ phoneNumberId, to, body: truncated });
+      }
 
       query(
         `INSERT INTO agent_logs(endpoint, params, n_resultados, latencia_ms) VALUES ($1, $2, $3, $4)`,
