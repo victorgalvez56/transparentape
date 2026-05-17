@@ -341,87 +341,79 @@ def upsert_obra(data: dict[str, Any]) -> None:
     cur.close()
 
 
-# ── ID discovery from obras table ─────────────────────────────────────────────
+# ── ID discovery via sequential probing ───────────────────────────────────────
 
 CUI_RE = re.compile(
     r"(?:CUI|C[óo]digo\s+(?:Único|Unico)\s+de\s+Inversi[óo]n)[\s°N°.:]*(\d{6,8})",
     re.IGNORECASE,
 )
 
+# Known INFOBRAS ID range from observed data: 100k – 600k
+PROBE_START = 100_000
+PROBE_END = 600_001
+
+
+def _probe_id(codigo: int) -> Optional[int]:
+    """Return codigo if the Sumario page exists, None otherwise."""
+    try:
+        r = session.get(
+            f"{BASE}/Mapa/Sumario?obraId={codigo}",
+            timeout=10,
+            allow_redirects=False,
+        )
+        # A valid obra returns 200 with large HTML; an invalid one returns 302/404 or tiny page
+        if r.status_code == 200 and len(r.text) > 10_000:
+            return codigo
+    except Exception:
+        pass
+    return None
+
 
 def discover_ids_from_db(probe_limit: int | None = None) -> list[int]:
     """
-    Probe INFOBRAS for each unique CUI extracted from obras.tender_description.
-    Returns a list of valid codigo_infobras values.
+    Probe sequential ID range to discover all valid INFOBRAS obra IDs.
+    probe_limit caps the number of IDs probed (e.g. 1000 for a quick test).
+
+    Observed ID range: 100k – 600k.
+    Full probe (~500k IDs, 20 workers): ~7h.
+    Use --batch with a pre-built CSV to skip this step after first run.
     """
-    import psycopg2
-    conn = psycopg2.connect(os.environ["DATABASE_URL"])
-    cur = conn.cursor()
-
-    print("Extracting CUIs from obras...", file=sys.stderr)
-    cur.execute(
-        "SELECT DISTINCT tender_description FROM obras "
-        "WHERE country = 'PE' AND tender_description IS NOT NULL"
-    )
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-
-    cuis: set[str] = set()
-    for (desc,) in rows:
-        m = CUI_RE.search(desc or "")
-        if m:
-            cuis.add(m.group(1))
-
-    print(f"Found {len(cuis):,} unique CUIs in obras", file=sys.stderr)
-
-    cui_list = sorted(cuis)
+    end = PROBE_END
     if probe_limit:
-        cui_list = cui_list[:probe_limit]
-        print(f"Probe limited to first {probe_limit} CUIs", file=sys.stderr)
-
-    def probe_cui(cui: str) -> Optional[int]:
-        """POST to ObtenerObras searching by CUI, return codigo_infobras if found."""
-        try:
-            resp = requests.post(
-                "https://infobras.contraloria.gob.pe/InfobrasWeb/Mapa/ObtenerObras",
-                json={"cui": cui, "take": 5, "skip": 0},
-                headers={"User-Agent": UA, "Content-Type": "application/json"},
-                timeout=15,
-            )
-            if not resp.ok:
-                return None
-            data = resp.json()
-            items = data if isinstance(data, list) else data.get("data", [])
-            for item in items:
-                cuiv = item.get("CodigoUnicoInversion") or item.get("cui") or ""
-                if str(cuiv).strip() == cui:
-                    code = item.get("Codigo") or item.get("codigo")
-                    if code:
-                        return int(code)
-        except Exception:
-            pass
-        return None
+        end = PROBE_START + probe_limit
+        print(f"Probe limited to IDs {PROBE_START:,}–{end:,} ({probe_limit} IDs)",
+              file=sys.stderr)
+    else:
+        print(f"Probing IDs {PROBE_START:,}–{PROBE_END:,} (this takes several hours)",
+              file=sys.stderr)
+        print("Tip: save results to a CSV with --save-ids and use --batch next time",
+              file=sys.stderr)
 
     ids: list[int] = []
     lock = threading.Lock()
     done = 0
     start = time.time()
+    total = end - PROBE_START
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as ex:
-        future_map = {ex.submit(probe_cui, cui): cui for cui in cui_list}
-        for fut in concurrent.futures.as_completed(future_map):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as ex:
+        futures = {ex.submit(_probe_id, i): i for i in range(PROBE_START, end)}
+        for fut in concurrent.futures.as_completed(futures):
             done += 1
             result = fut.result()
             if result:
                 with lock:
                     ids.append(result)
-            if done % 100 == 0 or done == len(cui_list):
+            if done % 5000 == 0 or done == total:
                 rate = done / (time.time() - start) if time.time() > start else 0
-                print(f"  CUI probe {done}/{len(cui_list)} · found {len(ids)} IDs · {rate:.1f}/s",
-                      file=sys.stderr)
+                eta = (total - done) / rate if rate > 0 else 0
+                print(
+                    f"  Probed {done:,}/{total:,} · found {len(ids):,} valid IDs · "
+                    f"{rate:.0f}/s · ETA {eta/3600:.1f}h",
+                    file=sys.stderr,
+                )
 
-    return sorted(set(ids))
+    print(f"Discovery complete: {len(ids):,} valid INFOBRAS IDs", file=sys.stderr)
+    return sorted(ids)
 
 
 # ── batch runner ──────────────────────────────────────────────────────────────
@@ -498,6 +490,7 @@ def main():
     ap.add_argument("--skip-existing", action="store_true",
                     help="Skip codes already in infobras_full")
     ap.add_argument("--out", help="Write single-mode output JSON to file")
+    ap.add_argument("--save-ids", help="Save discovered IDs to CSV file (e.g. infobras_ids.csv)")
     args = ap.parse_args()
 
     if args.save and not os.environ.get("DATABASE_URL"):
@@ -534,7 +527,13 @@ def main():
 
     if args.from_db:
         db_ids = discover_ids_from_db(probe_limit=args.probe_limit)
-        print(f"Discovered {len(db_ids):,} codes from CUI probe", file=sys.stderr)
+        print(f"Discovered {len(db_ids):,} codes from probe", file=sys.stderr)
+        if args.save_ids:
+            with open(args.save_ids, "w") as f:
+                f.write("codigo_infobras\n")
+                for id_ in db_ids:
+                    f.write(f"{id_}\n")
+            print(f"Saved IDs to {args.save_ids}", file=sys.stderr)
         codes = sorted(set(codes) | set(db_ids))
 
     if not codes:
