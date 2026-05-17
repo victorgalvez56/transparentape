@@ -1,4 +1,4 @@
-import { query, queryOne } from "./db";
+import { query, queryOne, queryWithTimeout } from "./db";
 import type { Obra } from "./types";
 
 export interface ObraFilters {
@@ -139,7 +139,11 @@ export async function listObraPoints(
     where += ` AND country = $1`;
     values.push(country);
   }
-  const rows = await query<Row>(
+  // Globe / map endpoint scans every geocoded obra (~70k) and sorts on
+  // is_red_flag + contract_amount. Full-table sort exceeds the 5s pool
+  // default — use a 30s per-statement budget. Still fenced by maxDuration
+  // on the route and the LIMIT below.
+  const rows = await queryWithTimeout<Row>(
     `SELECT id, ocid, source_year, country, buyer_name, buyer_region,
             buyer_locality, tender_title,
             LEFT(tender_description, 220) AS tender_description,
@@ -150,7 +154,8 @@ export async function listObraPoints(
       WHERE ${where}
       ORDER BY is_red_flag DESC NULLS LAST, contract_amount DESC NULLS LAST
       LIMIT 70000`,
-    values
+    values,
+    30_000
   );
   return rows.map(rowToObra);
 }

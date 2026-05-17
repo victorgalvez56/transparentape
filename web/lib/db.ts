@@ -53,3 +53,29 @@ export async function queryOne<T = Record<string, unknown>>(
   const rows = await query<T>(text, params);
   return rows[0] ?? null;
 }
+
+/**
+ * Run a query with a custom per-statement timeout. Used for the few
+ * legitimately large reads (globe / map points) that exceed the 5s pool
+ * default. Uses a dedicated client + SET LOCAL inside a transaction so the
+ * override doesn't leak to subsequent reuse of the same connection.
+ */
+export async function queryWithTimeout<T = Record<string, unknown>>(
+  text: string,
+  params: unknown[] = [],
+  timeoutMs = 30_000
+): Promise<T[]> {
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`SET LOCAL statement_timeout = ${Math.max(1000, Math.trunc(timeoutMs))}`);
+    const res = await client.query(text, params);
+    await client.query("COMMIT");
+    return res.rows as T[];
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
+}
