@@ -433,18 +433,18 @@ export async function POST(req: NextRequest) {
   const phoneNumberId = normalized.phoneNumberId ?? process.env.KAPSO_PHONE_NUMBER_ID!;
   const to = from.startsWith("+") ? from : `+${from}`;
   const t0 = Date.now();
-
-  // Idempotency — Kapso retries on timeout; same msg_id = duplicate
   const msgId = (msg as Record<string, unknown>).id as string | undefined;
-  if (msgId) {
+
+  // Dedup runs in background — checking it inline costs ~500ms cold-start
+  // latency on every request. Since we return 200 fast, Kapso rarely retries,
+  // so a race is acceptable; the unique-constraint INSERT still no-ops a dup.
+  async function isDuplicate(): Promise<boolean> {
+    if (!msgId) return false;
     const inserted = await query(
       `INSERT INTO webhook_dedup (msg_id) VALUES ($1) ON CONFLICT (msg_id) DO NOTHING RETURNING msg_id`,
       [msgId]
     ).catch(() => null);
-    // null = DB error (fail open); empty array = already processed
-    if (inserted !== null && inserted.length === 0) {
-      return NextResponse.json({ ok: true, dup: true });
-    }
+    return inserted !== null && inserted.length === 0;
   }
 
   // Location message — save coords to session and search nearby obras
@@ -502,11 +502,39 @@ export async function POST(req: NextRequest) {
 
   if (!text) return NextResponse.json({ ok: true, skipped: true });
 
+  // Fast-path: pure greeting → skip session lookup + dedup in critical path,
+  // fire interactive buttons immediately. Cuts ~1-1.5s vs full handler.
+  const GREETING_RE = /^\s*(hola|holi|hey|hi|buenos?\s+dias?|buenas?\s+tardes?|buenas?\s+noches?|buenas?|saludos?|ayuda|menu|start|inicio|empezar)\s*[!.?,]*\s*$/i;
+  if (GREETING_RE.test(text)) {
+    waitUntil((async () => {
+      const tFast = Date.now();
+      try {
+        if (await isDuplicate()) return;
+        await sendAyudaWithButtons(phoneNumberId, to);
+        query(
+          `INSERT INTO agent_logs(endpoint, params, n_resultados, latencia_ms) VALUES ($1, $2, $3, $4)`,
+          ["/api/kapso/webhook", JSON.stringify({ from, text, fast_path: "greeting", duration: Date.now() - tFast }), 1, Date.now() - t0]
+        ).catch(() => {});
+      } catch (e) {
+        console.error("[kapso/webhook] greeting fast-path error:", e);
+        query(
+          `INSERT INTO agent_logs(endpoint, params, n_resultados, latencia_ms) VALUES ($1, $2, $3, $4)`,
+          ["/api/kapso/webhook/error", JSON.stringify({ from, text, fast_path: "greeting", err: String(e) }), 0, Date.now() - t0]
+        ).catch(() => {});
+      }
+    })());
+    return NextResponse.json({ ok: true });
+  }
+
   // waitUntil keeps the async work alive after we return 200
   waitUntil((async () => {
     const steps: Record<string, number> = {};
     try {
-      steps.start = Date.now() - t0;
+      if (await isDuplicate()) {
+        steps.dup = Date.now() - t0;
+        return;
+      }
+      steps.dedup_ok = Date.now() - t0;
       const reply = await handleMessage(text!, from, phoneNumberId, to);
       steps.handle_done = Date.now() - t0;
       if (reply !== null) {
