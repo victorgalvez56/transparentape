@@ -12,6 +12,7 @@ export interface Session {
   lastQuery?: string;
   lastResultIds?: number[];
   lastMessages?: ChatMsg[];
+  lastLocation?: { lat: number; lng: number };
   updatedAt: number;
 }
 

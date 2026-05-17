@@ -8,6 +8,8 @@ import { parseIntent } from "@/lib/agent-kapso/intent";
 import { getSession, updateSession, appendToHistory } from "@/lib/agent-kapso/session";
 import {
   buscarObras,
+  buscarCercanas,
+  yearsDisponibles,
   getObraResumen,
   rankingContratistas,
   investigarContratista,
@@ -20,6 +22,7 @@ import {
 import {
   fmtObras,
   fmtDetalle,
+  fmtCercanas,
   fmtStats,
   fmtRankingContratistas,
   fmtInvestigacion,
@@ -130,14 +133,36 @@ async function handleMessage(
       return fmtMontoEnRiesgo(data);
     }
 
+    case "BUSCAR_CERCANOS": {
+      const loc = session.lastLocation;
+      if (!loc) {
+        return (
+          "📍 Para mostrarte obras cercanas, *comparte tu ubicación* desde WhatsApp:\n\n" +
+          "Toca el ícono 📎 → *Ubicación* → *Enviar mi ubicación actual*"
+        );
+      }
+      const cercanas = await buscarCercanas(loc.lat, loc.lng, country, 5);
+      await updateSession(conversationId, {
+        lastResultIds: cercanas.map((o) => o.id),
+        lastQuery: text,
+      });
+      return fmtCercanas(cercanas, country);
+    }
+
     case "BUSCAR_OBRAS": {
       const filters = parsed.filters ?? { country };
       const obras = await buscarObras({ ...filters, limit: 5 });
+      // If year filter returned 0 results, suggest the most recent available year
+      let yearSugerido: number | undefined;
+      if (!obras.length && filters.year) {
+        const years = await yearsDisponibles(country);
+        yearSugerido = years[0];
+      }
       await updateSession(conversationId, {
         lastResultIds: obras.map((o) => o.id),
         lastQuery: text,
       });
-      return fmtObras(obras, country);
+      return fmtObras(obras, country, yearSugerido);
     }
 
     case "CONTEXTO_DETALLE": {
@@ -275,6 +300,36 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, skipped: true });
   }
 
+  const from = msg.from;
+  const phoneNumberId = normalized.phoneNumberId ?? process.env.KAPSO_PHONE_NUMBER_ID!;
+  const to = from.startsWith("+") ? from : `+${from}`;
+  const t0 = Date.now();
+
+  // Location message — save coords to session and search nearby obras
+  if (msg.type === "location" && msg.location) {
+    const { latitude, longitude } = msg.location as { latitude?: number; longitude?: number };
+    if (latitude != null && longitude != null) {
+      (async () => {
+        try {
+          await updateSession(from, { lastLocation: { lat: latitude, lng: longitude } });
+          const reply = await handleMessage("obras cerca de mí", from, phoneNumberId, to);
+          if (reply) {
+            const truncated = reply.length > 4096 ? reply.slice(0, 4090) + "…" : reply;
+            await kapso.messages.sendText({ phoneNumberId, to, body: truncated });
+            saveHistory(from, "📍 ubicación compartida", truncated).catch(() => {});
+          }
+          query(
+            `INSERT INTO agent_logs(endpoint, params, n_resultados, latencia_ms) VALUES ($1, $2, $3, $4)`,
+            ["/api/kapso/webhook", JSON.stringify({ from, text: "location", lat: latitude, lng: longitude }), 1, Date.now() - t0]
+          ).catch(() => {});
+        } catch (e) {
+          console.error("[kapso/webhook] location error:", e);
+        }
+      })();
+      return NextResponse.json({ ok: true });
+    }
+  }
+
   let text: string | null = null;
   if (msg.type === "text" && msg.text?.body) {
     text = msg.text.body.trim();
@@ -285,11 +340,6 @@ export async function POST(req: NextRequest) {
   }
 
   if (!text) return NextResponse.json({ ok: true, skipped: true });
-
-  const from = msg.from;
-  const phoneNumberId = normalized.phoneNumberId ?? process.env.KAPSO_PHONE_NUMBER_ID!;
-  const to = from.startsWith("+") ? from : `+${from}`;
-  const t0 = Date.now();
 
   // fire-and-forget — return 200 immediately to avoid Kapso retry
   (async () => {

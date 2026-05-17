@@ -18,6 +18,10 @@ export interface ObraResumen {
   country: string;
 }
 
+export interface ObraCercana extends ObraResumen {
+  distancia_km: number;
+}
+
 export interface ContratistaStat {
   supplier_name: string;
   supplier_ruc: string;
@@ -54,6 +58,17 @@ export interface BuscarObrasFilters {
   limit?: number;
 }
 
+const OBRA_COLS = `
+  id, ocid,
+  COALESCE(tender_description, tender_title) AS titulo,
+  buyer_region AS region,
+  buyer_locality AS localidad,
+  supplier_name AS contratista,
+  supplier_ruc AS ruc,
+  COALESCE(contract_amount, award_amount, tender_amount) AS monto,
+  is_red_flag, red_flag_types, procurement_method, source_year, country
+`;
+
 export async function buscarObras(f: BuscarObrasFilters): Promise<ObraResumen[]> {
   const parts: string[] = [];
   const vals: unknown[] = [];
@@ -61,7 +76,7 @@ export async function buscarObras(f: BuscarObrasFilters): Promise<ObraResumen[]>
 
   if (f.country)   { parts.push(`country = $${i++}`); vals.push(f.country); }
   if (f.region)    { parts.push(`UPPER(buyer_region) ILIKE UPPER($${i++})`); vals.push(`%${f.region}%`); }
-  if (f.localidad) { parts.push(`UPPER(buyer_locality) ILIKE UPPER($${i++})`); vals.push(`%${f.localidad}%`); }
+  if (f.localidad) { parts.push(`(UPPER(buyer_locality) ILIKE UPPER($${i}) OR UPPER(buyer_region) ILIKE UPPER($${i}))`); vals.push(`%${f.localidad}%`); i++; }
   if (f.year)      { parts.push(`source_year = $${i++}`); vals.push(f.year); }
   if (f.red_flag === true)  parts.push(`is_red_flag = TRUE`);
   if (f.red_flag === false) parts.push(`(is_red_flag IS NULL OR is_red_flag = FALSE)`);
@@ -69,7 +84,7 @@ export async function buscarObras(f: BuscarObrasFilters): Promise<ObraResumen[]>
   if (f.ruc)         { parts.push(`supplier_ruc = $${i++}`); vals.push(f.ruc); }
   if (f.procurement_method) { parts.push(`procurement_method = $${i++}`); vals.push(f.procurement_method); }
   if (f.q) {
-    parts.push(`(tender_title ILIKE $${i} OR supplier_name ILIKE $${i} OR buyer_locality ILIKE $${i})`);
+    parts.push(`(tender_description ILIKE $${i} OR tender_title ILIKE $${i} OR supplier_name ILIKE $${i} OR buyer_locality ILIKE $${i})`);
     vals.push(`%${f.q}%`);
     i++;
   }
@@ -78,10 +93,7 @@ export async function buscarObras(f: BuscarObrasFilters): Promise<ObraResumen[]>
   const limit = Math.min(f.limit ?? 5, 20);
 
   return query<ObraResumen>(
-    `SELECT id, ocid, tender_title AS titulo, buyer_region AS region,
-            buyer_locality AS localidad, supplier_name AS contratista,
-            supplier_ruc AS ruc, COALESCE(contract_amount, award_amount, tender_amount) AS monto,
-            is_red_flag, red_flag_types, procurement_method, source_year, country
+    `SELECT ${OBRA_COLS}
      FROM obras ${where}
      ORDER BY is_red_flag DESC NULLS LAST, COALESCE(contract_amount, award_amount, tender_amount) DESC NULLS LAST
      LIMIT ${limit}`,
@@ -91,13 +103,34 @@ export async function buscarObras(f: BuscarObrasFilters): Promise<ObraResumen[]>
 
 export async function getObraResumen(id: number): Promise<ObraResumen | null> {
   return queryOne<ObraResumen>(
-    `SELECT id, ocid, tender_title AS titulo, buyer_region AS region,
-            buyer_locality AS localidad, supplier_name AS contratista,
-            supplier_ruc AS ruc, COALESCE(contract_amount, award_amount, tender_amount) AS monto,
-            is_red_flag, red_flag_types, procurement_method, source_year, country
-     FROM obras WHERE id = $1`,
+    `SELECT ${OBRA_COLS} FROM obras WHERE id = $1`,
     [id]
   );
+}
+
+export async function buscarCercanas(
+  lat: number,
+  lng: number,
+  country: Country,
+  limit = 5
+): Promise<ObraCercana[]> {
+  return query<ObraCercana>(
+    `SELECT ${OBRA_COLS},
+            ROUND((sqrt(power(lat::numeric - $1, 2) + power(lng::numeric - $2, 2)) * 111)::numeric, 1) AS distancia_km
+     FROM obras
+     WHERE lat IS NOT NULL AND lng IS NOT NULL AND country = $3
+     ORDER BY distancia_km ASC
+     LIMIT $4`,
+    [lat, lng, country, limit]
+  );
+}
+
+export async function yearsDisponibles(country: Country): Promise<number[]> {
+  const rows = await query<{ source_year: number }>(
+    `SELECT DISTINCT source_year FROM obras WHERE country = $1 AND source_year IS NOT NULL ORDER BY source_year DESC LIMIT 5`,
+    [country]
+  );
+  return rows.map((r) => r.source_year);
 }
 
 // ─── Contratistas ──────────────────────────────────────────────────────────────
@@ -164,10 +197,7 @@ export async function investigarContratista(
 
   const [obras, stats, inhabilitado] = await Promise.all([
     query<ObraResumen>(
-      `SELECT id, ocid, tender_title AS titulo, buyer_region AS region,
-              buyer_locality AS localidad, supplier_name AS contratista,
-              supplier_ruc AS ruc, COALESCE(contract_amount, award_amount, tender_amount) AS monto,
-              is_red_flag, red_flag_types, procurement_method, source_year, country
+      `SELECT ${OBRA_COLS}
        FROM obras ${where} ORDER BY is_red_flag DESC, monto DESC NULLS LAST LIMIT 5`,
       vals
     ),
@@ -221,10 +251,7 @@ export async function inhabilitadosVigentes(country: Country, limit = 8) {
 
 export async function adjudicacionDirectaAlertas(country: Country, limit = 5) {
   return query<ObraResumen>(
-    `SELECT id, ocid, tender_title AS titulo, buyer_region AS region,
-            buyer_locality AS localidad, supplier_name AS contratista,
-            supplier_ruc AS ruc, COALESCE(contract_amount, award_amount, tender_amount) AS monto,
-            is_red_flag, red_flag_types, procurement_method, source_year, country
+    `SELECT ${OBRA_COLS}
      FROM obras
      WHERE country = $1 AND procurement_method = 'direct' AND is_red_flag = TRUE
      ORDER BY COALESCE(contract_amount, award_amount, tender_amount) DESC NULLS LAST

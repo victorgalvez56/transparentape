@@ -1,4 +1,4 @@
-import type { ObraResumen, ContratistaStat } from "./queries";
+import type { ObraResumen, ObraCercana, ContratistaStat } from "./queries";
 
 export const COUNTRY_NAMES: Record<string, string> = {
   PE: "Perú 🇵🇪",
@@ -29,27 +29,57 @@ function fmt(monto: number | null | undefined, country = "PE"): string {
   return `${sym} ${monto.toLocaleString()}`;
 }
 
-function flagIcon(obra: ObraResumen): string {
+// Convert ALLCAPS tender descriptions to Title Case, strip surrounding quotes
+export function cleanTitle(raw: string | null | undefined): string {
+  if (!raw) return "Sin título";
+  const stripped = raw.replace(/^["'"«»\s]+|["'"»\s]+$/g, "").trim();
+  const words = stripped.split(/\s+/);
+  const titled = words
+    .map((w) => {
+      if (w.length <= 2) return w.toLowerCase();
+      return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+    })
+    .join(" ");
+  return titled.length > 85 ? titled.slice(0, 83) + "…" : titled;
+}
+
+function flagIcon(obra: { is_red_flag: boolean }): string {
   return obra.is_red_flag ? " ⚠️" : "";
 }
 
 function thinDataNote(country: string): string {
   if (!THIN_DATA_COUNTRIES.has(country)) return "";
-  return "\n_ℹ️ Datos de monto y localidad limitados para este país en la BD actual._";
+  return "\n_ℹ️ Datos de monto y localidad limitados para este país._";
 }
 
-export function fmtObras(obras: ObraResumen[], country: string): string {
-  if (!obras.length) return "No encontré obras con esos filtros.";
+// ─── Contextual next-step hints ───────────────────────────────────────────────
+
+const HINT_OBRAS = "_Responde *el primero*, *el segundo*... para ver detalles._";
+const HINT_GENERAL = "_Escribe *ayuda* para ver todo lo que puedo hacer._";
+
+function hint(text: string): string {
+  return `\n\n${text}`;
+}
+
+// ─── Formatters ───────────────────────────────────────────────────────────────
+
+export function fmtObras(obras: ObraResumen[], country: string, yearSugerido?: number): string {
+  if (!obras.length) {
+    const sugerencia = yearSugerido
+      ? `\n\n💡 No hay datos para ese año. Prueba: *obras ${yearSugerido}*`
+      : "\n\n💡 Prueba con otra región o año. Ej: *obras en Lima 2023*";
+    return "No encontré obras con esos filtros." + sugerencia;
+  }
   const nation = COUNTRY_NAMES[country] ?? country;
   const lines = [`📋 *Obras en ${nation}:*\n`];
   obras.forEach((o, i) => {
     lines.push(
-      `${i + 1}. *${o.titulo ?? "Sin título"}*${flagIcon(o)}\n` +
+      `${i + 1}. *${cleanTitle(o.titulo)}*${flagIcon(o)}\n` +
       `  💰 ${fmt(o.monto, country)} | 📍 ${o.region ?? "—"}${o.localidad ? ` · ${o.localidad}` : ""}\n` +
       `  Año: ${o.source_year ?? "—"} | ID: ${o.id}`
     );
   });
-  lines.push("\n_Para más detalle: *detalle #ID* o *el primero*, *el segundo*...*_");
+  lines.push(hint(HINT_OBRAS));
   lines.push(thinDataNote(country));
   return lines.join("\n");
 }
@@ -59,15 +89,33 @@ export function fmtDetalle(o: ObraResumen, country = "PE"): string {
     ? `\n⚠️ *Alertas:* ${o.red_flag_types.join(", ")}`
     : "";
   return (
-    `📄 *${o.titulo ?? "Sin título"}*\n\n` +
+    `📄 *${cleanTitle(o.titulo)}*\n\n` +
     `💰 Monto: ${fmt(o.monto, country)}\n` +
     `📍 ${[o.region, o.localidad].filter(Boolean).join(" › ") || "—"}\n` +
     `🏗️ Contratista: ${o.contratista ?? "—"}\n` +
     `   RUC: ${o.ruc ?? "—"}\n` +
     `📅 Año: ${o.source_year ?? "—"} | Método: ${o.procurement_method ?? "—"}\n` +
     `🔖 OCID: ${o.ocid ?? "—"}` +
-    flags
+    flags +
+    hint("_Escribe *ranking contratistas* o busca más obras._")
   );
+}
+
+export function fmtCercanas(obras: ObraCercana[], country = "PE"): string {
+  if (!obras.length) return "No encontré obras con coordenadas cerca de tu ubicación.";
+  const lines = [`📍 *Obras más cercanas a tu ubicación:*\n`];
+  obras.forEach((o, i) => {
+    const dist = o.distancia_km < 1
+      ? `${Math.round(o.distancia_km * 1000)}m`
+      : `${o.distancia_km.toFixed(1)}km`;
+    lines.push(
+      `${i + 1}. *${cleanTitle(o.titulo)}*${flagIcon(o)}\n` +
+      `  📏 ${dist} | 💰 ${fmt(o.monto, country)}\n` +
+      `  📍 ${o.localidad ?? o.region ?? "—"} | ID: ${o.id}`
+    );
+  });
+  lines.push(hint(HINT_OBRAS));
+  return lines.join("\n");
 }
 
 export function fmtStats(s: {
@@ -85,7 +133,8 @@ export function fmtStats(s: {
     `Total obras: ${total.toLocaleString()}\n` +
     `⚠️ Con alerta: ${alertas.toLocaleString()} (${pct}%)\n` +
     `💰 Monto total: ${fmt(Number(s.monto_total), s.country)}` +
-    thinDataNote(s.country)
+    thinDataNote(s.country) +
+    hint("_Prueba: *ranking contratistas* · *monto en riesgo* · *obras en Lima*_")
   );
 }
 
@@ -99,6 +148,7 @@ export function fmtRankingContratistas(list: ContratistaStat[], country: string)
       `   ${c.obras} obras | ${fmt(c.monto_total, country)}`
     );
   });
+  lines.push(hint("_Escribe *investigar [empresa]* para ver sus obras._"));
   return lines.join("\n");
 }
 
@@ -122,9 +172,10 @@ export function fmtInvestigacion(
   if (data.obras.length) {
     lines.push("Últimas obras:");
     for (const o of data.obras.slice(0, 3)) {
-      lines.push(`• ${o.titulo ?? "—"}${o.is_red_flag ? " ⚠️" : ""} — ${fmt(o.monto, country)}`);
+      lines.push(`• ${cleanTitle(o.titulo)}${o.is_red_flag ? " ⚠️" : ""} — ${fmt(o.monto, country)}`);
     }
   }
+  lines.push(hint("_Escribe *ranking contratistas* o *inhabilitados* para más._"));
   return lines.join("\n");
 }
 
@@ -140,6 +191,7 @@ export function fmtInhabilitados(
       `• *${r.supplier_name}* (${r.supplier_ruc})\n  ${r.obras} obras | ${fmt(r.monto_total, country)}`
     );
   }
+  lines.push(hint("_Escribe *investigar [RUC]* para ver detalle de uno._"));
   return lines.join("\n");
 }
 
@@ -149,10 +201,11 @@ export function fmtAdjudicacionDirecta(obras: ObraResumen[], country: string): s
   const lines = [`⚡ *Adjudicaciones directas con alerta en ${nation}:*\n`];
   obras.forEach((o, i) => {
     lines.push(
-      `${i + 1}. *${o.titulo ?? "Sin título"}* ⚠️\n` +
+      `${i + 1}. *${cleanTitle(o.titulo)}* ⚠️\n` +
       `   💰 ${fmt(o.monto, country)} | 📍 ${o.region ?? "—"} | ID: ${o.id}`
     );
   });
+  lines.push(hint(HINT_OBRAS));
   return lines.join("\n");
 }
 
@@ -169,6 +222,7 @@ export function fmtRankingEntidades(
       `   ${e.obras} obras${e.obras_alertadas > 0 ? ` | ⚠️ ${e.obras_alertadas} alertas` : ""} | ${fmt(e.monto_total, country)}`
     );
   });
+  lines.push(hint("_Escribe *adjudicación directa* para ver contratos sospechosos._"));
   return lines.join("\n");
 }
 
@@ -178,7 +232,8 @@ export function fmtMontoEnRiesgo(data: { obras: number; monto_total: number; cou
     `🚨 *Monto en riesgo — ${nation}*\n\n` +
     `Obras con alerta: ${data.obras.toLocaleString()}\n` +
     `💰 Total comprometido: *${fmt(data.monto_total, data.country)}*\n\n` +
-    `_Monto de contratos donde se detectaron red flags (adjudicación directa, inhabilitado, etc.)_`
+    `_Monto de contratos donde se detectaron red flags._` +
+    hint("_Escribe *adjudicación directa* o *ranking contratistas* para ver quiénes._")
   );
 }
 
@@ -189,6 +244,9 @@ Comandos disponibles:
 🔍 *Buscar obras*
   _obras en Piura 2024_
   _licitaciones con alerta en Lima_
+
+📍 *Obras cercanas* _(comparte tu ubicación)_
+  _¿qué obras hay cerca de mí?_
 
 📄 *Ver detalle*
   _detalle #123_ · _el primero_ · _el segundo_

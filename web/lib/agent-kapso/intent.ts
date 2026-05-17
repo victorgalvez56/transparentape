@@ -4,6 +4,7 @@ import type { BuscarObrasFilters } from "./queries";
 export type Intent =
   | "CAMBIAR_PAIS"
   | "BUSCAR_OBRAS"
+  | "BUSCAR_CERCANOS"
   | "VER_DETALLE"
   | "CONTEXTO_DETALLE"
   | "STATS"
@@ -66,22 +67,38 @@ function extractYear(text: string): number | undefined {
   return m ? parseInt(m[1]) : undefined;
 }
 
+const PE_DEPTS = [
+  "amazonas","ancash","apurímac","apurimac","arequipa","ayacucho","cajamarca","callao",
+  "cusco","huancavelica","huánuco","huanuco","ica","junín","junin","la libertad",
+  "lambayeque","lima","loreto","madre de dios","moquegua","pasco","piura","puno",
+  "san martín","san martin","tacna","tumbes","ucayali",
+];
+const CL_REGIONES = [
+  "arica","tarapacá","tarapaca","antofagasta","atacama","coquimbo","valparaíso",
+  "valparaiso","metropolitana","o'higgins","maule","ñuble","nuble","biobío","biobio",
+  "araucanía","araucania","los ríos","los rios","los lagos","aysén","aysen","magallanes",
+];
+const PE_DISTRITOS = [
+  "miraflores","san isidro","barranco","surco","surquillo","la molina","san borja",
+  "jesus maria","lince","magdalena","pueblo libre","breña","rimac","san luis",
+  "ate","vitarte","comas","villa el salvador","villa maria del triunfo",
+  "san juan de lurigancho","san juan de miraflores","chorrillos","carabayllo",
+  "independencia","los olivos","san martin de porres","puente piedra","lurigancho",
+  "chaclacayo","cieneguilla","pachacamac","pucusana","santa maria del mar",
+];
+
 function extractRegion(text: string): string | undefined {
-  // Common Peruvian departments + Chilean regions (lowercase tokens)
-  const PE_DEPTS = [
-    "amazonas","ancash","apurímac","arequipa","ayacucho","cajamarca","callao",
-    "cusco","huancavelica","huánuco","huanuco","ica","junín","junin","la libertad",
-    "lambayeque","lima","loreto","madre de dios","moquegua","pasco","piura","puno",
-    "san martín","san martin","tacna","tumbes","ucayali",
-  ];
-  const CL_REGIONES = [
-    "arica","tarapacá","tarapaca","antofagasta","atacama","coquimbo","valparaíso",
-    "valparaiso","metropolitana","o'higgins","maule","ñuble","nuble","biobío","biobio",
-    "araucanía","araucania","los ríos","los rios","los lagos","aysén","aysen","magallanes",
-  ];
   const lower = text.toLowerCase();
   for (const r of [...PE_DEPTS, ...CL_REGIONES]) {
     if (lower.includes(r)) return r;
+  }
+  return undefined;
+}
+
+function extractLocalidad(text: string): string | undefined {
+  const lower = text.toLowerCase();
+  for (const d of PE_DISTRITOS) {
+    if (lower.includes(d)) return d;
   }
   return undefined;
 }
@@ -97,16 +114,23 @@ export function parseIntent(text: string, sessionCountry: Country): ParsedIntent
   ) {
     return { intent: "CAMBIAR_PAIS", country: newCountry };
   }
-  // If message only names a country, switch
+  // Message is only a country name → switch
   if (newCountry && t.split(/\s+/).length <= 3) {
     return { intent: "CAMBIAR_PAIS", country: newCountry };
   }
 
   const country: Country = newCountry ?? sessionCountry;
 
-  // Help
-  if (/\bayuda\b|\bcomandos\b|\b\?{2,}\b|\bqu[eé] puedes\b|\bqué haces\b|\bhola\b/i.test(t)) {
+  // Greetings and help (broad pattern)
+  if (
+    /^\s*(hola|holi|hey|hi|buenos?\s+d[ií]as?|buenas?\s+tardes?|buenas?\s+noches?|buenas?|saludos?|buen\s+d[ií]a|qué\s+tal|como\s+est[aá]s?|ayuda|comandos|\?{2,}|qu[eé]\s+puedes|qu[eé]\s+haces|qu[eé]\s+sabes|inicio|empezar|start|men[uú])\s*[!.?]*\s*$/i.test(t)
+  ) {
     return { intent: "AYUDA", country };
+  }
+
+  // Proximity search — "cerca de mí", "más cercana", "cerca de [lugar]"
+  if (/\bcerca(n[ao]s?)?\b|\bpr[oó]xim[ao]s?\b|\bm[aá]s\s+cercana\b|\bm[ií]\s+ubicaci[oó]n\b|\bcercan[ií]a\b/i.test(t)) {
+    return { intent: "BUSCAR_CERCANOS", country };
   }
 
   // Context: "el primero", "el segundo", "más detalle del 3"
@@ -166,10 +190,11 @@ export function parseIntent(text: string, sessionCountry: Country): ParsedIntent
     return { intent: "STATS", country };
   }
 
-  // Search obras — default intent for most queries
+  // Search obras
   if (
     /\bobras?\b|\bproyecto\b|\bconcurso\b|\blicitaci[oó]n\b|\badjudicaci[oó]n\b|\bcontrato\b|\bconstrucci[oó]n\b/i.test(t) ||
     extractRegion(t) ||
+    extractLocalidad(t) ||
     extractYear(t)
   ) {
     const filters: BuscarObrasFilters = { country };
@@ -177,6 +202,10 @@ export function parseIntent(text: string, sessionCountry: Country): ParsedIntent
     if (year) filters.year = year;
     const region = extractRegion(t);
     if (region) filters.region = region;
+    else {
+      const localidad = extractLocalidad(t);
+      if (localidad) filters.localidad = localidad;
+    }
 
     if (/\balerta[s]?\b|\brisk\b|\bflag\b|\bsospech[oa]\b/i.test(t)) {
       filters.red_flag = true;
@@ -185,10 +214,9 @@ export function parseIntent(text: string, sessionCountry: Country): ParsedIntent
       filters.procurement_method = "direct";
     }
 
-    // generic keyword
-    if (!region && !year) {
+    if (!region && !extractLocalidad(t) && !year) {
       filters.q = t
-        .replace(/\b(obras?|proyectos?|en|de|del|la|los|las|el|un|una)\b/gi, "")
+        .replace(/\b(obras?|proyectos?|en|de|del|la|los|las|el|un|una|este|año)\b/gi, "")
         .trim()
         .slice(0, 60) || undefined;
     }
