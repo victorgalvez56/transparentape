@@ -46,6 +46,7 @@ export default function RootLayout({
       lang="es"
       data-theme="dark"
       className={`${fraunces.variable} ${plexSans.variable} ${plexMono.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
       <head>
         {/* Aplicar tema antes del paint para evitar flash light/dark */}
