@@ -45,6 +45,22 @@ type AiState = {
   sv: SvData | null;
 };
 
+type InfobrasPhoto = { url: string; label: string };
+type InfobrasData = {
+  nombre: string | null;
+  estado: string | null;
+  avance_fisico_pct: number | null;
+  fecha_ultimo_avance: string | null;
+  fecha_inicio: string | null;
+  fecha_fin_programada: string | null;
+  n_avances_mensuales: number | null;
+  n_fotos: number | null;
+  n_modificaciones_plazo: number | null;
+  tiene_informe_control: boolean | null;
+  photos: InfobrasPhoto[];
+  infobras_url: string;
+};
+
 export default function ObraDetailPanel({
   obra,
   onClose,
@@ -52,6 +68,8 @@ export default function ObraDetailPanel({
   onAiResult,
 }: Props) {
   const riesgo = riesgoDeObra(obra);
+  const [infobras, setInfobras] = useState<InfobrasData | null>(null);
+  const [infobrasLoaded, setInfobrasLoaded] = useState(false);
   const monto = obra.contract_amount ?? obra.award_amount ?? obra.tender_amount;
   const tituloDisplay = displayTitle(obra);
   const tweetText = `${truncar(tituloDisplay, 120)} · ${obra.buyer_locality} · ${fmtSolesLong(monto)} · Transparentape`;
@@ -89,14 +107,24 @@ export default function ObraDetailPanel({
       : null,
   });
 
-  // Auto-run analysis on mount for obras with coordinates
+  // Auto-run AI analysis on mount for obras with coordinates
   useEffect(() => {
     if (!obra.lat || !obra.lng) return;
-    // If already analyzed and cached, don't re-run automatically
     if (ai.status === "done" && ai.sv) return;
     runAiAnalysis();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [obra.id]);
+
+  // Load INFOBRAS data if available
+  useEffect(() => {
+    if (!obra.infobras_code || infobrasLoaded) return;
+    setInfobrasLoaded(true);
+    fetch(`/api/infobras?code=${obra.infobras_code}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d) setInfobras(d); })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [obra.infobras_code]);
 
   async function runAiAnalysis(force = false) {
     if (!obra.lat || !obra.lng) { setAi((p) => ({ ...p, status: "no_sv" })); return; }
@@ -336,6 +364,94 @@ export default function ObraDetailPanel({
             )}
 
           </div>
+        )}
+
+        {/* INFOBRAS — technical photos & progress */}
+        {infobras && (
+          <section className="border-b border-[var(--rule)]">
+            <div className="px-5 py-3 flex items-center justify-between">
+              <p className="text-[9px] uppercase tracking-[0.26em] text-[var(--fg-faint)]"
+                 style={{ fontFamily: "var(--font-mono), monospace" }}>
+                INFOBRAS · Contraloría · avance real
+              </p>
+              <a
+                href={infobras.infobras_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[8px] uppercase tracking-[0.18em] text-[var(--fg-faint)] hover:text-[var(--brand)] transition"
+                style={{ fontFamily: "var(--font-mono), monospace" }}
+              >
+                Ver en INFOBRAS ↗
+              </a>
+            </div>
+
+            {/* Progress bar */}
+            {infobras.avance_fisico_pct != null && (
+              <div className="px-5 pb-3">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[9px] text-[var(--fg-faint)]"
+                        style={{ fontFamily: "var(--font-mono), monospace" }}>
+                    Avance físico
+                  </span>
+                  <span className={`text-[11px] font-bold tabular-nums ${
+                    infobras.avance_fisico_pct >= 90 ? "text-[var(--safe)]" :
+                    infobras.avance_fisico_pct >= 50 ? "text-[var(--warn)]" :
+                    "text-[var(--alarm)]"
+                  }`} style={{ fontFamily: "var(--font-mono), monospace" }}>
+                    {infobras.avance_fisico_pct.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="h-1 bg-[var(--ink-0)] rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${
+                      infobras.avance_fisico_pct >= 90 ? "bg-[var(--safe)]" :
+                      infobras.avance_fisico_pct >= 50 ? "bg-[var(--warn)]" :
+                      "bg-[var(--alarm)]"
+                    }`}
+                    style={{ width: `${Math.min(100, infobras.avance_fisico_pct)}%` }}
+                  />
+                </div>
+                <div className="mt-1.5 flex gap-4 text-[8px] text-[var(--fg-faint)]"
+                     style={{ fontFamily: "var(--font-mono), monospace" }}>
+                  <span>Estado: {infobras.estado ?? "—"}</span>
+                  {infobras.n_avances_mensuales != null && (
+                    <span>{infobras.n_avances_mensuales} reportes mensuales</span>
+                  )}
+                  {infobras.tiene_informe_control && (
+                    <span className="text-[var(--alarm)]">⚠ Control gubernamental</span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Technical photos from INFOBRAS */}
+            {infobras.photos.length > 0 && (
+              <div className="px-5 pb-4">
+                <p className="text-[8px] uppercase tracking-[0.18em] text-[var(--fg-faint)] mb-2"
+                   style={{ fontFamily: "var(--font-mono), monospace" }}>
+                  Fotos técnicas ({infobras.n_fotos ?? infobras.photos.length})
+                </p>
+                <div className="grid grid-cols-4 gap-0.5">
+                  {infobras.photos.slice(0, 8).map((p, i) => (
+                    <div key={i} className="relative group">
+                      <img
+                        src={p.url}
+                        alt={p.label}
+                        className="w-full h-16 object-cover block"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                      />
+                      {p.label && (
+                        <span className="absolute bottom-0 left-0 right-0 text-[6px] text-center bg-black/70 text-white py-0.5 opacity-0 group-hover:opacity-100 transition truncate px-1"
+                              style={{ fontFamily: "var(--font-mono), monospace" }}>
+                          {p.label}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
         )}
 
         {/* QUIÉN RECIBIÓ */}
