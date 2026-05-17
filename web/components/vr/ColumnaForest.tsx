@@ -6,8 +6,20 @@ import * as THREE from "three";
 import { useObrasVR } from "@/lib/vr/obras-source";
 import { projectToFloor, montoToHeight } from "@/lib/vr/projection";
 
-const COLOR_ALTO = new THREE.Color("#ef4444"); // red_flag
-const COLOR_BAJO = new THREE.Color("#42dc3a"); // brand
+// Paleta jerarquica por monto — el ojo va a las obras grandes naturalmente
+const COLOR_RED_FLAG = new THREE.Color("#ef4444"); // alerta OECE
+const COLOR_HUGE = new THREE.Color("#fbbf24"); // > 100M soles — dorado
+const COLOR_BIG = new THREE.Color("#42dc3a"); // 10-100M — brand verde
+const COLOR_MID = new THREE.Color("#1f7a1c"); // 1-10M — verde apagado
+const COLOR_SMALL = new THREE.Color("#3a4d3a"); // < 1M — verde grisaceo
+
+function pickColor(monto: number, isRedFlag: boolean): THREE.Color {
+  if (isRedFlag) return COLOR_RED_FLAG;
+  if (monto >= 1e8) return COLOR_HUGE;
+  if (monto >= 1e7) return COLOR_BIG;
+  if (monto >= 1e6) return COLOR_MID;
+  return COLOR_SMALL;
+}
 
 const XR_INSTANCE_CAP = 15000;
 const DESKTOP_INSTANCE_CAP = 8000;
@@ -63,8 +75,7 @@ export default function ColumnaForest({
       dummy.rotation.set(0, 0, 0);
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
-      const color = o.is_red_flag ? COLOR_ALTO : COLOR_BAJO;
-      mesh.setColorAt(i, color);
+      mesh.setColorAt(i, pickColor(o.monto, o.is_red_flag));
     }
     // Limpiar las instancias sobrantes (poner escala 0)
     const empty = new THREE.Object3D();
@@ -77,14 +88,17 @@ export default function ColumnaForest({
     mesh.count = visible.length;
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    // Recomputar bounds para que el raycaster encuentre las instancias
+    mesh.computeBoundingBox();
+    mesh.computeBoundingSphere();
   }, [visible]);
 
-  // Pulso de emissive intensity
+  // Pulso sutil del emissive — vida visual sin lavar los colores
   useFrame((_, delta) => {
     pulseTime.current += delta;
     if (matRef.current) {
       matRef.current.emissiveIntensity =
-        0.6 + Math.sin(pulseTime.current * 2.0) * 0.2;
+        0.2 + Math.sin(pulseTime.current * 1.5) * 0.08;
     }
   });
 
@@ -119,8 +133,10 @@ export default function ColumnaForest({
       <meshStandardMaterial
         ref={matRef}
         vertexColors={false}
-        emissive="white"
-        emissiveIntensity={0.7}
+        emissive="#888888"
+        emissiveIntensity={0.25}
+        metalness={0.3}
+        roughness={0.4}
         toneMapped={false}
       />
     </instancedMesh>

@@ -2,6 +2,7 @@
 
 import type { VRObra } from "@/lib/vr/obras-source";
 import { formatMontoCompact, truncate } from "@/lib/vr/format";
+import type { CityPreset } from "@/lib/vr/city-presets";
 
 interface Props {
   loading: boolean;
@@ -10,6 +11,9 @@ interface Props {
   selected: number | null;
   obras: VRObra[];
   onCloseSelected: () => void;
+  presets: CityPreset[];
+  activePreset: string;
+  onSelectPreset: (key: string) => void;
 }
 
 /**
@@ -23,6 +27,9 @@ export default function HudOverlay({
   selected,
   obras,
   onCloseSelected,
+  presets,
+  activePreset,
+  onSelectPreset,
 }: Props) {
   const hoveredObra = hovered != null ? obras.find((o) => o.id === hovered) : null;
   const selectedObra =
@@ -85,6 +92,32 @@ export default function HudOverlay({
           {totalObras.toLocaleString("es-PE")} obras renderizadas
         </div>
       )}
+
+      {/* Camera presets — top-right */}
+      <div
+        className="pointer-events-auto absolute top-20 right-6 flex flex-col items-end gap-1"
+        style={{ fontFamily: "var(--font-mono), monospace" }}
+      >
+        <span className="text-[9px] uppercase tracking-[0.28em] text-white/40 mb-1">
+          Vista
+        </span>
+        {presets.map((p) => {
+          const active = p.key === activePreset;
+          return (
+            <button
+              key={p.key}
+              onClick={() => onSelectPreset(p.key)}
+              className={`px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] border transition ${
+                active
+                  ? "bg-[var(--brand)] text-black border-[var(--brand)]"
+                  : "text-white/70 border-white/15 hover:bg-white/5 hover:text-white"
+              }`}
+            >
+              {p.label}
+            </button>
+          );
+        })}
+      </div>
 
       {/* Panel obra hovered/selected — bottom-left */}
       {activeObra && (
