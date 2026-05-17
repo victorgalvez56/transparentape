@@ -15,11 +15,14 @@ export const AGENT = {
     sql: 350,
     synthesis: 500,
   },
+  // Sum must stay under Vercel maxDuration (30s) for the SQL path:
+  // router (5s) + sql (10s) + synthesis (8s) = 23s peak. Context path is
+  // single-call so it can be larger.
   timeoutMs: {
-    router: 8_000,
+    router: 5_000,
     context: 10_000,
-    sql: 15_000,
-    synthesis: 10_000,
+    sql: 10_000,
+    synthesis: 8_000,
   },
   limits: {
     maxInputChars: 600,      // reject messages longer than this
