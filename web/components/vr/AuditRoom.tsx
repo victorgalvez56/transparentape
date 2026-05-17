@@ -11,6 +11,7 @@ import EnterVRButton from "./EnterVRButton";
 import Player from "./Player";
 import ObraPanel from "./ObraPanel";
 import AmbientAudio from "./AmbientAudio";
+import TimelineYears from "./TimelineYears";
 
 const store = createXRStore({
   controller: true,
@@ -20,6 +21,7 @@ const store = createXRStore({
 export default function AuditRoom() {
   const [hovered, setHovered] = useState<number | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
+  const [yearFilter, setYearFilter] = useState<number | null>(null);
   const playerRef = useRef<Group>(null);
 
   const handleTeleport = (point: Vector3) => {
@@ -45,10 +47,12 @@ export default function AuditRoom() {
           <Player ref={playerRef} />
           <Floor onTeleport={handleTeleport} />
           <ColumnaForest
+            yearFilter={yearFilter}
             onPointerOver={(id) => setHovered(id)}
             onPointerOut={() => setHovered(null)}
             onSelect={(id) => setSelected(id)}
           />
+          <TimelineYears year={yearFilter} onChange={setYearFilter} />
           {/* Panel encima de la columna apuntada */}
           {hovered != null && hovered !== selected && (
             <ObraPanel obraId={hovered} variant="hover" />
