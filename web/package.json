@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "postinstall": "node ./scripts/patch-iwer.mjs"
   },
   "dependencies": {
     "@googlemaps/js-api-loader": "^2.0.2",
