@@ -18,6 +18,7 @@ import CodexFilterBar, {
 import CodexObraList from "@/components/codex/CodexObraList";
 import CodexObraCard from "@/components/codex/CodexObraCard";
 import CodexObraDetail from "@/components/codex/CodexObraDetail";
+import CodexDashboard from "@/components/codex/CodexDashboard";
 
 const MapGlobe = dynamic(() => import("@/components/MapGlobe"), {
   ssr: false,
@@ -61,7 +62,7 @@ export default function CodexHomePage() {
   } | null>(null);
   const [showColdOpen, setShowColdOpen] = useState<boolean | null>(null);
   const [theme, setTheme] = useState<"light" | "dark">("light");
-  const [view, setView] = useState<"globe" | "grid">("globe");
+  const [view, setView] = useState<"globe" | "grid" | "panel">("globe");
   const [selected, setSelected] = useState<Obra | null>(null);
   const [showForensics, setShowForensics] = useState(false);
   const [mobileList, setMobileList] = useState(false);
@@ -318,7 +319,11 @@ export default function CodexHomePage() {
         onClearFilters={clearFilters}
       />
 
-      {view === "globe" ? (
+      {view === "panel" ? (
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <CodexDashboard />
+        </div>
+      ) : view === "globe" ? (
         <div className="flex-1 min-h-0 relative">
           {/* Globo ocupa TODO el container — encima va overlay blur de filterbar + sidebar */}
           <div className="absolute inset-0">

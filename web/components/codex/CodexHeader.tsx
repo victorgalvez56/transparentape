@@ -7,8 +7,8 @@ interface Props {
   redFlagsCount: number;
   /** Etiqueta de region/pais a mostrar a la derecha del centro */
   regionLabel: string;
-  view: "globe" | "grid";
-  onViewChange: (v: "globe" | "grid") => void;
+  view: "globe" | "grid" | "panel";
+  onViewChange: (v: "globe" | "grid" | "panel") => void;
   theme: "light" | "dark";
   onThemeToggle: () => void;
   hasFilters: boolean;
@@ -211,6 +211,21 @@ export default function CodexHeaderHybrid({
               <rect x="14" y="14" width="7" height="7" rx="1" />
             </svg>
             <span className="hidden sm:inline">Lista</span>
+          </Seg>
+          <Seg active={view === "panel"} onClick={() => onViewChange("panel")}>
+            <svg
+              className="w-3.5 h-3.5"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.5}
+            >
+              <path d="M3 3v18h18" />
+              <rect x="7" y="11" width="3" height="6" rx="0.5" />
+              <rect x="12.5" y="7" width="3" height="10" rx="0.5" />
+              <rect x="18" y="13" width="3" height="4" rx="0.5" />
+            </svg>
+            <span className="hidden sm:inline">Panel</span>
           </Seg>
         </div>
       </div>
