@@ -1,19 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { useObrasVR } from "@/lib/vr/obras-source";
 import { projectToFloor } from "@/lib/vr/projection";
 
 const PULSE_COLOR = new THREE.Color("#ef4444");
-const MAX_PULSES = 2000; // cap igual que las columnas, prioriza los mas relevantes
+const MAX_PULSES = 2000;
 
-/**
- * Anillos emissive en el suelo bajo cada columna red_flag.
- * Visible a larga distancia para identificar alertas sin tener que leer color
- * de la columna pequeña.
- */
 export default function RedFlagPulses() {
   const { obras } = useObrasVR();
   const meshRef = useRef<THREE.InstancedMesh>(null);
@@ -39,15 +34,16 @@ export default function RedFlagPulses() {
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
     }
-    mesh.instanceMatrix.needsUpdate = true;
+    // Limpiar sobrantes
+    const empty = new THREE.Object3D();
+    empty.scale.set(0, 0, 0);
+    empty.updateMatrix();
+    for (let i = positions.length; i < MAX_PULSES; i++) {
+      mesh.setMatrixAt(i, empty.matrix);
+    }
     mesh.count = positions.length;
+    mesh.instanceMatrix.needsUpdate = true;
   }, [positions]);
-
-  // Ref callback: count=0 al mountar para evitar overdraw inicial
-  const handleMeshRef = useCallback((m: THREE.InstancedMesh | null) => {
-    if (m && meshRef.current !== m) m.count = 0;
-    meshRef.current = m;
-  }, []);
 
   useFrame((_, delta) => {
     pulseTime.current += delta;
@@ -59,7 +55,7 @@ export default function RedFlagPulses() {
 
   return (
     <instancedMesh
-      ref={handleMeshRef}
+      ref={meshRef}
       args={[undefined, undefined, MAX_PULSES]}
       frustumCulled={false}
     >

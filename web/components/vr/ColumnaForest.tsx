@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { useObrasVR } from "@/lib/vr/obras-source";
@@ -26,8 +26,7 @@ export default function ColumnaForest({
   onSelect,
 }: Props) {
   const { obras, loading } = useObrasVR();
-  // En modo XR usamos el cap mas chico — detectamos via navigator.xr session
-  // en vez de useXR hook para que el componente funcione fuera del <XR> wrapper
+  // Detectamos XR via navigator para que el componente funcione sin <XR> wrapper
   const inXR =
     typeof navigator !== "undefined" &&
     Boolean((navigator as { xr?: { session?: unknown } }).xr?.session);
@@ -41,7 +40,6 @@ export default function ColumnaForest({
     let list = obras;
     if (yearFilter != null) list = list.filter((o) => o.source_year === yearFilter);
     if (list.length <= cap) return list;
-    // Si excede el cap, priorizamos: red flags primero, luego mayor monto
     return [...list]
       .sort((a, b) => {
         if (a.is_red_flag !== b.is_red_flag) return a.is_red_flag ? -1 : 1;
@@ -49,10 +47,6 @@ export default function ColumnaForest({
       })
       .slice(0, cap);
   }, [obras, yearFilter, inXR]);
-
-  // Spawn animation: shader injection desactivada temporalmente porque el
-  // race con onBeforeCompile dejaba uProgress=0 y las columnas planas/invisibles.
-  // TODO: re-enable con initial value 1 + animar hacia abajo y arriba.
 
   // Posicionar y colorear las instancias cuando cambia el dataset
   useEffect(() => {
@@ -76,25 +70,14 @@ export default function ColumnaForest({
     const empty = new THREE.Object3D();
     empty.scale.set(0, 0, 0);
     empty.updateMatrix();
-    for (let i = visible.length; i < mesh.count; i++) {
+    for (let i = visible.length; i < DESKTOP_INSTANCE_CAP; i++) {
       mesh.setMatrixAt(i, empty.matrix);
     }
 
+    mesh.count = visible.length;
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    // Solo despues de setear matrices, exponer las instancias reales al render
-    mesh.count = visible.length;
   }, [visible]);
-
-  // Ref callback que inicializa count=0 antes del primer paint.
-  // Asi nunca renderizamos 2000 cilindros con matrices identity overlapeados
-  // (un frame de overdraw extremo que crashea el driver Metal en M5).
-  const handleMeshRef = useCallback((m: THREE.InstancedMesh | null) => {
-    if (m && meshRef.current !== m) {
-      m.count = 0;
-    }
-    meshRef.current = m;
-  }, []);
 
   // Pulso de emissive intensity
   useFrame((_, delta) => {
@@ -105,7 +88,7 @@ export default function ColumnaForest({
     }
   });
 
-  // Handlers de raycast — react-three-fiber resuelve el instanceId automáticamente
+  // Handlers de raycast — react-three-fiber resuelve el instanceId automaticamente
   const handlePointerOver = (e: ThreeEvent) => {
     e.stopPropagation();
     const id = e.instanceId;
@@ -125,14 +108,14 @@ export default function ColumnaForest({
 
   return (
     <instancedMesh
-      ref={handleMeshRef}
+      ref={meshRef}
       args={[undefined, undefined, DESKTOP_INSTANCE_CAP]}
       onPointerOver={handlePointerOver}
       onPointerOut={() => onPointerOut?.()}
       onClick={handleClick}
       frustumCulled={false}
     >
-      <cylinderGeometry args={[0.08, 0.08, 1, 4]} />
+      <cylinderGeometry args={[0.15, 0.15, 1, 4]} />
       <meshStandardMaterial
         ref={matRef}
         vertexColors={false}
