@@ -287,7 +287,7 @@ async function handleMessage(
         lastResultIds: obras.map((o) => o.id),
         lastQuery: effectiveText,
       });
-      return fmtObras(obras, country, yearSugerido);
+      return fmtObras(obras, country, yearSugerido, filters);
     }
 
     case "CONTEXTO_DETALLE": {
