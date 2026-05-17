@@ -1,249 +1,166 @@
-# Roadmap del agente Kapso — scope agente solamente
+# Roadmap del agente Kapso — scope agente-only
 
-Plan acotado al boundary del **agente de WhatsApp/Kapso**: webhook, intents, queries, formatters, tool registry, sesión. Sin cron, sin templates push, sin PDFs, sin ETL nuevo, sin crowdsourcing.
+Plan acotado al boundary del agente WhatsApp/Kapso. Sin cron, sin templates push, sin PDFs, sin ETL nuevo, sin crowdsourcing.
 
-> **Generado:** 2026-05-17 · scope: `web/lib/agent-kapso/*` + `web/lib/agent/*` + `web/app/api/kapso/webhook/route.ts`
+> **Última actualización:** 2026-05-17 · commit `ede6080` (post tool-registry, engine.ts retired)
 
 ---
 
-## Scope dentro/fuera
+## Scope
 
-### Dentro (lo que puedo tocar)
+### Dentro
 
 | Capa | Archivos |
 |---|---|
 | Webhook | `web/app/api/kapso/webhook/route.ts` |
-| Intents (regex) | `web/lib/agent-kapso/intent.ts` |
+| Intents regex | `web/lib/agent-kapso/intent.ts` |
 | Queries SQL | `web/lib/agent-kapso/queries.ts` |
-| Formatters WhatsApp | `web/lib/agent-kapso/wa-format.ts` |
+| Formatters | `web/lib/agent-kapso/wa-format.ts` |
 | Sesión | `web/lib/agent-kapso/session.ts` |
 | Config | `web/lib/agent-kapso/config.ts` |
-| Pipeline LLM compartido | `web/lib/agent/core.ts` |
+| Places allowlist | `web/lib/agent-kapso/places.ts` |
+| Pipeline LLM | `web/lib/agent/core.ts` |
 | Tool registry | `web/lib/agent/tools.ts` |
-| Legacy pipeline (fallback) | `web/lib/agent-kapso/engine.ts` |
-| Migraciones SQL | `supabase/migrations/*` (sólo si necesitamos columna nueva en `agent_sessions`) |
+| Migraciones (solo si afectan al agente) | `supabase/migrations/*` |
 
-### Fuera (no toco)
+### Fuera
 
-- ETL (`etl/`, INFOBRAS scraper, OCDS download).
-- Vercel cron, jobs proactivos, push templates Meta.
-- PDF generation endpoints.
-- Crowdsourcing tablas (`citizen_reports`).
-- Cross-country data acquisition (Chile/Colombia/etc).
-- AI Vision batch processing.
-- Web frontend (`app/page.tsx`, `components/*`).
+ETL · cron jobs · push templates Meta · PDF generation · crowdsourcing · AI Vision batch · cross-country data acquisition · frontend web.
 
 ---
 
-## Lo que el agente cubre HOY (14 intents)
+## Estado actual del agente
 
-`CAMBIAR_PAIS`, `BUSCAR_OBRAS`, `BUSCAR_CERCANOS`, `VER_DETALLE`, `CONTEXTO_DETALLE`, `STATS`, `MONTO_EN_RIESGO`, `RANKING_CONTRATISTAS`, `RANKING_ENTIDADES`, `ADJUDICACION_DIRECTA`, `INVESTIGAR_CONTRATISTA`, `INHABILITADOS`, `AYUDA`, `AGRADECIMIENTO`. Más fallback `PREGUNTA_LIBRE` → `runChatPipeline` → `chatEngine` legacy.
+### Lo que YA está implementado
 
----
+✅ **Tier 1 (regex fast-path) — 9 intents:** `AYUDA`, `AGRADECIMIENTO`, `CAMBIAR_PAIS`, `BUSCAR_OBRAS`, `BUSCAR_CERCANOS`, `VER_DETALLE`, `CONTEXTO_DETALLE` (incl plural `los primeros 3`), `INVESTIGAR_CONTRATISTA`, `PREGUNTA_LIBRE`.
 
-## Gaps factibles SÓLO con cambios al agente
+✅ **Tier 2 (tool registry) — 9 tools:** `buscar_obras`, `ver_detalle`, `stats_pais`, `ranking_contratistas`, `ranking_entidades`, `adjudicacion_directa`, `investigar_contratista`, `inhabilitados`, `monto_en_riesgo`. Despachados por LLM router cuando `PREGUNTA_LIBRE`.
 
-### 🟢 Quick wins (≤ 1 día de código)
+✅ **Pipeline LLM compartido (`runChatPipeline`):**
+- TOOL_CALL / ANSWER_FROM_CONTEXT / NEEDS_SQL / NEEDS_CLARIFICATION
+- Adaptive fallback en cada paso
+- `statement_timeout=5s` + LIMIT mandatorio
 
-#### 1. Intent `EXPLICAR` + tool `lookup_definition` (civic literacy)
-- Catálogo estático ~20 términos en `lib/agent-kapso/definitions.ts`: `adjudicación directa`, `OCDS`, `OECE`, `red flag`, `RUC`, `contraloría`, `tender`, `entidad`, `contratista`, `supervisor`, `proceso de selección`, `licitación pública`, `concurso público`, `subasta inversa`, `inhabilitación`, `penalidad`, `adenda`, `consorcio`, `expediente técnico`, `valor referencial`.
-- Trigger regex en `parseIntent`: `/(qué es|que significa|definir|explica|explicame|qué quiere decir)/i`.
-- Sin LLM, sin DB. <50ms.
+✅ **UX features:**
+- `markRead + typingIndicator` ("escribiendo…" hasta 25s)
+- Fast-path saludo (sin getSession ni parseIntent)
+- Sugerencias indexadas (`sendInteractiveList` + `resolveIndexFromText`)
+- `obraIds` persistidos post-TOOL_CALL para ordinal follow-up
 
-#### 2. Intent `OBRAS_ACTIVAS` (10,477 filas con `contract_status='active'`)
-- `parseIntent` regex: `/\bobras?\s+(en\s+ejecuci[oó]n|activas?|en\s+curso|vigentes?)\b/i`.
-- `queries.ts`: `buscarObras({ ..., contract_status: 'active' })` — añadir filtro al builder existente.
-- Formatter reusa `fmtObras` con flag visual.
+✅ **Robustez:**
+- Custom HMAC verify (Meta + Kapso formats)
+- `waitUntil` para fire-and-forget seguro en Vercel
+- Dedup `webhook_dedup` en background
+- `places.ts` separa `q_geo` de `q_supplier` (evita ILIKE roto)
+- `engine.ts` retirado (single brain)
 
-#### 3. Intent `SOBRECOSTOS`
-- Trigger: `/\bsobrecost(o|os)\b|\bsobre\s+precio\b/i`.
-- Query: `WHERE contract_amount > tender_amount * 1.1 AND tender_amount > 0 ORDER BY (contract_amount - tender_amount) DESC`.
-- Formatter nuevo `fmtSobrecostos`: muestra obra + `tender_amount` (referencial) + `contract_amount` (final) + delta.
+### Lo que NO está implementado
 
-#### 4. Intent `AVANCE_OBRA` (sobre `infobras_full`)
-- Trigger: `/\bavance\b|\bporcentaje\b|\bcómo\s+va\b|\bestado\s+de\s+obra\b/i` + obraId o nombre.
-- Query join: `obras` ↔ `infobras_full` por `infobras_code = codigo_infobras` (165 obras tienen `infobras_code`; 579 filas en `infobras_full`).
-- Devuelve: `avance_fisico_pct`, `fecha_ultimo_avance`, `fecha_fin_programada` vs `fecha_fin_real`, `n_modificaciones_plazo`.
-- Formatter nuevo `fmtAvance` con barra ASCII: `▓▓▓▓▓▓▓▓░░ 75%`.
-
-#### 5. Intent `SUPERVISOR_OBRA` (sobre `infobras_full`)
-- Trigger: `/\bsupervisor\b|\bquién\s+supervisa\b|\bquién\s+audita\b/i`.
-- Devuelve `supervisor_nombre`, `supervisor_ruc`, `entidad_nombre`, `tiene_informe_control`.
-
-#### 6. Link compartible en `fmtDetalle`
-- Append: `\n\n🔗 transparentape.app/obras/{ocid}`.
-- Cero código nuevo más allá del template del formatter.
-
-#### 7. Footer fuente en formatters
-- Agregar `\n\n_📊 Fuente: OCDS · datos al {fecha}_` en todos los `fmt*`.
-- Constante `FECHA_DATOS` en `config.ts`. Bump manual cada ETL refresh.
-
-#### 8. Closing prompts contextuales
-- Modificar cada formatter para terminar con next-action:
-  - `fmtObras`: "_Responde 1, 2 o 3 para ver el detalle._"
-  - `fmtDetalle`: "_¿Quieres ver avance, supervisor o sobrecostos?_"
-  - `fmtInvestigacion`: "_¿Quieres ver sus obras activas o sus sanciones?_"
-
-#### 9. Tono ciudadano (copy)
-- Buscar/reemplazar en `wa-format.ts`:
-  - `red_flag_types: sancion_inhabilitacion` → `🚨 contratista sancionado por OECE`
-  - `red_flag_types: penalidad` → `⚠️ obra con penalidad aplicada`
-  - `procurement_method: direct` → `adjudicación directa (sin concurso)`
-  - `contract_status: active` → `en ejecución`
-
-#### 10. Fast-path AGRADECIMIENTO
-- Hoy `AGRADECIMIENTO` ejecuta toda la ruta de `handleMessage`. Mismo patrón que `GREETING_RE` fast-path: regex temprano + respuesta directa sin session.
+❌ `infobras_full` (579 obras enriquecidas) no consumido por ningún tool/intent.
+❌ Sobrecostos como query directa (calculable de `tender` vs `contract`).
+❌ Filtros encadenados conversacionales (`session.lastFilters` no existe).
+❌ `lookup_definition` (civic literacy).
+❌ Concentración contratista-entidad (cártel detection).
+❌ Comparativos región vs región.
+❌ Inhabilitados activos (cruce con obras recientes).
+❌ Obras retrasadas (`fecha_fin_programada` vs `NOW()`).
+❌ Footer fuente en respuestas.
+❌ Link compartible (`/obras/{ocid}`) en formatters.
+❌ Closing prompts contextuales.
+❌ Memoria semántica de sesión (`session.summary`).
+❌ Eval set ofline.
 
 ---
 
-### 🟡 Medio (2-5 días)
+## Roadmap restante — 3 milestones
 
-#### 11. Intent `REFINAR_BUSQUEDA` (filtros encadenados)
-- Agregar `session.lastFilters` (JSONB en `agent_sessions` — necesita migración 12).
-- `parseIntent` detecta refinamiento: `/^(ahora\s+)?(solo|s[oó]lo|filtra|y\s+(de\s+)?los?)\s+/i` + criterio adicional.
-- Merge sobre `session.lastFilters`. Ejecuta `buscarObras` con merged.
-- Ejemplo flow: `obras Lima 2024` → `solo las activas` → `y de >S/10M` → `cuál tiene supervisor sospechoso`.
+### 🟢 Milestone A — pulido (1-2 días)
 
-#### 12. Intent `INHABILITADOS_ACTIVOS` (cruce `red_flags` ↔ `obras`)
-- Trigger: `/\binhabilitados?\s+(activos?|operando|trabajando|que\s+(siguen|aún))\b/i`.
-- Query: `SELECT obras.* FROM obras JOIN red_flags ON obras.supplier_ruc = red_flags.ruc WHERE red_flags.vigente = TRUE AND obras.contract_start::date > NOW() - INTERVAL '12 months'`.
-- Alarma cívica fuerte.
+Sin nuevos datos, sin nueva infra. Solo UX y educación cívica.
 
-#### 13. Intent `OBRAS_RETRASADAS`
-- Trigger: `/\b(retrasadas?|atrasadas?|estancadas?|paralizadas?)\b/i`.
-- Query sobre `infobras_full`: `fecha_fin_programada::date < NOW() AND avance_fisico_pct < 100`.
+| # | Cambio | Archivos | Líneas aprox |
+|---|---|---|---|
+| A1 | Tool `lookup_definition` + dict cívico ~20 términos | nuevo `lib/agent-kapso/definitions.ts` + `tools.ts` | ~80 |
+| A2 | Footer fuente en todos los `fmt*` | `wa-format.ts`, `config.ts` (constante `FECHA_DATOS`) | ~15 |
+| A3 | Link compartible en `fmtDetalle` (`transparentape.app/obras/{ocid}`) | `wa-format.ts` | ~3 |
+| A4 | Closing prompts contextuales en cada formatter | `wa-format.ts` | ~20 |
+| A5 | Copy tono ciudadano (`sancion_inhabilitacion` → "🚨 contratista sancionado") | `wa-format.ts` | ~30 |
+| A6 | Fast-path `AGRADECIMIENTO` (sin `getSession`) | `webhook/route.ts` | ~10 |
 
-#### 14. Intent `COMPARAR_REGIONES`
-- Trigger: `/\bcomparar?\s+\w+\s+(vs|contra|y)\s+\w+/i`.
-- Query: 2 aggregates paralelos (`COUNT`, `SUM`, `% red_flag`) por región. Formatter side-by-side.
+**Resultado:** mismo agente más amable, más educativo, más confiable, más rápido en respuestas cortas. **Cero riesgo, alto perceived value.**
 
-#### 15. Intent `CONCENTRACION_CONTRATISTA`
-- Trigger: `/\bconcentraci[oó]n\b|\bmonopoliz\w+|\bcu[aá]ntas?\s+obras\s+gan[oó]\b/i`.
-- Query con HAVING: `SELECT supplier_name, buyer_name, COUNT(*) FROM obras GROUP BY supplier_name, buyer_name HAVING COUNT(*) >= 5 ORDER BY count DESC`.
-- Útil para detectar relaciones cliente-proveedor sospechosas.
+### 🟡 Milestone B — más casuísticas con datos existentes (3-5 días)
 
-#### 16. Conectar `runChatPipeline` con `tools[]` en webhook
-- En `PREGUNTA_LIBRE`, pasar el tool registry completo:
-  ```ts
-  const result = await runChatPipeline(history, {
-    tools: buildTransparentapeTools(),
-    toolContext: { country: session.country },
-  });
-  ```
-- El router LLM puede llamar tools nuevos sin que agreguemos regex por cada uno.
+Conectar `infobras_full` + queries derivadas que no requieren regex porque el tool registry las despacha.
 
-#### 17. Reflexion narrow en tool SQL fallback
-- Si `runChatPipeline` cae en `NEEDS_SQL` y la query retorna 0 rows o error, **1 retry** con el error en context.
-- Aplicar SOLO al SQL gen, NO al synthesis (innecesario).
+| # | Tool nuevo | Source data | Notas |
+|---|---|---|---|
+| B1 | `avance_obra` | `obras` ⋈ `infobras_full` (`infobras_code = codigo_infobras`) | Devuelve `avance_fisico_pct`, `fecha_ultimo_avance`, `n_modificaciones_plazo`. Formatter con barra ASCII `▓▓▓▓░░ 60%`. |
+| B2 | `supervisor_obra` | `infobras_full` | `supervisor_nombre`, `supervisor_ruc`, `tiene_informe_control`. |
+| B3 | `sobrecostos` | `obras` (cálculo) | `WHERE contract_amount > tender_amount * 1.1 AND tender_amount > 0 ORDER BY (contract_amount - tender_amount) DESC`. |
+| B4 | `obras_activas` | `obras` (`contract_status='active'`) | 10K filas disponibles. Filtro al builder existente. |
+| B5 | `obras_retrasadas` | `infobras_full` | `fecha_fin_programada::date < NOW() AND avance_fisico_pct < 100`. |
+| B6 | `inhabilitados_activos` | `red_flags` ⋈ `obras` | `red_flags.vigente=TRUE AND obras.contract_start::date > NOW() - INTERVAL '12 months'`. Alarma cívica fuerte. |
 
----
+**Archivos tocados:** `queries.ts` (6 funciones nuevas), `wa-format.ts` (6 formatters), `tools.ts` (6 tools registered).
 
-### 🔴 Big-effort dentro del scope (1+ semana de código)
+**Sin cambios en `intent.ts`** — el LLM router despacha. Si alguno termina siendo muy frecuente, después se le agrega fast-path regex.
 
-#### 18. Multi-país real
-- Hoy `session.country` cambia pero queries siguen funcionando solo para PE bien (CL apenas 1K obras, 2026 only).
-- Si Victor/ETL trae más data Chile/Colombia: el agente ya está listo (country-aware en todas las queries).
-- **Mi parte**: agregar `detectCountry` para más variantes ("colombiano", "mexicana", etc), formatters con flag emojis correctos.
+**Resultado:** 6 capacidades nuevas. INFOBRAS deja de ser data muerta. Las 4 más útiles (`avance_obra`, `sobrecostos`, `obras_activas`, `inhabilitados_activos`) cubren casi todas las preguntas ciudadanas reales sobre obras públicas.
 
-#### 19. Memoria semántica de sesión
-- Hoy `session.lastMessages` = últimas 6 raw messages.
-- Agregar `session.summary` (string corto) regenerado cada 5 turnos: "Usuario investiga obras de Cusco, mostró interés en sobrecostos".
-- Pasar `summary` al prompt del router → contexto más denso, menos tokens.
+### 🔴 Milestone C — conversación profunda (~1 semana)
 
-#### 20. Auto-eval set + golden queries
-- Tabla `agent_evals` con 30-50 queries español + expected intent + expected output substring.
-- Endpoint `/api/agent/eval` que corre todo el batch y reporta regressions.
-- No bloquea CI, sólo dashboard.
+| # | Cambio | Notas |
+|---|---|---|
+| C1 | Intent `REFINAR_BUSQUEDA` + `session.lastFilters` | Migración 12 (columna JSONB). Regex `^(ahora\s+)?(solo|filtra|y\s+(de\s+)?los?)\s+...`. Merge sobre últimos filtros. Ejemplo: `obras Lima 2024` → `solo las activas` → `y de >S/10M`. |
+| C2 | Tool `comparar_regiones` | Aggregates paralelos (COUNT, SUM, % red_flag) por 2 regiones. Formatter side-by-side. |
+| C3 | Tool `concentracion_contratista` | HAVING COUNT >= 5 sobre supplier ⋈ buyer. Detecta cliente-proveedor sospechoso. |
+| C4 | `session.summary` regenerado cada 5 turns | Migración 13. LLM produce summary corto que se pasa al router. Contexto más denso, menos tokens. |
+| C5 | Eval set golden queries | Tabla `agent_evals` + endpoint `/api/agent/eval`. 30-50 queries español, expected layer + substring. Dashboard, no CI blocking. |
+
+**Resultado:** filtros encadenados naturales, comparativos, agente con memoria semántica, regression catch.
 
 ---
 
-## Lo que NO entra en este scope (pero documento por claridad)
+## Métricas de éxito sugeridas
+
+Antes de implementar más, vale acordar qué medir. Todas observables vía `agent_logs`:
+
+1. **`layer` distribution** — % `atajo:*` vs `tool:*` vs `sql_libre` vs `clarify`. **Salud:** `sql_libre` debería ser <5%. Si sube, el tool registry está perdiendo cobertura.
+2. **Latencia p50 / p95 por layer.** Atajos <1s. Tools <3s. SQL libre <8s.
+3. **`clarify` rate** — usuarios que reciben sugerencias en vez de respuesta. Si >20%, el router está rechazando queries que sí deberían matchear tools.
+4. **Ordinal follow-up rate** — % de respuestas `CONTEXTO_DETALLE` después de un `BUSCAR_OBRAS` / `TOOL_CALL`. Indicador de engagement.
+5. **Suggestion tap rate** — `resolveIndexFromText` hits / sugerencias enviadas. Útil para saber si la lista es buena.
+
+Query base:
+
+```sql
+SELECT
+  params->'meta'->>'layer' AS layer,
+  COUNT(*) AS n,
+  ROUND(AVG(latencia_ms)) AS avg_ms,
+  ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latencia_ms)) AS p95_ms
+FROM agent_logs
+WHERE endpoint = '/api/kapso/webhook'
+  AND created_at > NOW() - INTERVAL '24 hours'
+GROUP BY layer
+ORDER BY n DESC;
+```
+
+---
+
+## Decisiones explícitas — qué NO entra en scope agente
 
 | Funcionalidad | Por qué fuera |
 |---|---|
-| Suscripciones push proactivas | Requiere Vercel cron + template Meta aprobado |
-| Subir fotos / inbound multimedia | Requiere Supabase Storage + ETL match |
+| Suscripciones push proactivas | Cron + template Meta aprobado |
+| Subir fotos inbound | Supabase Storage + matching obra |
 | PDF on-demand | Endpoint separado, no agente |
-| Crowdsourcing denuncias | Tabla nueva + integración Defensoría |
-| AI Vision masivo | Anthropic API budget + batch infra |
-| Cross-country data | ETL de Chile/Colombia/etc, no agente |
-
----
-
-## Plan en 3 milestones (agente-only)
-
-### Milestone A (1 sprint corto, ~1-2 días)
-
-Apunta a multiplicar utilidad del agente sin nueva infra.
-
-| # | Cambio | Archivos |
-|---|---|---|
-| 1 | Intent `EXPLICAR` + dict definiciones | `intent.ts`, nuevo `definitions.ts` |
-| 6 | Link compartible en `fmtDetalle` | `wa-format.ts` |
-| 7 | Footer fuente | `wa-format.ts`, `config.ts` |
-| 8 | Closing prompts contextuales | `wa-format.ts` |
-| 9 | Copy tono ciudadano | `wa-format.ts` |
-| 10 | Fast-path AGRADECIMIENTO | `webhook/route.ts` |
-
-**Resultado:** mismo agente pero más amable, más educativo, más confiable, más rápido en respuestas cortas.
-
-### Milestone B (~3-5 días)
-
-Expande lo que se puede preguntar usando datos que YA están en DB.
-
-| # | Cambio | Archivos |
-|---|---|---|
-| 2 | Intent `OBRAS_ACTIVAS` | `intent.ts`, `queries.ts`, `wa-format.ts` |
-| 3 | Intent `SOBRECOSTOS` | `intent.ts`, `queries.ts`, `wa-format.ts` |
-| 4 | Intent `AVANCE_OBRA` (INFOBRAS) | `intent.ts`, `queries.ts` (join), `wa-format.ts` |
-| 5 | Intent `SUPERVISOR_OBRA` (INFOBRAS) | `intent.ts`, `queries.ts`, `wa-format.ts` |
-| 12 | Intent `INHABILITADOS_ACTIVOS` | `intent.ts`, `queries.ts` (join red_flags) |
-| 13 | Intent `OBRAS_RETRASADAS` | `intent.ts`, `queries.ts` (INFOBRAS) |
-| 16 | Conectar `tools[]` en `PREGUNTA_LIBRE` | `webhook/route.ts`, `tools.ts` |
-
-**Resultado:** 6 intents nuevos + tool registry activo para queries no-regex. INFOBRAS deja de ser data muerta.
-
-### Milestone C (~1 semana)
-
-Conversación más sofisticada.
-
-| # | Cambio | Archivos |
-|---|---|---|
-| 11 | Intent `REFINAR_BUSQUEDA` con `lastFilters` | migración 12, `session.ts`, `intent.ts`, `webhook/route.ts` |
-| 14 | Intent `COMPARAR_REGIONES` | `intent.ts`, `queries.ts`, `wa-format.ts` |
-| 15 | Intent `CONCENTRACION_CONTRATISTA` | `intent.ts`, `queries.ts` |
-| 17 | Reflexion narrow en `runChatPipeline` SQL | `core.ts` |
-| 19 | Memoria semántica `session.summary` | migración 13, `session.ts`, `core.ts` |
-
-**Resultado:** filtros encadenados naturales, comparativos, pipeline LLM más robusto a SQL errors.
-
----
-
-## Cómo el agente actual se mapea al patrón tool-use loop
-
-Cada intent regex puede coexistir con tool registry. **No tirar lo existente.**
-
-```
-Webhook recibe text
-  │
-  ▼
-GREETING_RE? ─yes─▶ sendAyudaWithButtons (fast-path)
-  │ no
-  ▼
-parseIntent(text) ─▶ hit conocido? ─yes─▶ handler determinístico (queries.ts)
-  │ no
-  ▼
-runChatPipeline(history, { tools, toolContext })
-  │
-  ├─ Router → TOOL_CALL → tools.ts ejecuta + formatea
-  ├─ Router → ANSWER_FROM_CONTEXT → synthesis sobre history
-  ├─ Router → NEEDS_SQL → SQL gen + execute + synthesis (con reflexion)
-  └─ Router → NEEDS_CLARIFICATION → reply + suggested_questions
-```
-
-**Tier 1 (regex)** = velocidad + determinismo para queries comunes.
-**Tier 2 (tools en LLM router)** = cubre variaciones lingüísticas que regex no atrapa, sin agregar regex case por case.
-**Tier 3 (NEEDS_SQL)** = fallback para queries ad-hoc no anticipadas.
+| Crowdsourcing denuncias | Nueva tabla + integración Defensoría |
+| AI Vision masivo | Anthropic budget + batch infra |
+| Cross-country data | ETL de Chile/Colombia |
+| Frontend web | Otra capa |
 
 ---
 
@@ -251,15 +168,15 @@ runChatPipeline(history, { tools, toolContext })
 
 **Si tengo 1-2 días:** Milestone A completo. Cero riesgo, alto perceived value.
 
-**Si tengo 1 semana:** A + B. Da al agente acceso a 4 datos críticos (INFOBRAS, sobrecostos, activas, retrasadas). El bot pasa de "consulta básica OCDS" a "auditor ciudadano con visión de ejecución".
+**Si tengo 1 semana:** A + B. INFOBRAS desbloqueado. El bot pasa de "consulta básica OCDS" a "auditor ciudadano con visión de ejecución".
 
-**Si tengo 2 semanas:** A + B + C. Conversación encadenada + comparativos + LLM más robusto. Es ya producto de retención (usuario vuelve porque puede investigar profundo).
+**Si tengo 2 semanas:** A + B + C. Conversación encadenada + comparativos + LLM más robusto. Producto de retención.
 
-**Lo más alto en ROI por línea de código:**
+### Top 4 ROI por línea de código
 
-1. `lookup_definition` — 50 líneas → diferencial educativo enorme.
-2. Footer fuente + link compartible — 10 líneas → confianza + viralidad.
-3. Conectar `tools[]` al `PREGUNTA_LIBRE` — 5 líneas → habilita TODOS los tools nuevos sin agregar regex.
-4. INFOBRAS join — 30 líneas → desbloquea 579 obras con avance físico real.
+1. **`lookup_definition`** — ~80 líneas → diferencial educativo.
+2. **Footer fuente + link compartible** — ~20 líneas → confianza + viralidad.
+3. **Tool `sobrecostos`** — ~30 líneas → tema número 1 que ciudadano quiere saber.
+4. **INFOBRAS join (`avance_obra`)** — ~50 líneas → desbloquea 579 obras con datos reales de ejecución.
 
 ¿Empezamos por Milestone A?

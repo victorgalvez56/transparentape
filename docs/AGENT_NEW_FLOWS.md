@@ -2,6 +2,14 @@
 
 Análisis basado en estado actual de la base Supabase (snapshot 2026-05-17) y el set de intents ya implementados. Identifica qué datos están subutilizados, qué preguntas reales del ciudadano caen fuera del agente hoy, y cómo extender el bot sin reescribirlo.
 
+> **⚠️ Nota:** documento parcialmente desactualizado vs estado actual del código. Para roadmap accionable acotado al agente Kapso ver `AGENT_KAPSO_ROADMAP.md`. Para arquitectura actual del agente ver `AGENT_KAPSO.md`. Este doc se mantiene como referencia de **análisis de la data** disponible.
+
+**Cambios desde que este doc fue escrito:**
+- Tool registry ya activo (`tools.ts`) — 9 tools registrados.
+- Webhook usa `runChatPipeline(history, { tools })` para `PREGUNTA_LIBRE`.
+- 6 intents regex retirados (STATS / RANKING_* / MONTO_EN_RIESGO / ADJUDICACION_DIRECTA / INHABILITADOS) — ahora vía TOOL_CALL.
+- `engine.ts` borrado.
+
 ---
 
 ## 1. Snapshot de datos disponibles
