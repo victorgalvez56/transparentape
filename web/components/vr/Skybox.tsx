@@ -8,11 +8,11 @@ export default function Skybox() {
       {/* Cielo nocturno con un color sólido + niebla en la distancia */}
       <color attach="background" args={["#020202"]} />
       <fog attach="fog" args={["#020202", 30, 100]} />
-      {/* Campo de estrellas — sensación de grandeza, infinito */}
+      {/* Campo de estrellas — reducido para GPU integrada */}
       <Stars
         radius={150}
-        depth={80}
-        count={5000}
+        depth={60}
+        count={1500}
         factor={4}
         saturation={0}
         fade

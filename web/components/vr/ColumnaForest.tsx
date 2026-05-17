@@ -10,8 +10,8 @@ import { projectToFloor, montoToHeight } from "@/lib/vr/projection";
 const COLOR_ALTO = new THREE.Color("#ef4444"); // red_flag
 const COLOR_BAJO = new THREE.Color("#42dc3a"); // brand
 
-const XR_INSTANCE_CAP = 30000; // bajo Quest 3S, limitamos para mantener 90fps
-const DESKTOP_INSTANCE_CAP = 70000;
+const XR_INSTANCE_CAP = 15000; // Quest 3S manda los real importantes
+const DESKTOP_INSTANCE_CAP = 8000; // MacBook Air integrated GPU es limitado
 
 interface Props {
   yearFilter?: number | null; // null = todos
