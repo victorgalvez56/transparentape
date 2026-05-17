@@ -95,7 +95,27 @@ const NOISE_WORDS = new Set([
   "importante", "importantes", "principal", "principales",
   "obra", "obras", "proyecto", "proyectos",
   "todas", "todos", "varias", "varios",
+  // Delay/schedule vocabulary — these belong to OBRAS_RETRASADAS, not
+  // q_supplier. Without them, "obras con más retrasos en Lima" leaks
+  // stripped="mas retrasos" into q_supplier and returns zero rows.
+  "mas", "menos", "muchos", "muchas", "pocos", "pocas",
+  "retraso", "retrasos", "atraso", "atrasos", "demora", "demoras",
+  "retrasado", "retrasada", "retrasados", "retrasadas",
+  "atrasado", "atrasada", "atrasados", "atrasadas",
+  "paralizado", "paralizada", "paralizados", "paralizadas",
+  "estancado", "estancada", "estancados", "estancadas",
+  "demorado", "demorada", "demorados", "demoradas",
 ]);
+
+// Returns true if `s` is either in NOISE_WORDS as a whole OR every
+// whitespace-separated token is. "mas retrasos" → both tokens noise →
+// drop. "valle del colca" → "valle"/"colca" not noise → keep.
+function isAllNoise(s: string): boolean {
+  if (NOISE_WORDS.has(s)) return true;
+  const toks = s.split(/\s+/).filter(Boolean);
+  if (toks.length < 2) return false;
+  return toks.every((t) => NOISE_WORDS.has(t));
+}
 
 // Sector words → q_sector. These map to tender_description ILIKE %word%
 // (semantic search, not place). User says "obras de saneamiento" — the
@@ -342,7 +362,7 @@ export function classifyQuery(q: string | undefined): {
       .trim();
     const restIsSector = stripped && isSectorWord(stripped);
     if (restIsSector) return { q_geo: place, q_sector: restIsSector };
-    if (stripped.length >= 3 && !NOISE_WORDS.has(stripped)) {
+    if (stripped.length >= 3 && !isAllNoise(stripped)) {
       return { q_geo: place, q_supplier: stripped };
     }
     return { q_geo: place };
@@ -372,7 +392,7 @@ export function classifyQuery(q: string | undefined): {
   // 5. Multi-word with internal capitalisation → unknown place.
   //    Escape hatch for "Valle del Colca", "San Pedro de los Incas", etc.
   //    Pure lowercase noise like "obras grandes" falls through to drop.
-  if (trimmed.includes(" ") && hasCapitalProperNoun(trimmed) && !NOISE_WORDS.has(n)) {
+  if (trimmed.includes(" ") && hasCapitalProperNoun(trimmed) && !isAllNoise(n)) {
     return { q_geo: trimmed };
   }
 

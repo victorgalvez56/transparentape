@@ -16,6 +16,15 @@ export interface ObraResumen {
   procurement_method: string | null;
   source_year: number | null;
   country: string;
+  // Optional INFOBRAS fields — populated by getObraResumen via LEFT JOIN
+  // when the obra has an `infobras_code` link. Always undefined/null on
+  // list queries that don't join (buscarObras, ranking variants, etc.).
+  avance_fisico_pct?: number | null;
+  fecha_fin_programada?: string | null;
+  fecha_fin_real?: string | null;
+  n_modificaciones_plazo?: number | null;
+  supervisor_nombre?: string | null;
+  dias_retraso?: number | null;
 }
 
 export interface ObraCercana extends ObraResumen {
@@ -53,6 +62,22 @@ export interface ObraRetrasada extends ObraResumen {
   n_modificaciones_plazo: number | null;
   dias_retraso: number | null;
   supervisor_nombre: string | null;
+  /** Parsed OCDS contract_end. Surfaced as fallback "plan" date when the
+   *  obra has no INFOBRAS schedule data (Path A coverage). */
+  contract_end_date: string | null;
+  contract_status: string | null;
+}
+
+// Optional INFOBRAS fields surfaced in detail views. All null when the
+// obra has no `infobras_code` link — getObraResumen LEFT JOINs the table
+// so the base obra row is always returned.
+export interface ObraInfobras {
+  avance_fisico_pct: number | null;
+  fecha_fin_programada: string | null;
+  fecha_fin_real: string | null;
+  n_modificaciones_plazo: number | null;
+  supervisor_nombre: string | null;
+  dias_retraso: number | null;
 }
 
 // ─── Obras ────────────────────────────────────────────────────────────────────
@@ -137,10 +162,76 @@ export async function buscarObras(f: BuscarObrasFilters): Promise<ObraResumen[]>
 }
 
 export async function getObraResumen(id: number): Promise<ObraResumen | null> {
-  return queryOne<ObraResumen>(
-    `SELECT ${OBRA_COLS} FROM obras WHERE id = $1`,
-    [id]
-  );
+  // LEFT JOIN infobras_full so the detail view surfaces supervisor +
+  // physical-progress + plazo data when available. Without a match, all
+  // i.* fields come back NULL and fmtDetalle hides the INFOBRAS block.
+  // Date arithmetic mirrors obrasRetrasadas() — same regex guard against
+  // text dates that don't parse to DATE. On JOIN error (table missing
+  // in a fresh DB) we fall back to the bare obras row so the detail view
+  // still works end-to-end.
+  try {
+    return await queryOne<ObraResumen>(
+      `WITH joined AS (
+         SELECT
+           o.id, o.ocid,
+           COALESCE(o.tender_description, o.tender_title) AS titulo,
+           o.buyer_region AS region,
+           o.buyer_locality AS localidad,
+           o.supplier_name AS contratista,
+           o.supplier_ruc AS ruc,
+           COALESCE(o.contract_amount, o.award_amount, o.tender_amount) AS monto,
+           o.is_red_flag, o.red_flag_types, o.procurement_method, o.source_year, o.country,
+           o.contract_status,
+           i.avance_fisico_pct,
+           i.fecha_fin_programada,
+           i.fecha_fin_real,
+           i.n_modificaciones_plazo,
+           i.supervisor_nombre,
+           CASE
+             WHEN o.contract_end ~ '^\\d{4}-\\d{2}-\\d{2}' THEN o.contract_end::date
+             WHEN o.contract_end ~ '^\\d{2}/\\d{2}/\\d{4}' THEN TO_DATE(o.contract_end, 'DD/MM/YYYY')
+             ELSE NULL
+           END AS contract_end_date,
+           CASE
+             WHEN i.fecha_fin_programada ~ '^\\d{2}/\\d{2}/\\d{4}$' THEN TO_DATE(i.fecha_fin_programada, 'DD/MM/YYYY')
+             WHEN i.fecha_fin_programada ~ '^\\d{4}-\\d{2}-\\d{2}'   THEN i.fecha_fin_programada::date
+             ELSE NULL
+           END AS parsed_plan,
+           CASE
+             WHEN i.fecha_fin_real ~ '^\\d{2}/\\d{2}/\\d{4}$' THEN TO_DATE(i.fecha_fin_real, 'DD/MM/YYYY')
+             WHEN i.fecha_fin_real ~ '^\\d{4}-\\d{2}-\\d{2}'   THEN i.fecha_fin_real::date
+             ELSE NULL
+           END AS parsed_real
+         FROM obras o
+         LEFT JOIN infobras_full i ON o.infobras_code = i.codigo_infobras::text
+         WHERE o.id = $1
+       )
+       SELECT
+         id, ocid, titulo, region, localidad, contratista, ruc, monto,
+         is_red_flag, red_flag_types, procurement_method, source_year, country,
+         avance_fisico_pct, fecha_fin_programada, fecha_fin_real,
+         n_modificaciones_plazo, supervisor_nombre,
+         CASE
+           WHEN parsed_real IS NOT NULL AND parsed_plan IS NOT NULL THEN
+             GREATEST((parsed_real - parsed_plan), 0)
+           WHEN parsed_plan IS NOT NULL AND parsed_plan < CURRENT_DATE
+                AND COALESCE(avance_fisico_pct, 0) < 100 THEN
+             (CURRENT_DATE - parsed_plan)
+           WHEN contract_end_date IS NOT NULL AND contract_end_date < CURRENT_DATE
+                AND contract_status = 'active' THEN
+             (CURRENT_DATE - contract_end_date)
+           ELSE NULL
+         END AS dias_retraso
+       FROM joined`,
+      [id]
+    );
+  } catch (e) {
+    console.error("[getObraResumen] JOIN failed, falling back to plain SELECT:", e instanceof Error ? e.message : e);
+    return queryOne<ObraResumen>(
+      `SELECT ${OBRA_COLS} FROM obras WHERE id = $1`,
+      [id]
+    );
+  }
 }
 
 export async function buscarCercanas(
@@ -401,47 +492,98 @@ export async function obrasRetrasadas(
     params.push(year);
     pos++;
   }
+  // Definition of "obra retrasada" — combines two data sources:
+  //
+  //   A. OCDS contract data (broad — 47K obras with contract_end + 10K
+  //      with contract_status='active'). An obra is retrasada when the
+  //      contract end-date passed >180d ago and the OCDS contract is
+  //      still flagged active (i.e. nobody closed/terminated it).
+  //
+  //   B. INFOBRAS execution data (deep — 579 obras enriched). INFOBRAS
+  //      stores dates as DD/MM/YYYY text. Three INFOBRAS paths:
+  //        - plan vencido + avance físico < 100
+  //        - 3+ modificaciones de plazo registradas
+  //        - cierre real >365d después del plan
+  //
+  // dias_retraso prefers INFOBRAS (most precise) and falls back to OCDS
+  // contract_end vs CURRENT_DATE. The LEFT JOIN keeps the row even when
+  // INFOBRAS has no match — that's how Cusco/Trujillo obras (no
+  // INFOBRAS link) still surface via path A.
+  //
+  // ${geoClause}${yearClause} are interpolated into the inner SELECT so
+  // the geo/year filter narrows the join before the delay predicate.
   return query<ObraRetrasada>(
-    `SELECT
-       o.id, o.ocid,
-       COALESCE(o.tender_description, o.tender_title) AS titulo,
-       o.buyer_region AS region,
-       o.buyer_locality AS localidad,
-       o.supplier_name AS contratista,
-       o.supplier_ruc AS ruc,
-       COALESCE(o.contract_amount, o.award_amount, o.tender_amount) AS monto,
-       o.is_red_flag, o.red_flag_types, o.procurement_method, o.source_year, o.country,
-       i.avance_fisico_pct,
-       i.fecha_fin_programada,
-       i.fecha_fin_real,
-       i.n_modificaciones_plazo,
-       i.supervisor_nombre,
+    `WITH joined AS (
+       SELECT
+         o.id, o.ocid,
+         COALESCE(o.tender_description, o.tender_title) AS titulo,
+         o.buyer_region AS region,
+         o.buyer_locality AS localidad,
+         o.supplier_name AS contratista,
+         o.supplier_ruc AS ruc,
+         COALESCE(o.contract_amount, o.award_amount, o.tender_amount) AS monto,
+         o.is_red_flag, o.red_flag_types, o.procurement_method, o.source_year, o.country,
+         o.contract_status,
+         o.n_amendments,
+         i.avance_fisico_pct,
+         i.fecha_fin_programada,
+         i.fecha_fin_real,
+         i.n_modificaciones_plazo,
+         i.supervisor_nombre,
+         CASE
+           WHEN o.contract_end ~ '^\\d{4}-\\d{2}-\\d{2}' THEN o.contract_end::date
+           WHEN o.contract_end ~ '^\\d{2}/\\d{2}/\\d{4}' THEN TO_DATE(o.contract_end, 'DD/MM/YYYY')
+           ELSE NULL
+         END AS contract_end_date,
+         CASE
+           WHEN i.fecha_fin_programada ~ '^\\d{2}/\\d{2}/\\d{4}$' THEN TO_DATE(i.fecha_fin_programada, 'DD/MM/YYYY')
+           WHEN i.fecha_fin_programada ~ '^\\d{4}-\\d{2}-\\d{2}'   THEN i.fecha_fin_programada::date
+           ELSE NULL
+         END AS parsed_plan,
+         CASE
+           WHEN i.fecha_fin_real ~ '^\\d{2}/\\d{2}/\\d{4}$' THEN TO_DATE(i.fecha_fin_real, 'DD/MM/YYYY')
+           WHEN i.fecha_fin_real ~ '^\\d{4}-\\d{2}-\\d{2}'   THEN i.fecha_fin_real::date
+           ELSE NULL
+         END AS parsed_real
+       FROM obras o
+       LEFT JOIN infobras_full i ON o.infobras_code = i.codigo_infobras::text
+       WHERE o.country = $1${geoClause}${yearClause}
+     )
+     SELECT
+       id, ocid, titulo, region, localidad, contratista, ruc, monto,
+       is_red_flag, red_flag_types, procurement_method, source_year, country,
+       avance_fisico_pct, fecha_fin_programada, fecha_fin_real,
+       n_modificaciones_plazo, supervisor_nombre,
+       TO_CHAR(contract_end_date, 'YYYY-MM-DD') AS contract_end_date,
+       contract_status,
        CASE
-         WHEN i.fecha_fin_real ~ '^\\d{4}-\\d{2}-\\d{2}' THEN
-           GREATEST(
-             (i.fecha_fin_real::date - i.fecha_fin_programada::date),
-             0
-           )
-         WHEN i.fecha_fin_programada ~ '^\\d{4}-\\d{2}-\\d{2}'
-              AND i.fecha_fin_programada::date < CURRENT_DATE
-              AND COALESCE(i.avance_fisico_pct, 0) < 100 THEN
-           (CURRENT_DATE - i.fecha_fin_programada::date)
+         WHEN parsed_real IS NOT NULL AND parsed_plan IS NOT NULL THEN
+           GREATEST((parsed_real - parsed_plan), 0)
+         WHEN parsed_plan IS NOT NULL AND parsed_plan < CURRENT_DATE
+              AND COALESCE(avance_fisico_pct, 0) < 100 THEN
+           (CURRENT_DATE - parsed_plan)
+         WHEN contract_end_date IS NOT NULL AND contract_end_date < CURRENT_DATE
+              AND contract_status = 'active' THEN
+           (CURRENT_DATE - contract_end_date)
          ELSE 0
        END AS dias_retraso
-     FROM obras o
-     JOIN infobras_full i ON o.infobras_code = i.codigo_infobras
-     WHERE o.country = $1
-       AND (
-            (i.fecha_fin_programada ~ '^\\d{4}-\\d{2}-\\d{2}'
-              AND i.fecha_fin_programada::date < (CURRENT_DATE - INTERVAL '180 days')
-              AND COALESCE(i.avance_fisico_pct, 0) < 100)
-         OR COALESCE(i.n_modificaciones_plazo, 0) >= 3
-         OR (i.fecha_fin_real ~ '^\\d{4}-\\d{2}-\\d{2}'
-              AND i.fecha_fin_programada ~ '^\\d{4}-\\d{2}-\\d{2}'
-              AND (i.fecha_fin_real::date - i.fecha_fin_programada::date) > 365)
-       )${geoClause}${yearClause}
+     FROM joined
+     WHERE
+       -- A. OCDS: contrato activo con fecha fin vencida >180d
+          (contract_end_date IS NOT NULL
+            AND contract_end_date < (CURRENT_DATE - INTERVAL '180 days')
+            AND contract_status = 'active')
+       -- B. INFOBRAS: plan vencido + avance físico < 100
+       OR (parsed_plan IS NOT NULL
+            AND parsed_plan < (CURRENT_DATE - INTERVAL '180 days')
+            AND COALESCE(avance_fisico_pct, 0) < 100)
+       -- C. INFOBRAS: 3+ modificaciones de plazo
+       OR COALESCE(n_modificaciones_plazo, 0) >= 3
+       -- D. INFOBRAS: cerró >365d tarde
+       OR (parsed_real IS NOT NULL AND parsed_plan IS NOT NULL
+            AND (parsed_real - parsed_plan) > 365)
      ORDER BY dias_retraso DESC NULLS LAST,
-              i.n_modificaciones_plazo DESC NULLS LAST,
+              n_modificaciones_plazo DESC NULLS LAST,
               monto DESC NULLS LAST
      LIMIT $2`,
     params

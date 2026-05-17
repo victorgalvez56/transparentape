@@ -272,7 +272,7 @@ export const TOOLS: Tool[] = [
   {
     name: "obras_retrasadas",
     description:
-      "USA ESTE TOOL cuando el usuario pregunta sobre retrasos, atrasos, demoras, paralizaciones, estancamientos o incumplimientos de plazo en obras públicas. Acepta tanto formas adjetivas ('obras retrasadas', 'obras atrasadas', 'obras paralizadas', 'obras estancadas', 'obras demoradas') como SUSTANTIVAS ('qué retrasos hay', 'cuánto atraso tiene', 'qué demoras', 'cuántas obras incumplen plazo'). También cuando pregunten 'que obras no cumplen el cronograma', 'cuánto se atrasaron', 'fuera de plazo', 'sobre plazo', 'sin avance', 'qué no avanza', 'qué no termina'. Define 'excesivo' como >180 días tarde vs cronograma, o 3+ adendas de plazo, o cierre >365 días después de la fecha programada. IMPORTANTE: Cobertura limitada (~165 obras con datos INFOBRAS, no las 70K totales). Acepta `q` para acotar región/ciudad y `year` para acotar año.",
+      "USA ESTE TOOL cuando el usuario pregunta sobre retrasos, atrasos, demoras, paralizaciones, estancamientos o incumplimientos de plazo en obras públicas. Acepta tanto formas adjetivas ('obras retrasadas', 'obras atrasadas', 'obras paralizadas', 'obras estancadas', 'obras demoradas') como SUSTANTIVAS ('qué retrasos hay', 'cuánto atraso tiene', 'qué demoras', 'cuántas obras incumplen plazo'). También cuando pregunten 'que obras no cumplen el cronograma', 'cuánto se atrasaron', 'fuera de plazo', 'sobre plazo', 'sin avance', 'qué no avanza', 'qué no termina'. Define 'excesivo' como >180 días tarde con contrato activo, o 3+ modificaciones de plazo (INFOBRAS), o cierre >365 días después de la fecha programada. Cobertura amplia vía OCDS contract_end + status='active' (~10K obras), enriquecida con INFOBRAS (avance físico, supervisor) cuando disponible (~579 obras). Acepta `q` para acotar región/ciudad y `year` para acotar año.",
     parameters: {
       q: "string opcional — región/provincia/distrito para acotar",
       year: "número opcional — año del registro (ej: 2024)",
@@ -280,12 +280,27 @@ export const TOOLS: Tool[] = [
     async run(args, ctx) {
       const q = asString(args.q);
       const year = asNumber(args.year);
-      const data = await obrasRetrasadas(ctx.country, q, 5, year);
-      return {
-        data,
-        formatted: fmtRetrasadas(data, ctx.country, q, year),
-        obraIds: data.map((o) => o.id),
-      };
+      try {
+        const data = await obrasRetrasadas(ctx.country, q, 5, year);
+        return {
+          data,
+          formatted: fmtRetrasadas(data, ctx.country, q, year),
+          obraIds: data.map((o) => o.id),
+        };
+      } catch (e) {
+        // Query can fail when the infobras_full table is missing in a fresh
+        // DB or when statement_timeout fires on a slow geo predicate. The
+        // LEFT JOIN handles missing INFOBRAS rows gracefully, so this catch
+        // is for hard DB errors only — keep the message specific so the
+        // generic "problema técnico" adaptive fallback doesn't fire.
+        console.error("[tool obras_retrasadas] DB error:", e instanceof Error ? e.message : e);
+        return {
+          data: null,
+          formatted:
+            "No pude consultar el cronograma de obras en este momento. " +
+            "Prueba *obras con alertas* o *ranking contratistas* para otro ángulo.",
+        };
+      }
     },
   },
 ];

@@ -139,11 +139,46 @@ function humanizeFlags(flags: string[] | null | undefined): string {
   return `\n${labeled.join("\n")}`;
 }
 
+// Renders supervisor + avance físico + plazo when the obra has INFOBRAS
+// data. Hidden completely when every field is null/undefined, so non-PE
+// obras (no INFOBRAS coverage) just get the base detail block.
+function fmtInfobrasBlock(o: ObraResumen): string {
+  const has =
+    o.avance_fisico_pct != null ||
+    o.supervisor_nombre ||
+    o.fecha_fin_programada ||
+    o.fecha_fin_real ||
+    (o.n_modificaciones_plazo ?? 0) > 0 ||
+    (o.dias_retraso ?? 0) > 0;
+  if (!has) return "";
+  const lines: string[] = [];
+  if (o.avance_fisico_pct != null) {
+    lines.push(`   ${progressBar(o.avance_fisico_pct)}`);
+  }
+  if (o.supervisor_nombre) {
+    lines.push(`   👁️ Supervisor: ${o.supervisor_nombre}`);
+  }
+  if ((o.dias_retraso ?? 0) > 0) {
+    lines.push(`   ⏰ *${o.dias_retraso} días tarde* vs cronograma`);
+  }
+  if ((o.n_modificaciones_plazo ?? 0) > 0) {
+    const n = o.n_modificaciones_plazo!;
+    lines.push(`   🔁 ${n} adenda${n > 1 ? "s" : ""} de plazo`);
+  }
+  if (o.fecha_fin_programada || o.fecha_fin_real) {
+    const plan = fmtDate(o.fecha_fin_programada);
+    const real = o.fecha_fin_real ? ` · real ${fmtDate(o.fecha_fin_real)}` : "";
+    lines.push(`   📅 plan ${plan}${real}`);
+  }
+  return "\n\n*📊 Ejecución (INFOBRAS)*\n" + lines.join("\n");
+}
+
 export function fmtDetalle(o: ObraResumen, country = "PE"): string {
-  // Public-share URL — surfaces only for PE-style OCID right now since
-  // transparentape.app's /obras/[ocid] page exists for the PE pipeline.
+  // Public-share URL — points at the env-configured base URL so local /
+  // staging deploys don't 404 onto prod.
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? "https://transparentape.app";
   const shareLink = o.ocid
-    ? `\n🔗 https://transparentape.app/obras/${encodeURIComponent(o.ocid)}`
+    ? `\n🔗 ${baseUrl}/obras/${encodeURIComponent(o.ocid)}`
     : "";
   return (
     `📄 *${cleanTitle(o.titulo)}*\n\n` +
@@ -153,6 +188,7 @@ export function fmtDetalle(o: ObraResumen, country = "PE"): string {
     `   RUC: ${o.ruc ?? "—"}\n` +
     `📅 Año: ${o.source_year ?? "—"} · Modalidad: ${humanizeProcurement(o.procurement_method)}` +
     humanizeFlags(o.red_flag_types) +
+    fmtInfobrasBlock(o) +
     shareLink +
     hint("_Escribe *ranking contratistas* o busca más obras._") +
     SOURCE_FOOTER
@@ -323,7 +359,8 @@ export function fmtRetrasadas(
   if (!obras.length) {
     return (
       "No encontré obras con retraso excesivo en ese filtro.\n\n" +
-      "_Cobertura: solo obras con datos INFOBRAS (~165 obras enriquecidas)._"
+      "_Criterio: contrato activo vencido >180d, o 3+ modificaciones de plazo, " +
+      "o cierre >365d tarde._"
     );
   }
   const nation = COUNTRY_NAMES[country] ?? country;
@@ -332,8 +369,7 @@ export function fmtRetrasadas(
   const count = obras.length;
   const lines = [
     `🐢 *${count} obra${count > 1 ? "s" : ""} con retraso excesivo · ${where}${yearTag}*`,
-    `_Cronograma vencido >180d, o 3+ adendas de plazo, o cierre >365d tarde._`,
-    `_Cobertura: solo obras con datos INFOBRAS._\n`,
+    `_Cronograma vencido >180d con contrato activo, o 3+ adendas de plazo, o cierre >365d tarde._\n`,
   ];
   obras.forEach((o, i) => {
     const dias = o.dias_retraso ?? 0;
@@ -348,9 +384,17 @@ export function fmtRetrasadas(
     const supLine = o.supervisor_nombre
       ? `\n   👁️ Supervisor: ${o.supervisor_nombre}`
       : "";
+    // Plan date prefers INFOBRAS fecha_fin_programada (most precise — the
+    // contractual milestone the contractor signed up for). When INFOBRAS
+    // has no row for this obra (Path A OCDS coverage), fall back to the
+    // OCDS contract_end so the user still sees *some* deadline.
+    const planSource = o.fecha_fin_programada || o.contract_end_date;
+    const statusTag = !o.fecha_fin_programada && o.contract_status
+      ? ` (${o.contract_status})`
+      : "";
     const finReal = o.fecha_fin_real
       ? `\n   📅 plan ${fmtDate(o.fecha_fin_programada)} · real ${fmtDate(o.fecha_fin_real)}`
-      : `\n   📅 plan ${fmtDate(o.fecha_fin_programada)}`;
+      : `\n   📅 plan ${fmtDate(planSource)}${statusTag}`;
     lines.push(
       `${i + 1}. *${cleanTitle(o.titulo)}*${flag}\n` +
       `   ⏰ *${dias} días tarde*` +

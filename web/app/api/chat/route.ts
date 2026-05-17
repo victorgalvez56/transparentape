@@ -2,9 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { runChatPipeline, type ChatMessage } from "@/lib/agent/core";
 import { TOOLS } from "@/lib/agent/tools";
 import type { Country } from "@/lib/agent-kapso/queries";
+import { warmPlaceCache } from "@/lib/agent-kapso/places";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
+
+// Kick off the DB-backed place index warm before the first request lands.
+// Module evaluation happens once per cold-start; the warm itself is
+// fire-and-forget so it doesn't block the route handler. Subsequent
+// requests find the cache populated and classifyQuery resolves localities
+// across every country present in `obras` without any allowlist.
+void warmPlaceCache();
 
 function pickCountry(v: unknown): Country {
   if (typeof v === "string" && /^[A-Za-z]{2}$/.test(v.trim())) {

@@ -7,6 +7,7 @@ import { query } from "@/lib/db";
 import { runChatPipeline, type ChatMessage } from "@/lib/agent/core";
 import { TOOLS } from "@/lib/agent/tools";
 import { parseIntent } from "@/lib/agent-kapso/intent";
+import { warmPlaceCache } from "@/lib/agent-kapso/places";
 import { getSession, updateSession, appendToHistory } from "@/lib/agent-kapso/session";
 import { AGENT } from "@/lib/agent-kapso/config";
 import {
@@ -30,6 +31,11 @@ export const runtime = "nodejs";
 export const maxDuration = 30;
 export const dynamic = "force-dynamic";
 // Build marker: 2026-05-17T18:15Z — fast-path + waitUntil + custom sig
+
+// Fire the DB-backed place index warm on cold-start so the first webhook
+// turn doesn't pay the lookup latency. Fire-and-forget — classifyQuery
+// falls back to the seed allowlist while the warm runs.
+void warmPlaceCache();
 
 // ── signature validation ──────────────────────────────────────────────────────
 // Accepts both Meta format ("sha256=<hex>" on x-hub-signature-256) and

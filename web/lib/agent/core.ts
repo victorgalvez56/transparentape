@@ -1,6 +1,8 @@
 import Groq from "groq-sdk";
 import { query } from "@/lib/db";
 import type { Tool, ToolContext } from "./tools";
+import { parseIntent, type ParsedIntent } from "@/lib/agent-kapso/intent";
+import { findPlaceInIndex } from "@/lib/agent-kapso/places";
 
 let _groq: Groq | null = null;
 function getGroq() {
@@ -39,7 +41,7 @@ export interface RunOptions {
   toolContext?: ToolContext;
 }
 
-const SYSTEM_PROMPT_ROUTER_BASE = `Eres el enrutador principal de un agente de obras públicas de Perú. Tu trabajo es analizar la conversación y la última pregunta del usuario, y decidir qué acción tomar.
+const SYSTEM_PROMPT_ROUTER_BASE = `Eres el enrutador principal de un agente de obras públicas de Latinoamérica (Perú, Chile, Colombia, México, Argentina, Brasil). Tu trabajo es analizar la conversación y la última pregunta del usuario, y decidir qué acción tomar.
 Responde ÚNICAMENTE con un JSON válido usando esta estructura:
 {
   "intent": "ANSWER_FROM_CONTEXT" | "NEEDS_SQL" | "NEEDS_CLARIFICATION",
@@ -178,13 +180,19 @@ function ensureLimit(sql: string, cap = 50): string {
   return `${sql.replace(/\s+$/, "")} LIMIT ${cap}`;
 }
 
-const REGION_HINT_RE = /\b(piura|lima|cusco|arequipa|trujillo|chiclayo|iquitos|ica|tacna|puno|huancayo|callao|ayacucho|cajamarca|huánuco|huanuco|junín|junin|loreto|madre de dios|moquegua|pasco|san martín|san martin|tumbes|ucayali|amazonas|apurímac|apurimac|áncash|ancash|huancavelica|lambayeque|la libertad|santiago|valparaíso|valparaiso|antofagasta|concepción|concepcion|bogotá|bogota|medellín|medellin|cali|barranquilla)\b/i;
+// Walks back through user messages and asks the DB place index for a
+// match. Falls back to a small regex covering common LATAM cities for
+// cold-start (cache not warm yet) so the suggestion text still surfaces
+// a sensible region even before the index loads.
+const REGION_HINT_FALLBACK_RE = /\b(piura|lima|cusco|arequipa|trujillo|chiclayo|santiago|valpara[ií]so|bogot[aá]|medell[ií]n|cali|cdmx|monterrey|guadalajara|buenos aires|c[oó]rdoba|s[aã]o paulo|rio de janeiro)\b/i;
 
 function extractRegionHint(history: ChatMessage[]): string | undefined {
   for (let i = history.length - 1; i >= 0; i--) {
     const m = history[i];
     if (m.role !== "user") continue;
-    const hit = m.content.match(REGION_HINT_RE);
+    const fromIndex = findPlaceInIndex(m.content);
+    if (fromIndex) return fromIndex.display;
+    const hit = m.content.match(REGION_HINT_FALLBACK_RE);
     if (hit) return hit[1];
   }
   return undefined;
@@ -295,6 +303,49 @@ async function adaptiveFallback(
   };
 }
 
+// Maps the deterministic `parseIntent` output to a tool name + args so the
+// web `/api/chat` route can reach the same tool coverage as the Kapso
+// webhook without depending on the LLM router's classification accuracy.
+// Returns null for intents that require session state the web client does
+// not maintain (CONTEXTO_DETALLE needs lastResultIds, BUSCAR_CERCANOS
+// needs lastLocation) or for low-confidence intents (AYUDA, AGRADECIMIENTO,
+// PREGUNTA_LIBRE) which the LLM router handles better.
+function intentToTool(
+  p: ParsedIntent
+): { tool: string; args: Record<string, unknown> } | null {
+  switch (p.intent) {
+    case "OBRAS_RETRASADAS": {
+      const args: Record<string, unknown> = {};
+      if (p.filters?.q_geo) args.q = p.filters.q_geo;
+      if (p.filters?.year) args.year = p.filters.year;
+      return { tool: "obras_retrasadas", args };
+    }
+    case "BUSCAR_OBRAS": {
+      const args: Record<string, unknown> = {};
+      if (p.filters?.q_geo) args.q_geo = p.filters.q_geo;
+      if (p.filters?.q_supplier) args.q_supplier = p.filters.q_supplier;
+      if (p.filters?.q_sector) args.q_sector = p.filters.q_sector;
+      if (p.filters?.q) args.q = p.filters.q;
+      if (p.filters?.year) args.year = p.filters.year;
+      if (p.filters?.red_flag === true) args.red_flag = true;
+      if (p.filters?.procurement_method)
+        args.procurement_method = p.filters.procurement_method;
+      return { tool: "buscar_obras", args };
+    }
+    case "VER_DETALLE": {
+      if (!p.obraId) return null;
+      return { tool: "ver_detalle", args: { id: p.obraId } };
+    }
+    case "INVESTIGAR_CONTRATISTA": {
+      const q = p.ruc ?? p.contratista;
+      if (!q) return null;
+      return { tool: "investigar_contratista", args: { q } };
+    }
+    default:
+      return null;
+  }
+}
+
 export async function runChatPipeline(
   chatHistory: ChatMessage[],
   options: RunOptions = {}
@@ -310,6 +361,53 @@ export async function runChatPipeline(
 
   const normalized = normalizeHistory(chatHistory);
   const toolsAvailable = options.tools && options.tools.length > 0;
+
+  // STEP 0: Deterministic intent fast-path — keeps the web client at parity
+  // with the Kapso webhook. parseIntent uses the same regex layer that
+  // covers ~100 cases in docs/AGENT_TEST_100.md, so high-confidence
+  // patterns ("obras retrasadas en lima", "detalle #42", "ruc:20100123456")
+  // skip the LLM router entirely. Anything that falls through (PREGUNTA_LIBRE
+  // or intents requiring session state) hits the LLM router below.
+  if (toolsAvailable && options.toolContext) {
+    let fastPath: { tool: string; args: Record<string, unknown> } | null = null;
+    let parsedCountry = options.toolContext.country;
+    try {
+      const parsed = parseIntent(lastUserMessage, options.toolContext.country);
+      // parsed.country may flip to a country mentioned in the user message
+      // ("obras en Chile"). Honor it for this turn — the route handler
+      // already owns session country persistence.
+      if (parsed.country) parsedCountry = parsed.country;
+      fastPath = intentToTool(parsed);
+    } catch (e) {
+      console.error("[runChatPipeline] parseIntent failed:", e);
+    }
+    if (fastPath) {
+      const tool = options.tools!.find((t) => t.name === fastPath!.tool);
+      if (tool) {
+        const toolCtx: ToolContext =
+          parsedCountry !== options.toolContext.country
+            ? { ...options.toolContext, country: parsedCountry }
+            : options.toolContext;
+        try {
+          const result = await tool.run(fastPath.args, toolCtx);
+          return {
+            reply: result.formatted,
+            intent: "TOOL_CALL",
+            tool: tool.name,
+            obra_ids: result.obraIds,
+          };
+        } catch (e) {
+          console.error(
+            `[runChatPipeline] fast-path tool ${tool.name} threw:`,
+            e instanceof Error ? e.message : e,
+            "args:",
+            JSON.stringify(fastPath.args)
+          );
+          // Soft-fall to LLM router so the user still gets *some* answer.
+        }
+      }
+    }
+  }
   const routerPrompt = toolsAvailable
     ? routerPromptWithTools(options.tools!)
     : SYSTEM_PROMPT_ROUTER_BASE;
@@ -370,7 +468,12 @@ export async function runChatPipeline(
       } catch (e) {
         // Tool execution failure → adaptive fallback so the recovery message
         // stays tied to whatever region/sector the user was discussing.
-        console.error(`[runChatPipeline] tool ${tool.name} failed:`, e);
+        console.error(
+          `[runChatPipeline] LLM-routed tool ${tool.name} failed:`,
+          e instanceof Error ? e.message : e,
+          "args:",
+          JSON.stringify(toolArgs)
+        );
         const fb = await adaptiveFallback(chatHistory, "error");
         return {
           reply: fb.reply,
