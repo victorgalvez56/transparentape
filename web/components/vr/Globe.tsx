@@ -10,10 +10,37 @@ function GlobeMesh() {
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = 8;
   return (
-    <mesh position={[0, 0, 0]} receiveShadow>
-      <sphereGeometry args={[GLOBE_RADIUS, 96, 64]} />
-      <meshBasicMaterial map={texture} toneMapped={false} />
-    </mesh>
+    <group>
+      {/* Tierra */}
+      <mesh position={[0, 0, 0]}>
+        <sphereGeometry args={[GLOBE_RADIUS, 96, 64]} />
+        <meshBasicMaterial map={texture} toneMapped={false} />
+      </mesh>
+      {/* Atmósfera exterior — halo azul */}
+      <mesh position={[0, 0, 0]}>
+        <sphereGeometry args={[GLOBE_RADIUS * 1.018, 64, 32]} />
+        <meshBasicMaterial
+          color="#2255cc"
+          transparent
+          opacity={0.16}
+          side={THREE.BackSide}
+          toneMapped={false}
+          depthWrite={false}
+        />
+      </mesh>
+      {/* Limbo planetario más difuso */}
+      <mesh position={[0, 0, 0]}>
+        <sphereGeometry args={[GLOBE_RADIUS * 1.04, 64, 32]} />
+        <meshBasicMaterial
+          color="#0a1a3a"
+          transparent
+          opacity={0.07}
+          side={THREE.BackSide}
+          toneMapped={false}
+          depthWrite={false}
+        />
+      </mesh>
+    </group>
   );
 }
 
