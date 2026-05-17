@@ -207,19 +207,17 @@ export default function CodexHomePage() {
     setMobileList(false);
   };
 
-  const nf = (n: number) => n.toLocaleString("es-PE");
-  const statsLine = loading
-    ? `cargando ${dbStats ? nf(dbStats.geo) + " obras geo…" : "datos…"}`
-    : `${nf(filtered.length)}${
-        dbStats ? ` / ${nf(dbStats.geo)} geo` : ""
-      } · ${dbStats ? nf(dbStats.total) + " en base · " : ""}${redFlagsCount} alertas`;
+  void loading;
+  void dbStats;
 
   return (
     <main
       className={`cx-scope ${theme === "dark" ? "dark" : ""} h-dvh flex flex-col overflow-hidden`}
     >
       <CodexHeader
-        stats={statsLine}
+        obrasCount={filtered.length}
+        redFlagsCount={redFlagsCount}
+        regionLabel={region ?? (pais === "CL" ? "Chile" : "Perú")}
         view={view}
         onViewChange={setView}
         theme={theme}
