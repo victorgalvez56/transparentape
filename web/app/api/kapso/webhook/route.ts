@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { WhatsAppClient } from "@kapso/whatsapp-cloud-api";
+import { normalizeWebhook } from "@kapso/whatsapp-cloud-api/server";
 import { query } from "@/lib/db";
 import { chatEngine } from "@/lib/agent-kapso/engine";
 import { parseIntent } from "@/lib/agent-kapso/intent";
@@ -33,7 +34,6 @@ export const runtime = "nodejs";
 export const maxDuration = 30;
 
 // ── signature validation ──────────────────────────────────────────────────────
-// Kapso sends x-kapso-signature or x-hub-signature-256, value may be prefixed "sha256="
 function verifySignature(body: string, header: string | null): boolean {
   const secret = process.env.KAPSO_WEBHOOK_SECRET;
   if (!secret) return true;
@@ -88,48 +88,6 @@ async function sendAyudaWithButtons(
   } catch {
     await kapso.messages.sendText({ phoneNumberId, to, body: AYUDA_MSG });
   }
-}
-
-// ── message extraction ────────────────────────────────────────────────────────
-type MsgExtract = { from: string; text: string; type: "text" | "interactive_btn"; phoneNumberId?: string };
-
-function extractMessage(payload: Record<string, unknown>): MsgExtract | null {
-  // 1. Meta Cloud API format: payload.entry[0].changes[0].value.messages[0]
-  type MetaMsg = { from?: string; type?: string; text?: { body?: string }; interactive?: { type?: string; button_reply?: { id?: string }; list_reply?: { id?: string } } };
-  type MetaValue = { messages?: MetaMsg[]; metadata?: { phone_number_id?: string } };
-  const entry = (payload.entry as { changes?: { value?: MetaValue }[] }[])?.[0];
-  const metaValue = entry?.changes?.[0]?.value;
-  const metaMsg = metaValue?.messages?.[0];
-  const metaPhoneId = metaValue?.metadata?.phone_number_id;
-  if (metaMsg?.type === "text" && metaMsg.text?.body && metaMsg.from) {
-    return { from: metaMsg.from, text: metaMsg.text.body.trim(), type: "text", phoneNumberId: metaPhoneId };
-  }
-  if (metaMsg?.type === "interactive" && metaMsg.from) {
-    const btnId = metaMsg.interactive?.button_reply?.id ?? metaMsg.interactive?.list_reply?.id;
-    if (btnId) return { from: metaMsg.from, text: BUTTON_MAP[btnId] ?? btnId, type: "interactive_btn", phoneNumberId: metaPhoneId };
-  }
-
-  // 2. Kapso batched format: payload["whatsapp.message.received"][0]
-  type KapsoMsg = { from?: string; type?: string; text?: { body?: string }; interactive?: { type?: string; button_reply?: { id?: string }; list_reply?: { id?: string } } };
-  const batchedArr = payload["whatsapp.message.received"];
-  const kMsg = (Array.isArray(batchedArr) ? batchedArr[0] : payload) as { message?: KapsoMsg; whatsapp_config?: { phone_number_id?: string } };
-  const km = kMsg?.message;
-  const kapsoPhoneId = (kMsg?.whatsapp_config as { phone_number_id?: string })?.phone_number_id;
-  if (km?.type === "text" && km.text?.body && km.from) {
-    return { from: km.from, text: km.text.body.trim(), type: "text", phoneNumberId: kapsoPhoneId };
-  }
-  if (km?.type === "interactive" && km.from) {
-    const btnId = km.interactive?.button_reply?.id ?? km.interactive?.list_reply?.id;
-    if (btnId) return { from: km.from, text: BUTTON_MAP[btnId] ?? btnId, type: "interactive_btn", phoneNumberId: kapsoPhoneId };
-  }
-
-  // 3. Kapso simplified format: payload.message.text (string)
-  const simpleMsg = payload.message as { from?: string; type?: string; text?: string } | undefined;
-  if (simpleMsg?.type === "text" && simpleMsg.text && simpleMsg.from) {
-    return { from: simpleMsg.from, text: simpleMsg.text.trim(), type: "text" };
-  }
-
-  return null;
 }
 
 // ── intent routing ────────────────────────────────────────────────────────────
@@ -251,12 +209,26 @@ async function saveHistory(
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
 
+  // Collect all headers for diagnostics
+  const allHeaders: Record<string, string> = {};
+  req.headers.forEach((v, k) => { allHeaders[k] = v; });
+
   const sigHeader =
     req.headers.get("x-kapso-signature") ??
     req.headers.get("x-hub-signature-256") ??
     req.headers.get("x-webhook-signature");
 
   if (!verifySignature(rawBody, sigHeader)) {
+    // Log failing request so we can inspect actual headers from Kapso
+    query(
+      `INSERT INTO agent_logs(endpoint, params, n_resultados, latencia_ms) VALUES ($1, $2, $3, $4)`,
+      [
+        "/api/kapso/webhook/sig_fail",
+        JSON.stringify({ sig_header_found: sigHeader, headers: allHeaders, body_preview: rawBody.slice(0, 300) }),
+        0,
+        0,
+      ]
+    ).catch(() => {});
     return NextResponse.json({ error: "invalid_signature" }, { status: 401 });
   }
 
@@ -267,23 +239,48 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  const extracted = extractMessage(payload);
-  if (!extracted) return NextResponse.json({ ok: true, skipped: true });
+  // Use SDK normalizeWebhook — handles all Meta/Kapso payload variants
+  const normalized = normalizeWebhook(payload);
+  const msg = normalized.messages[0];
 
-  const { from, text, phoneNumberId: payloadPhoneId } = extracted;
-  const phoneNumberId = payloadPhoneId ?? process.env.KAPSO_PHONE_NUMBER_ID!;
+  // If no messages parsed, log raw payload for inspection and skip
+  if (!msg || !msg.from) {
+    query(
+      `INSERT INTO agent_logs(endpoint, params, n_resultados, latencia_ms) VALUES ($1, $2, $3, $4)`,
+      [
+        "/api/kapso/webhook/skipped",
+        JSON.stringify({ body_preview: rawBody.slice(0, 500) }),
+        0,
+        0,
+      ]
+    ).catch(() => {});
+    return NextResponse.json({ ok: true, skipped: true });
+  }
+
+  let text: string | null = null;
+  if (msg.type === "text" && msg.text?.body) {
+    text = msg.text.body.trim();
+  } else if (msg.type === "interactive") {
+    const interactive = msg.interactive as { button_reply?: { id?: string }; list_reply?: { id?: string } } | undefined;
+    const btnId = interactive?.button_reply?.id ?? interactive?.list_reply?.id;
+    if (btnId) text = BUTTON_MAP[btnId] ?? btnId;
+  }
+
+  if (!text) return NextResponse.json({ ok: true, skipped: true });
+
+  const from = msg.from;
+  const phoneNumberId = normalized.phoneNumberId ?? process.env.KAPSO_PHONE_NUMBER_ID!;
   const to = from.startsWith("+") ? from : `+${from}`;
   const t0 = Date.now();
 
   // fire-and-forget — return 200 immediately to avoid Kapso retry
   (async () => {
     try {
-      const reply = await handleMessage(text, from, phoneNumberId, to);
+      const reply = await handleMessage(text!, from, phoneNumberId, to);
       if (reply !== null) {
         const truncated = reply.length > 4096 ? reply.slice(0, 4090) + "…" : reply;
         await kapso.messages.sendText({ phoneNumberId, to, body: truncated });
-        // Persist exchange in session history for conversational context
-        saveHistory(from, text, truncated).catch(() => {});
+        saveHistory(from, text!, truncated).catch(() => {});
       }
       query(
         `INSERT INTO agent_logs(endpoint, params, n_resultados, latencia_ms) VALUES ($1, $2, $3, $4)`,
