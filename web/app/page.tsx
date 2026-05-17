@@ -47,6 +47,15 @@ export default function HomePage() {
   const [view, setView] = useState<"globe" | "list">("globe");
   const [filterCountry, setFilterCountry] = useState<string | null>(null);
   const [flyTarget, setFlyTarget] = useState<CountryView | null>(null);
+  /**
+   * mapPhase: timeline de la animacion inicial
+   * - "cold": ColdOpen overlay activo
+   * - "global": ColdOpen termino, vista del planeta entero, pausa 1.5s
+   * - "country": flyTo al pais del user, usuario toma control
+   */
+  const [mapPhase, setMapPhase] = useState<"cold" | "global" | "country">(
+    "cold"
+  );
 
   // Reset cold open con ?reset=1
   useEffect(() => {
@@ -56,8 +65,18 @@ export default function HomePage() {
       sessionStorage.removeItem("coldOpenSeen");
       window.history.replaceState({}, "", window.location.pathname);
     }
-    setShowColdOpen(sessionStorage.getItem("coldOpenSeen") !== "1");
+    const shouldShowCold = sessionStorage.getItem("coldOpenSeen") !== "1";
+    setShowColdOpen(shouldShowCold);
+    // Si ya vio cold open en esta sesion, igual hacemos pausa global → country
+    if (!shouldShowCold) setMapPhase("global");
   }, []);
+
+  // Phase transition: global → country despues de pausa 1.5s
+  useEffect(() => {
+    if (mapPhase !== "global") return;
+    const t = setTimeout(() => setMapPhase("country"), 1500);
+    return () => clearTimeout(t);
+  }, [mapPhase]);
 
   // Stats globales — corre rápido, alimenta cold open + HUD
   useEffect(() => {
@@ -138,6 +157,8 @@ export default function HomePage() {
           onDone={() => {
             sessionStorage.setItem("coldOpenSeen", "1");
             setShowColdOpen(false);
+            // Triggers: pausa global → country (con flyTo) — Phase 5
+            setMapPhase("global");
           }}
         />
       )}
@@ -152,7 +173,10 @@ export default function HomePage() {
           selectedId={selected?.id ?? null}
           onSelect={setSelected}
           flyToCountry={
-            flyTarget ?? (showColdOpen === false ? userCountry : null)
+            // Solo volar al pais del user cuando entramos a fase "country".
+            // Durante "global" la camara se queda en vista mundial (1.5s pausa).
+            // Si el user clickea un chip (flyTarget), siempre prevalece.
+            flyTarget ?? (mapPhase === "country" ? userCountry : null)
           }
           onViewChange={setRegionLabel}
         />
