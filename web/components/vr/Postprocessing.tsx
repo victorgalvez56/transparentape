@@ -1,24 +1,14 @@
 "use client";
 
-import { EffectComposer, Bloom } from "@react-three/postprocessing";
-import { useXR } from "@react-three/xr";
-
 /**
- * Bloom selectivo sobre los materiales emissive (las columnas).
- * Desactivado en modo immersive — los EffectComposer son inestables
- * con XR layered rendering. En desktop hace que el bosque "respire" neon.
+ * @react-three/postprocessing@3.0.4 + Turbopack + three@0.184 incompatibles
+ * — duplican Three.js en el bundle y EffectComposer revienta con
+ * "Cannot read properties of null (reading 'alpha')".
+ *
+ * Lo dejamos no-op hasta resolver versiones. Las columnas usan
+ * `meshStandardMaterial` con emissive alto + toneMapped=false, asi que
+ * siguen brillando sin bloom — solo se pierde el "neon spread".
  */
 export default function Postprocessing() {
-  const inXR = useXR((s) => Boolean(s.session));
-  if (inXR) return null;
-  return (
-    <EffectComposer multisampling={0}>
-      <Bloom
-        intensity={0.9}
-        luminanceThreshold={0.5}
-        luminanceSmoothing={0.85}
-        mipmapBlur
-      />
-    </EffectComposer>
-  );
+  return null;
 }
