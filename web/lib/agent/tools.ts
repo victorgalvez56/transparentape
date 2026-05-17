@@ -81,11 +81,12 @@ export const TOOLS: Tool[] = [
   {
     name: "buscar_obras",
     description:
-      "Lista obras públicas filtradas por lugar, empresa contratista, año, alertas o método de contratación. Default 5 resultados ordenados por alertas y monto.",
+      "Lista obras públicas filtradas por lugar, empresa contratista, sector (saneamiento/salud/educación/transporte/etc.), año, alertas o método de contratación. Default 5 resultados ordenados por alertas y monto.",
     parameters: {
-      q: "string opcional — texto libre con lugar y/o empresa (ej: 'Piura', 'Cosapi en Lima'). Se clasifica automáticamente.",
+      q: "string opcional — texto libre con lugar, sector y/o empresa (ej: 'Piura', 'saneamiento en Lima', 'Cosapi'). Se clasifica automáticamente.",
       q_geo: "string opcional — solo región/provincia/distrito si quieres restringir geo explícitamente",
       q_supplier: "string opcional — solo nombre de empresa contratista si quieres restringir por empresa",
+      q_sector: "string opcional — sector (saneamiento, salud, educacion, vial, vivienda, etc.) — ILIKE en descripción de obra",
       year: "número opcional — año del registro (ej: 2024)",
       red_flag: "boolean opcional — true para solo obras con alerta",
       procurement_method: "string opcional — 'direct' para adjudicación directa",
@@ -98,19 +99,23 @@ export const TOOLS: Tool[] = [
         procurement_method: asString(args.procurement_method),
         limit: 5,
       };
-      // Explicit q_geo / q_supplier from the router win. Otherwise run the
-      // free-text q through classifyQuery so "Cosapi en Lima" splits into
-      // q_geo="lima" + q_supplier="cosapi" before hitting the DB.
+      // Explicit q_geo / q_supplier / q_sector from the router win. Otherwise
+      // run the free-text q through classifyQuery so "saneamiento en Lima"
+      // splits into q_geo="lima" + q_sector="saneamiento", "Cosapi en Lima"
+      // into q_geo="lima" + q_supplier="cosapi", etc.
       const qGeoArg = asString(args.q_geo);
       const qSupplierArg = asString(args.q_supplier);
+      const qSectorArg = asString(args.q_sector);
       if (qGeoArg) filters.q_geo = qGeoArg;
       if (qSupplierArg) filters.q_supplier = qSupplierArg;
-      if (!qGeoArg && !qSupplierArg) {
+      if (qSectorArg) filters.q_sector = qSectorArg;
+      if (!qGeoArg && !qSupplierArg && !qSectorArg) {
         const raw = asString(args.q);
         if (raw) {
           const c = classifyQuery(raw);
           if (c.q_geo) filters.q_geo = c.q_geo;
           if (c.q_supplier) filters.q_supplier = c.q_supplier;
+          if (c.q_sector) filters.q_sector = c.q_sector;
           // If classifyQuery returned {}, the raw was noise — leave q empty
           // so we return the top of the country instead of an ILIKE that
           // matches zero rows.

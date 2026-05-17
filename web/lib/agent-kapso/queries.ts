@@ -58,6 +58,8 @@ export interface BuscarObrasFilters {
   q_geo?: string;
   /** Supplier-only filter — ILIKE %q_supplier% on supplier_name. */
   q_supplier?: string;
+  /** Sector filter — ILIKE %q_sector% on tender_description (saneamiento, salud, vial, etc.). */
+  q_sector?: string;
   limit?: number;
 }
 
@@ -84,9 +86,9 @@ export async function buscarObras(f: BuscarObrasFilters): Promise<ObraResumen[]>
   if (f.contratista) { parts.push(`supplier_name ILIKE $${i++}`); vals.push(`%${f.contratista}%`); }
   if (f.ruc)         { parts.push(`supplier_ruc = $${i++}`); vals.push(f.ruc); }
   if (f.procurement_method) { parts.push(`procurement_method = $${i++}`); vals.push(f.procurement_method); }
-  // Typed filters take precedence over the legacy fuzzy q, but both can
-  // coexist for queries like "Cosapi en Lima" where classifyQuery() sets
-  // q_geo="lima" + q_supplier="cosapi" (AND-ed in the WHERE clause).
+  // Typed filters take precedence over the legacy fuzzy q. q_geo / q_supplier
+  // can coexist ("Cosapi en Lima"), q_sector also stacks ("saneamiento en
+  // Piura" → q_geo=piura + q_sector=saneamiento → AND-ed).
   if (f.q_geo) {
     parts.push(`(buyer_region ILIKE $${i} OR buyer_locality ILIKE $${i})`);
     vals.push(`%${f.q_geo}%`);
@@ -96,7 +98,11 @@ export async function buscarObras(f: BuscarObrasFilters): Promise<ObraResumen[]>
     parts.push(`supplier_name ILIKE $${i++}`);
     vals.push(`%${f.q_supplier}%`);
   }
-  if (f.q && !f.q_geo && !f.q_supplier) {
+  if (f.q_sector) {
+    parts.push(`tender_description ILIKE $${i++}`);
+    vals.push(`%${f.q_sector}%`);
+  }
+  if (f.q && !f.q_geo && !f.q_supplier && !f.q_sector) {
     // Legacy fallback when caller didn't classify — keeps existing callers
     // (web UI, older WhatsApp atajos) working without code changes.
     parts.push(

@@ -85,6 +85,56 @@ const NOISE_WORDS = new Set([
   "todas", "todos", "varias", "varios",
 ]);
 
+// Sector words → q_sector. These map to tender_description ILIKE %word%
+// (semantic search, not place). User says "obras de saneamiento" — the
+// match is "construcción sistema de saneamiento ..." in the description,
+// NOT a region/locality column. Listed lowercase + ASCII-normalized.
+const SECTOR_WORDS = new Set([
+  "saneamiento", "agua", "alcantarillado", "desague", "desagüe",
+  "salud", "hospital", "hospitales", "posta", "centro de salud", "essalud",
+  "educacion", "colegio", "colegios", "escuela", "escuelas", "universidad",
+  "transporte", "carretera", "carreteras", "via", "vias", "vial", "puente", "puentes",
+  "vivienda", "viviendas", "habitacional",
+  "electrificacion", "electricidad", "energia", "energetico",
+  "pavimentacion", "asfaltado", "veredas",
+  "irrigacion", "riego", "agricultura", "agropecuario",
+  "telecomunicaciones", "fibra", "internet",
+  "seguridad", "comisaria", "comisarias", "penal", "carcel",
+  "deporte", "deportivo", "estadio", "loza",
+  "cultura", "cultural", "museo", "biblioteca",
+  "turismo", "turistico",
+  "saneamiento basico", "agua potable",
+]);
+
+function isSectorWord(s: string): string | null {
+  const n = s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+  if (SECTOR_WORDS.has(n)) return n;
+  // Multi-word: check first/last word against single-word sectors
+  const words = n.split(/\s+/);
+  for (const w of words) if (SECTOR_WORDS.has(w)) return w;
+  return null;
+}
+
+// Heuristic: input has a capitalized proper noun (not just sentence start).
+// Used as escape hatch for unknown places like "Valle del Colca" — if the
+// user typed it with capitals it's almost certainly a real place name,
+// even if it's not in ALL_PLACES.
+function hasCapitalProperNoun(s: string): boolean {
+  // Strip the first token (could be capitalized sentence start) and look
+  // for any internal capitalised word.
+  const tokens = s.split(/\s+/);
+  for (let i = 0; i < tokens.length; i++) {
+    if (i === 0 && tokens.length > 1) continue; // skip leading word
+    if (/^[A-ZÁÉÍÓÚÑÜ][a-záéíóúñü]+/.test(tokens[i])) return true;
+  }
+  // Single-token input: only count if all-caps (3+) or capitalized 4+ chars
+  if (tokens.length === 1) {
+    return /^[A-ZÁÉÍÓÚÑÜ][a-záéíóúñü]{3,}$/.test(tokens[0]) ||
+      /^[A-ZÁÉÍÓÚÑÜ]{3,}$/.test(tokens[0]);
+  }
+  return false;
+}
+
 function normalize(s: string): string {
   return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 }
@@ -137,14 +187,19 @@ export function looksLikeCompany(q: string | undefined): boolean {
 export function classifyQuery(q: string | undefined): {
   q_geo?: string;
   q_supplier?: string;
-  q_text?: string;
+  q_sector?: string;
 } {
   if (!q) return {};
   const trimmed = q.trim();
   if (trimmed.length < 2) return {};
   const n = normalize(trimmed);
 
-  // 1. Place hit — split rest into supplier candidate.
+  // 0. Sector word — semantic match against tender_description.
+  //    Checked BEFORE the single-word supplier fallback so "saneamiento"
+  //    routes to q_sector instead of q_supplier="saneamiento" → 0 rows.
+  const sector = isSectorWord(trimmed);
+
+  // 1. Place hit — may co-exist with sector ("saneamiento en Piura").
   const place = findPlace(trimmed);
   if (place) {
     // Strip the place word, plus prepositions around it, to leave a clean rest.
@@ -153,24 +208,38 @@ export function classifyQuery(q: string | undefined): {
       .replace(/\b(en|de|del|la|las|los|el|al)\b/g, " ")
       .replace(/\s+/g, " ")
       .trim();
+    const restIsSector = stripped && isSectorWord(stripped);
+    if (restIsSector) return { q_geo: place, q_sector: restIsSector };
     if (stripped.length >= 3 && !NOISE_WORDS.has(stripped)) {
       return { q_geo: place, q_supplier: stripped };
     }
     return { q_geo: place };
   }
 
-  // 2. Explicit company suffix.
+  // 2. Pure sector word (no place) — search by description only.
+  if (sector) {
+    return { q_sector: sector };
+  }
+
+  // 3. Explicit company suffix.
   if (looksLikeCompany(trimmed)) {
     return { q_supplier: trimmed };
   }
 
-  // 3. Single-word non-noise → assume it's a proper noun (company name
-  //    typed lowercase: "odebrecht", "cosapi", "graña").
+  // 4. Single-word non-noise → assume proper noun (company name typed
+  //    lowercase: "odebrecht", "cosapi", "graña").
   if (/^[\p{L}'-]+$/u.test(n) && n.length >= 4 && !NOISE_WORDS.has(n)) {
     return { q_supplier: trimmed };
   }
 
-  // 4. Multi-word noise — drop entirely so we don't ILIKE %grandes% and
+  // 5. Multi-word with internal capitalisation → unknown place.
+  //    Escape hatch for "Valle del Colca", "San Pedro de los Incas", etc.
+  //    Pure lowercase noise like "obras grandes" falls through to drop.
+  if (trimmed.includes(" ") && hasCapitalProperNoun(trimmed) && !NOISE_WORDS.has(n)) {
+    return { q_geo: trimmed };
+  }
+
+  // 6. Multi-word noise — drop entirely so we don't ILIKE %grandes% and
   //    return zero rows. Caller falls back to country-wide search.
   return {};
 }
