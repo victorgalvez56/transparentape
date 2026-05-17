@@ -33,8 +33,8 @@ export function projectToFloor(
 
 /** Calcula altura de la columna basada en el monto (log scale). */
 export function montoToHeight(monto: number | null | undefined): number {
-  if (!monto || monto <= 0) return 0.2; // mínimo visible
-  return Math.max(0.2, Math.log10(monto + 1) * 0.5);
+  if (!monto || monto <= 0) return 0.4;
+  return Math.max(0.4, Math.log10(monto + 1) * 2.0);
 }
 
 export const FLOOR_DIMENSIONS = {

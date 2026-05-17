@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
+import * as THREE from "three";
 import { OrbitControls } from "@react-three/drei";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import ColumnaForest from "./ColumnaForest";
@@ -36,8 +37,8 @@ export default function AuditRoom() {
   const controlsRef = useRef<OrbitControlsImpl>(null);
   const { obras, loading } = useObrasVR();
 
-  // Camara inicial: vista global de Peru
-  const initialCam = cameraForPreset(CITY_PRESETS[0]);
+  // Cámara inicial: Lima, rasante e inmersiva
+  const initialCam = cameraForPreset(CITY_PRESETS[1]);
 
   const handleSelectPreset = (key: string) => {
     const preset = CITY_PRESETS.find((p) => p.key === key);
@@ -148,15 +149,16 @@ export default function AuditRoom() {
       <Canvas
         camera={{
           position: initialCam.position,
-          fov: 50,
+          fov: 60,
           near: 0.1,
-          far: 1000,
+          far: 800,
         }}
-        gl={{ antialias: true }}
+        gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.2 }}
       >
         <Skybox />
-        <ambientLight intensity={0.7} />
-        <directionalLight position={[100, 100, 100]} intensity={0.6} />
+        <ambientLight intensity={0.5} />
+        <directionalLight position={[80, 60, 40]} intensity={1.4} />
+        <directionalLight position={[-40, -20, -60]} intensity={0.15} color="#1a3a6e" />
         <Globe />
         <RedFlagPulses />
         <ColumnaForest
@@ -169,9 +171,11 @@ export default function AuditRoom() {
         <OrbitControls
           ref={controlsRef}
           target={initialCam.target}
-          minDistance={GLOBE_RADIUS + 1}
-          maxDistance={GLOBE_RADIUS * 8}
-          enablePan
+          minDistance={GLOBE_RADIUS + 1.5}
+          maxDistance={GLOBE_RADIUS * 6}
+          enablePan={false}
+          enableDamping
+          dampingFactor={0.06}
         />
         <CameraController flyTo={flyTo} controlsRef={controlsRef} />
         <ContextLostListener onLost={() => setContextLost(true)} />
