@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import Groq from "groq-sdk";
 import { query } from "@/lib/db";
 
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
-});
+// Lazy: instanciar dentro de los handlers, no a module-level.
+// Sin esto el build de Next falla cuando GROQ_API_KEY no está seteado.
+function getGroq(): Groq {
+  return new Groq({ apiKey: process.env.GROQ_API_KEY });
+}
 
 const SYSTEM_PROMPT_SQL = `Eres un agente experto en análisis de datos de obras públicas y un backend-translator de alta precisión. Tu único objetivo es actuar en un flujo cerrado de dos pasos: traducción a SQL y síntesis de resultados.
 
@@ -36,6 +38,8 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+
+    const groq = getGroq();
 
     // Step 1: Translate user message to SQL
     const sqlResponse = await groq.chat.completions.create({
