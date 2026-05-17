@@ -124,6 +124,7 @@ async function sendAyudaWithButtons(
   phoneNumberId: string,
   to: string
 ): Promise<void> {
+  let interactiveErr: string | null = null;
   try {
     await getKapso().messages.sendInteractiveButtons({
       phoneNumberId,
@@ -141,9 +142,34 @@ async function sendAyudaWithButtons(
         { id: "btn_ranking", title: "🏆 Rankings" },
       ],
     });
-  } catch {
-    // Interactive buttons not supported on this number tier — fall back to text
+    return;
+  } catch (e) {
+    interactiveErr = String(e instanceof Error ? e.message : e);
+  }
+  // Fallback to plain text — log both failure causes if even fallback fails
+  try {
     await getKapso().messages.sendText({ phoneNumberId, to, body: INTRO_MSG });
+    query(
+      `INSERT INTO agent_logs(endpoint, params, n_resultados, latencia_ms) VALUES ($1, $2, $3, $4)`,
+      ["/api/kapso/webhook/ayuda_fallback", JSON.stringify({ interactiveErr, has_api_key: Boolean(process.env.KAPSO_API_KEY) }), 0, 0]
+    ).catch(() => {});
+  } catch (e2) {
+    query(
+      `INSERT INTO agent_logs(endpoint, params, n_resultados, latencia_ms) VALUES ($1, $2, $3, $4)`,
+      [
+        "/api/kapso/webhook/ayuda_failed",
+        JSON.stringify({
+          interactiveErr,
+          fallbackErr: String(e2 instanceof Error ? e2.message : e2),
+          has_api_key: Boolean(process.env.KAPSO_API_KEY),
+          api_key_len: (process.env.KAPSO_API_KEY ?? "").length,
+          phone_id: process.env.KAPSO_PHONE_NUMBER_ID ?? "(missing)",
+        }),
+        0,
+        0,
+      ]
+    ).catch(() => {});
+    throw e2;
   }
 }
 
