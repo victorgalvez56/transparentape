@@ -6,6 +6,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { Obra, riesgoDeObra } from "@/lib/types";
 import { CountryView } from "@/lib/countries";
 import { detectLocation } from "@/lib/regions";
+import { useTheme } from "./ThemeProvider";
 import {
   preloadGeoJSON,
   getPeruDepts,
@@ -19,21 +20,39 @@ interface Props {
   onSelect: (o: Obra) => void;
   flyToCountry?: CountryView | null;
   onViewChange?: (label: string) => void;
+  /**
+   * Override del theme cuando el caller no usa el ThemeProvider global
+   * (e.g. /end con su propio estado local "cx-theme"). Si está, manda;
+   * si no, cae al context.
+   */
+  themeOverride?: "light" | "dark";
 }
 
-const MAP_STYLE =
+/**
+ * Map styles según theme — CARTO basemaps.
+ * Dark: Dark Matter (negro estilo forense)
+ * Light: Positron (gris muy claro, papel)
+ */
+const MAP_STYLE_DARK =
   "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
+const MAP_STYLE_LIGHT =
+  "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
+
+function getMapStyle(theme: "light" | "dark"): string {
+  return theme === "light" ? MAP_STYLE_LIGHT : MAP_STYLE_DARK;
+}
 
 /**
- * Devuelve padding para encuadrar el área visible — excluye sidebar derecha
- * (~448px en >=md, 0 en mobile) y deja espacio arriba para el HUD.
+ * Padding para encuadrar el área visible.
+ * Antes restaba ~448px en >=md por el sidebar overlay. Ahora el sidebar
+ * vive FUERA del canvas (el container del globo lo excluye con right:28rem),
+ * asi que solo dejamos un padding suave de 40px para respiracion visual.
  */
 function getMapPadding() {
   if (typeof window === "undefined") {
     return { top: 0, bottom: 0, left: 0, right: 0 };
   }
-  const sidebar = window.innerWidth >= 768 ? 448 : 0;
-  return { top: 80, bottom: 40, left: 40, right: sidebar };
+  return { top: 40, bottom: 40, left: 40, right: 40 };
 }
 
 /**
@@ -49,23 +68,10 @@ function getMarkerFlyToPadding() {
   if (typeof window === "undefined") {
     return { top: 0, bottom: 0, left: 0, right: 0 };
   }
-  const w = window.innerWidth;
-  if (w < 768) {
-    return { top: 80, bottom: 40, left: 20, right: 20 };
-  }
-  // El panel detalle está en bottom-LEFT, no bloquea verticalmente la zona
-  // a su derecha. Por eso el padding bottom es solo un margen mínimo:
-  // el centro vertical del área visible queda alineado con el centro
-  // del viewport (no en el top como antes).
-  const sidebarW = 448;
-  const panelLeft = 24;
-  const panelWidth = 560;
-  return {
-    top: 80, // HUD
-    right: sidebarW + 40, // sidebar + margen
-    left: panelLeft + panelWidth + 40, // hasta el final del panel + margen
-    bottom: 60, // solo margen del bottom edge (panel está a la izquierda)
-  };
+  // Codex layout: sidebar excluido del canvas via container, y el detalle
+  // ahora vive DENTRO del sidebar (navigation stack), no flota a la izquierda.
+  // Padding simple, solo respiracion visual.
+  return { top: 60, bottom: 60, left: 40, right: 40 };
 }
 
 function toFeatureCollection(obras: Obra[]): GeoJSON.FeatureCollection {
@@ -84,8 +90,6 @@ function toFeatureCollection(obras: Obra[]): GeoJSON.FeatureCollection {
         amount: o.contract_amount ?? o.award_amount ?? o.tender_amount ?? 0,
         is_red_flag: o.is_red_flag ?? false,
         riesgo: riesgoDeObra(o),
-        procurement_method: o.procurement_method ?? "",
-        country: o.country ?? "PE",
       },
     }));
   return { type: "FeatureCollection", features };
@@ -97,7 +101,10 @@ export default function MapGlobe({
   onSelect,
   flyToCountry,
   onViewChange,
+  themeOverride,
 }: Props) {
+  const { resolved: ctxTheme } = useTheme();
+  const theme = themeOverride ?? ctxTheme;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MLMap | null>(null);
   const obrasById = useRef<Map<number, Obra>>(new Map());
@@ -150,7 +157,7 @@ export default function MapGlobe({
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: MAP_STYLE,
+      style: getMapStyle(theme),
       center: [-75.0, -10.5],
       zoom: 4.6,
       pitch: 25,
@@ -198,10 +205,6 @@ export default function MapGlobe({
       console.error("[MapGlobe error]", e.error?.message ?? e);
     });
 
-    map.addControl(
-      new maplibregl.NavigationControl({ showCompass: true }),
-      "bottom-right"
-    );
     map.addControl(new maplibregl.AttributionControl({ compact: true }));
 
     let rafId = 0;
@@ -367,13 +370,12 @@ export default function MapGlobe({
         filter: ["!", ["has", "point_count"]],
         paint: {
           "circle-color": [
-            "case",
-            ["==", ["get", "is_red_flag"], true], "#ef4444",
-            ["any",
-              ["==", ["get", "procurement_method"], "direct"],
-              ["==", ["get", "procurement_method"], "AS"],
-            ], "#eab308",
-            ["==", ["get", "country"], "CL"], "#3b82f6",
+            "match",
+            ["get", "riesgo"],
+            "alto",
+            "#ef4444",
+            "medio",
+            "#f59e0b",
             "#10b981",
           ],
           "circle-radius": [
@@ -692,10 +694,10 @@ export default function MapGlobe({
       <div
         ref={containerRef}
         style={{
-          position: "fixed",
+          position: "absolute",
           inset: 0,
           zIndex: 0,
-          background: "#0a0a0a",
+          background: theme === "light" ? "#f4f4f5" : "#0a0a0a",
         }}
       />
     </>

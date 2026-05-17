@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
-:root {
+:root,
+[data-theme="dark"] {
   /* Neutros forenses */
   --ink-0: #050505;
   --ink-1: #0a0a0a;
@@ -33,6 +34,31 @@
   --t-snap: 160ms;
 }
 
+[data-theme="light"] {
+  /* Codex-globe palette — shadcn-style zinc neutrals */
+  --ink-0: #ffffff;          /* background pure white */
+  --ink-1: #fafafa;          /* surface elevada / glass */
+  --ink-2: #f4f4f5;          /* muted bg (chip inactive) */
+  --ink-3: #e4e4e7;          /* hover bg */
+
+  /* Texto — zinc scale */
+  --fg: #09090b;             /* near black (foreground) */
+  --fg-dim: #52525b;         /* muted-foreground */
+  --fg-faint: #a1a1aa;       /* placeholder / disabled */
+  --rule: rgba(0, 0, 0, 0.08);  /* hairline borders */
+
+  /* Brand — verde más profundo para contraste WCAG en fondo claro */
+  --brand: #15803d;          /* green-700 */
+  --brand-deep: #dcfce7;     /* green-100 (chip active bg en light) */
+  --brand-glow: rgba(21, 128, 61, 0.2);
+
+  /* Semáforos — versiones desaturadas para light */
+  --alarm: #b91c1c;          /* red-700 */
+  --alarm-soft: rgba(185, 28, 28, 0.1);
+  --warn: #b45309;           /* amber-700 */
+  --safe: #047857;           /* emerald-700 */
+}
+
 @theme inline {
   --color-background: var(--ink-0);
   --color-foreground: var(--fg);
@@ -54,7 +80,7 @@ body {
   font-feature-settings: "ss01", "cv01", "cv11";
 }
 
-/* MapLibre overrides — tema forense */
+/* MapLibre overrides — theme-aware */
 .maplibregl-ctrl-attrib,
 .maplibregl-ctrl-attrib a {
   background-color: rgba(0, 0, 0, 0.7) !important;
@@ -80,6 +106,24 @@ body {
   filter: invert(1) brightness(0.85);
 }
 
+[data-theme="light"] .maplibregl-ctrl-attrib,
+[data-theme="light"] .maplibregl-ctrl-attrib a {
+  background-color: rgba(255, 255, 255, 0.8) !important;
+  color: rgba(0, 0, 0, 0.45) !important;
+}
+[data-theme="light"] .maplibregl-ctrl-attrib a {
+  color: rgba(0, 0, 0, 0.85) !important;
+}
+[data-theme="light"] .maplibregl-ctrl-group {
+  background-color: rgba(255, 255, 255, 0.9) !important;
+}
+[data-theme="light"] .maplibregl-ctrl-group button:hover {
+  background-color: rgba(21, 128, 61, 0.1) !important;
+}
+[data-theme="light"] .maplibregl-ctrl-icon {
+  filter: none;
+}
+
 /* Atmosphere — grain procedural */
 body::before {
   content: "";
@@ -91,12 +135,21 @@ body::before {
   mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
 }
+[data-theme="light"] body::before {
+  opacity: 0.04;
+  mix-blend-mode: multiply;
+}
 
 /* Gradiente forense detrás del globo */
 .globe-bg {
   background:
     radial-gradient(1200px 800px at 50% 60%, var(--brand-deep) 0%, transparent 60%),
     radial-gradient(800px 600px at 80% 20%, rgba(66, 220, 58, 0.04) 0%, transparent 60%),
+    var(--ink-0);
+}
+[data-theme="light"] .globe-bg {
+  background:
+    radial-gradient(1200px 800px at 50% 60%, var(--brand-deep) 0%, transparent 70%),
     var(--ink-0);
 }
 
@@ -169,6 +222,8 @@ body::before {
     rgba(16, 185, 129, 0.06) 0%,
     transparent 70%
   );
+  /* Translucido para overlays (sidebar + filterbar) encima del globo */
+  --cx-bg-blur: rgba(255, 255, 255, 0.55);
 
   background: var(--cx-bg);
   color: var(--cx-fg);
@@ -201,6 +256,7 @@ body::before {
     rgba(52, 211, 153, 0.07) 0%,
     transparent 70%
   );
+  --cx-bg-blur: rgba(0, 0, 0, 0.45);
 }
 
 .cx-scope ::-webkit-scrollbar {
