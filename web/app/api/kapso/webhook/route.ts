@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import crypto from "crypto";
 import { WhatsAppClient } from "@kapso/whatsapp-cloud-api";
-import { normalizeWebhook } from "@kapso/whatsapp-cloud-api/server";
+import { normalizeWebhook, verifySignature as sdkVerifySignature } from "@kapso/whatsapp-cloud-api/server";
 import { query } from "@/lib/db";
 import { chatEngine } from "@/lib/agent-kapso/engine";
 import { parseIntent } from "@/lib/agent-kapso/intent";
@@ -37,23 +36,16 @@ export const runtime = "nodejs";
 export const maxDuration = 30;
 
 // ── signature validation ──────────────────────────────────────────────────────
-function verifySignature(body: string, header: string | null): boolean {
+function checkSignature(rawBody: string, req: NextRequest): boolean {
   const secret = process.env.KAPSO_WEBHOOK_SECRET;
   if (!secret) return true;
-  if (!header) return false;
-  const sig = header.replace(/^sha256=/i, "");
-  const expected = crypto
-    .createHmac("sha256", secret)
-    .update(body, "utf8")
-    .digest("hex");
-  try {
-    return crypto.timingSafeEqual(
-      Buffer.from(expected, "hex"),
-      Buffer.from(sig, "hex")
-    );
-  } catch {
-    return false;
-  }
+  // Kapso kind:meta signs with KAPSO_WEBHOOK_SECRET via x-hub-signature-256
+  const signatureHeader =
+    req.headers.get("x-hub-signature-256") ??
+    req.headers.get("x-kapso-signature") ??
+    req.headers.get("x-webhook-signature");
+  if (!signatureHeader) return false;
+  return sdkVerifySignature({ appSecret: secret, rawBody, signatureHeader });
 }
 
 const kapso = new WhatsAppClient({
@@ -255,24 +247,19 @@ export async function POST(req: NextRequest) {
   const allHeaders: Record<string, string> = {};
   req.headers.forEach((v, k) => { allHeaders[k] = v; });
 
-  const sigHeader =
-    req.headers.get("x-kapso-signature") ??
-    req.headers.get("x-hub-signature-256") ??
-    req.headers.get("x-webhook-signature");
-
-  if (!verifySignature(rawBody, sigHeader)) {
-    // Log all headers + body so we can discover what Kapso actually sends
+  if (!checkSignature(rawBody, req)) {
+    // Log headers to identify which signature header Kapso actually sends
     query(
       `INSERT INTO agent_logs(endpoint, params, n_resultados, latencia_ms) VALUES ($1, $2, $3, $4)`,
       [
         "/api/kapso/webhook/sig_fail",
-        JSON.stringify({ sig_header_found: sigHeader, headers: allHeaders, body_preview: rawBody.slice(0, 500) }),
+        JSON.stringify({ headers: allHeaders, body_preview: rawBody.slice(0, 500) }),
         0,
         0,
       ]
     ).catch(() => {});
     // Return 200 temporarily so Kapso keeps retrying while we diagnose
-    // TODO: restore 401 once correct signature header is identified
+    // TODO: restore 401 once signature is confirmed working end-to-end
   }
 
   let payload: Record<string, unknown>;
@@ -334,8 +321,9 @@ export async function POST(req: NextRequest) {
   if (msg.type === "text" && msg.text?.body) {
     text = msg.text.body.trim();
   } else if (msg.type === "interactive") {
-    const interactive = msg.interactive as { button_reply?: { id?: string }; list_reply?: { id?: string } } | undefined;
-    const btnId = interactive?.button_reply?.id ?? interactive?.list_reply?.id;
+    // normalizeWebhook converts snake_case keys to camelCase
+    const interactive = msg.interactive as { buttonReply?: { id?: string }; listReply?: { id?: string } } | undefined;
+    const btnId = interactive?.buttonReply?.id ?? interactive?.listReply?.id;
     if (btnId) text = BUTTON_MAP[btnId] ?? btnId;
   }
 
