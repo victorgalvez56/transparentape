@@ -1,59 +1,49 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense } from "react";
+import { useTexture } from "@react-three/drei";
 import * as THREE from "three";
 import { FLOOR_DIMENSIONS } from "@/lib/vr/projection";
 
 /**
  * Piso con textura satelital real de Peru desde Esri World Imagery.
  * El bbox de la imagen (lng -82..-68, lat -19..0) matchea exactamente
- * el mapping de projection.ts, asi que cada cilindro cae sobre su
- * coordenada geografica real.
+ * el mapping de projection.ts.
  */
-export default function SatelliteFloor() {
-  const [texture, setTexture] = useState<THREE.Texture | null>(null);
-
-  useEffect(() => {
-    const loader = new THREE.TextureLoader();
-    loader.load(
-      "/textures/peru-sat.jpg",
-      (tex) => {
-        tex.colorSpace = THREE.SRGBColorSpace;
-        tex.anisotropy = 8;
-        tex.minFilter = THREE.LinearMipmapLinearFilter;
-        tex.magFilter = THREE.LinearFilter;
-        tex.needsUpdate = true;
-        setTexture(tex);
-      },
-      undefined,
-      (err) => {
-        console.warn("[SatelliteFloor] no se pudo cargar peru-sat.jpg:", err);
-      }
-    );
-    return () => {
-      // No dispose explicito — el cleanup de three al unmount lo agarra
-    };
-  }, []);
-
-  if (!texture) {
-    // Mientras carga, mostrar piso oscuro
-    return (
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
-        <planeGeometry
-          args={[FLOOR_DIMENSIONS.width, FLOOR_DIMENSIONS.depth]}
-        />
-        <meshBasicMaterial color="#020202" />
-      </mesh>
-    );
-  }
+function FloorWithTexture() {
+  const texture = useTexture("/textures/peru-sat.jpg") as THREE.Texture;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 8;
 
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
+    <mesh
+      rotation={[-Math.PI / 2, 0, 0]}
+      position={[0, 0, 0]}
+      receiveShadow
+    >
       <planeGeometry args={[FLOOR_DIMENSIONS.width, FLOOR_DIMENSIONS.depth]} />
       <meshBasicMaterial
         map={texture}
+        side={THREE.DoubleSide}
         toneMapped={false}
       />
     </mesh>
+  );
+}
+
+function FallbackFloor() {
+  return (
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
+      <planeGeometry args={[FLOOR_DIMENSIONS.width, FLOOR_DIMENSIONS.depth]} />
+      <meshBasicMaterial color="#020202" side={THREE.DoubleSide} />
+    </mesh>
+  );
+}
+
+export default function SatelliteFloor() {
+  return (
+    <Suspense fallback={<FallbackFloor />}>
+      <FloorWithTexture />
+    </Suspense>
   );
 }
