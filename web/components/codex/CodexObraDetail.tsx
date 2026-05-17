@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Obra, riesgoDeObra } from "@/lib/types";
 import { displayTitle, fmtMonto, fmtFecha } from "@/lib/format";
 
@@ -34,12 +35,32 @@ function Field({
 }
 
 export default function CodexObraDetail({
-  obra,
+  obra: obraProp,
   onClose,
 }: {
   obra: Obra;
   onClose: () => void;
 }) {
+  // El payload ligero (points) trae campos básicos; enriquecemos con el
+  // expediente completo vía /api/obra/[id] al seleccionar.
+  const [obra, setObra] = useState<Obra>(obraProp);
+
+  useEffect(() => {
+    // Reset al cambiar de obra seleccionada (sincroniza con la prop).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setObra(obraProp);
+    let cancelled = false;
+    fetch(`/api/obra/${obraProp.id}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancelled && d?.obra) setObra({ ...obraProp, ...d.obra });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [obraProp]);
+
   const r = RIESGO[riesgoDeObra(obra)];
 
   return (

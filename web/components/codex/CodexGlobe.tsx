@@ -12,8 +12,8 @@ interface Props {
   theme: "light" | "dark";
 }
 
-/** Cap de markers en el globo — la lista muestra todo, el globo es el resumen visual. */
-const MAX_MARKERS = 420;
+/** Cap de markers en el globo — muestreo denso del set filtrado (~62k). */
+const MAX_MARKERS = 1500;
 
 /** Centroide por defecto: Sudamérica / Perú (los datos están concentrados acá). */
 const DEFAULT_FOCUS: [number, number] = [-12, -72];

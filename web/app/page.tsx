@@ -25,6 +25,7 @@ const CodexGlobe = dynamic(() => import("@/components/codex/CodexGlobe"), {
 });
 
 const MAX_REGION_CHIPS = 28;
+const RENDER_CAP = 600;
 
 function search(o: Obra, lower: string): boolean {
   if (!lower) return true;
@@ -46,6 +47,9 @@ function search(o: Obra, lower: string): boolean {
 export default function CodexHomePage() {
   const [obras, setObras] = useState<Obra[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dbStats, setDbStats] = useState<{ total: number; geo: number } | null>(
+    null
+  );
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [view, setView] = useState<"globe" | "grid">("globe");
   const [selected, setSelected] = useState<Obra | null>(null);
@@ -74,22 +78,33 @@ export default function CodexHomePage() {
     localStorage.setItem("cx-theme", theme);
   }, [theme]);
 
-  // Carga de obras (PE + CL, con coordenadas) — igual que la vista clásica
+  // Totales reales de la base (para el header) — corre rápido
   useEffect(() => {
     let cancelled = false;
-    Promise.all([
-      fetch("/api/obras?limit=2800&with_coords=true").then((r) => r.json()),
-      fetch("/api/obras?country=CL&limit=2000&with_coords=true").then((r) =>
-        r.json()
-      ),
-    ])
-      .then(([pe, cl]) => {
+    fetch("/api/stats")
+      .then((r) => r.json())
+      .then((d) => {
         if (cancelled) return;
-        const clIds = new Set((cl.obras ?? []).map((o: Obra) => o.id));
-        setObras([
-          ...(cl.obras ?? []),
-          ...(pe.obras ?? []).filter((o: Obra) => !clIds.has(o.id)),
-        ]);
+        setDbStats({
+          total: Number(d?.total_obras ?? 0),
+          geo: Number(d?.with_coords ?? 0),
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Carga TODAS las obras geocodificadas (~62k) vía endpoint ligero.
+  // Sin el cap de 5000 de /api/obras.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/obras/points")
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return;
+        setObras((d?.obras ?? []) as Obra[]);
       })
       .catch(() => {})
       .finally(() => !cancelled && setLoading(false));
@@ -155,9 +170,14 @@ export default function CodexHomePage() {
     });
   }, [scope, riesgo, soloRedFlags, q]);
 
+  // Cap de render: el globo recibe `filtered` completo (muestrea adentro),
+  // pero la lista/grid sólo pinta los primeros N para no congelar el DOM
+  // con 62k nodos. La paginación real es un mejora posterior.
+  const visible = useMemo(() => filtered.slice(0, RENDER_CAP), [filtered]);
+
   const grouped = useMemo(() => {
     const m = new Map<string, Obra[]>();
-    for (const o of filtered) {
+    for (const o of visible) {
       const key =
         o.buyer_region?.trim() ||
         (o.country === "CL" ? "Chile" : "Sin región");
@@ -165,7 +185,7 @@ export default function CodexHomePage() {
       m.get(key)!.push(o);
     }
     return [...m.entries()].sort((a, b) => b[1].length - a[1].length);
-  }, [filtered]);
+  }, [visible]);
 
   const hasFilters =
     pais !== "todos" ||
@@ -187,11 +207,12 @@ export default function CodexHomePage() {
     setMobileList(false);
   };
 
+  const nf = (n: number) => n.toLocaleString("es-PE");
   const statsLine = loading
-    ? "cargando datos públicos…"
-    : `${filtered.length.toLocaleString("es-PE")} obras · ${
-        regions.length
-      } regiones · ${redFlagsCount} alertas`;
+    ? `cargando ${dbStats ? nf(dbStats.geo) + " obras geo…" : "datos…"}`
+    : `${nf(filtered.length)}${
+        dbStats ? ` / ${nf(dbStats.geo)} geo` : ""
+      } · ${dbStats ? nf(dbStats.total) + " en base · " : ""}${redFlagsCount} alertas`;
 
   return (
     <main
@@ -243,12 +264,12 @@ export default function CodexHomePage() {
             style={{ borderColor: "var(--cx-border)" }}
           >
             <CodexObraList
-              obras={filtered}
+              obras={visible}
               selectedId={selected?.id ?? null}
               onSelect={toggleSelect}
               q={q}
               onQ={setQ}
-              totalAll={obras.length}
+              totalAll={filtered.length}
             />
           </aside>
 
@@ -295,12 +316,12 @@ export default function CodexHomePage() {
               </div>
               <div className="flex-1 min-h-0">
                 <CodexObraList
-                  obras={filtered}
+                  obras={visible}
                   selectedId={selected?.id ?? null}
                   onSelect={toggleSelect}
                   q={q}
                   onQ={setQ}
-                  totalAll={obras.length}
+                  totalAll={filtered.length}
                 />
               </div>
             </div>
