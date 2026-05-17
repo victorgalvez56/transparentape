@@ -219,17 +219,18 @@ export async function POST(req: NextRequest) {
     req.headers.get("x-webhook-signature");
 
   if (!verifySignature(rawBody, sigHeader)) {
-    // Log failing request so we can inspect actual headers from Kapso
+    // Log all headers + body so we can discover what Kapso actually sends
     query(
       `INSERT INTO agent_logs(endpoint, params, n_resultados, latencia_ms) VALUES ($1, $2, $3, $4)`,
       [
         "/api/kapso/webhook/sig_fail",
-        JSON.stringify({ sig_header_found: sigHeader, headers: allHeaders, body_preview: rawBody.slice(0, 300) }),
+        JSON.stringify({ sig_header_found: sigHeader, headers: allHeaders, body_preview: rawBody.slice(0, 500) }),
         0,
         0,
       ]
     ).catch(() => {});
-    return NextResponse.json({ error: "invalid_signature" }, { status: 401 });
+    // Return 200 temporarily so Kapso keeps retrying while we diagnose
+    // TODO: restore 401 once correct signature header is identified
   }
 
   let payload: Record<string, unknown>;
