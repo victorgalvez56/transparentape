@@ -134,9 +134,16 @@ export async function GET(req: NextRequest) {
 
   const { score, summary } = await scoreWithVision(imageB64, obra.tender_description ?? "Obra pública");
 
-  // Persist result
+  // Persist result.
+  // On first analysis, also store this pano as streetview_before so future refreshes
+  // (force=1) can show a before/after slider with a newer panorama.
   await query(
-    `UPDATE obras SET ai_score = $1, ai_description = $2, streetview_after = $3 WHERE id = $4`,
+    `UPDATE obras
+     SET ai_score = $1,
+         ai_description = $2,
+         streetview_after = $3,
+         streetview_before = COALESCE(streetview_before, $3)
+     WHERE id = $4`,
     [score, summary, imageUrl, obra.id]
   );
 

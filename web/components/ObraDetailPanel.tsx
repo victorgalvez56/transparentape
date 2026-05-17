@@ -159,51 +159,106 @@ export default function ObraDetailPanel({
         </section>
 
         {/* STREET VIEW + AI */}
-        {obra.streetview_before && (ai.imageUrl ?? svUrl) ? (
+        {(svUrl || obra.lat) && (
           <div className="border-b border-[var(--rule)]">
-            <BeforeAfterSlider
-              beforeUrl={obra.streetview_before}
-              afterUrl={ai.imageUrl ?? svUrl!}
-            />
-            <p
-              className="text-[9px] tracking-[0.2em] uppercase text-[var(--fg-faint)] px-2 py-1.5 border-t border-[var(--rule)]"
-              style={{ fontFamily: "var(--font-mono), monospace" }}
-            >
-              Street View · Google · Desliza para comparar
-            </p>
-          </div>
-        ) : svUrl ? (
-          <div className="border-b border-[var(--rule)]">
-            <img src={svUrl} alt="Street View" className="w-full h-44 object-cover" />
-            <div className="flex items-center justify-between px-2 py-1.5 border-t border-[var(--rule)]">
+            {/* Image area */}
+            {obra.streetview_before && svUrl ? (
+              <BeforeAfterSlider
+                beforeUrl={obra.streetview_before}
+                afterUrl={ai.imageUrl ?? svUrl}
+                beforeLabel="Antes"
+                afterLabel="Ahora"
+              />
+            ) : svUrl ? (
+              <div className="relative">
+                <img
+                  src={ai.imageUrl ?? svUrl}
+                  alt="Street View"
+                  className="w-full h-48 object-cover"
+                />
+                {/* AI score overlay */}
+                {ai.score !== null && (
+                  <div
+                    className={`absolute bottom-2 left-2 flex items-center gap-1.5 px-2 py-1 rounded text-xs font-bold backdrop-blur-sm ${
+                      ai.score <= 30
+                        ? "bg-[var(--alarm)]/90 text-white"
+                        : ai.score <= 60
+                        ? "bg-[var(--warn)]/90 text-black"
+                        : "bg-[var(--safe)]/90 text-black"
+                    }`}
+                    style={{ fontFamily: "var(--font-mono), monospace" }}
+                  >
+                    IA {ai.score}/100
+                  </div>
+                )}
+                {ai.loading && (
+                  <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                    <p
+                      className="text-[10px] uppercase tracking-[0.22em] text-[var(--brand)] animate-pulse"
+                      style={{ fontFamily: "var(--font-mono), monospace" }}
+                    >
+                      Analizando imagen…
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="h-12 flex items-center px-5">
+                <p
+                  className="text-[10px] uppercase tracking-[0.22em] text-[var(--fg-faint)] animate-pulse"
+                  style={{ fontFamily: "var(--font-mono), monospace" }}
+                >
+                  Buscando Street View…
+                </p>
+              </div>
+            )}
+
+            {/* Footer row */}
+            <div className="flex items-center justify-between px-3 py-2 border-t border-[var(--rule)]">
               <p
                 className="text-[9px] tracking-[0.2em] uppercase text-[var(--fg-faint)]"
                 style={{ fontFamily: "var(--font-mono), monospace" }}
               >
-                Street View · Google
+                {obra.streetview_before ? "Antes · Ahora · Google SV" : "Street View · Google"}
               </p>
-              {obra.lat && obra.lng && (
+              {ai.score === null && svUrl && obra.lat && obra.lng && (
                 <button
                   onClick={runAiAnalysis}
                   disabled={ai.loading}
-                  className="text-[9px] uppercase tracking-[0.18em] text-[var(--brand)] hover:text-white disabled:opacity-50 transition"
+                  className="text-[10px] uppercase tracking-[0.18em] bg-[var(--brand)]/10 border border-[var(--brand)]/40 text-[var(--brand)] hover:bg-[var(--brand)]/20 disabled:opacity-40 transition px-2 py-1 rounded"
                   style={{ fontFamily: "var(--font-mono), monospace" }}
                 >
-                  {ai.loading ? "Analizando…" : "Analizar con IA →"}
+                  Analizar con IA →
                 </button>
               )}
             </div>
+
+            {/* AI description — right under the image */}
+            {ai.description && (
+              <div className="px-5 py-3 border-t border-[var(--rule)] bg-[var(--ink-0)]/60">
+                <p
+                  className={`text-[9px] uppercase tracking-[0.26em] mb-1.5 ${
+                    ai.score !== null && ai.score <= 30
+                      ? "text-[var(--alarm)]"
+                      : ai.score !== null && ai.score <= 60
+                      ? "text-[var(--warn)]"
+                      : "text-[var(--safe)]"
+                  }`}
+                  style={{ fontFamily: "var(--font-mono), monospace" }}
+                >
+                  Veredicto IA
+                  {ai.score !== null && ` · ${ai.score}/100`}
+                </p>
+                <p
+                  className="text-sm text-white/80 italic leading-relaxed"
+                  style={{ fontFamily: "var(--font-display), serif" }}
+                >
+                  "{ai.description}"
+                </p>
+              </div>
+            )}
           </div>
-        ) : obra.lat && obra.lng ? (
-          <div className="border-b border-[var(--rule)] px-5 py-3 flex items-center justify-between">
-            <p
-              className="text-[10px] uppercase tracking-[0.22em] text-[var(--fg-faint)]"
-              style={{ fontFamily: "var(--font-mono), monospace" }}
-            >
-              Cargando Street View…
-            </p>
-          </div>
-        ) : null}
+        )}
 
         {/* QUIÉN RECIBIÓ */}
         <section className="px-5 py-4 border-b border-[var(--rule)]">
@@ -283,30 +338,6 @@ export default function ObraDetailPanel({
           <p className="text-sm text-white">{obra.buyer_name ?? "—"}</p>
         </section>
 
-        {/* AI */}
-        {ai.description && (
-          <section className="px-5 py-4 border-b border-[var(--rule)]">
-            <p
-              className="text-[9px] uppercase tracking-[0.26em] text-[var(--fg-faint)] mb-2"
-              style={{ fontFamily: "var(--font-mono), monospace" }}
-            >
-              Análisis automático · Claude Vision
-              {ai.score != null && (
-                <span
-                  className={`ml-2 ${ai.score <= 30 ? "text-[var(--alarm)]" : ai.score <= 60 ? "text-[var(--warn)]" : "text-[var(--safe)]"}`}
-                >
-                  {ai.score}/100
-                </span>
-              )}
-            </p>
-            <p
-              className="text-sm text-white/80 italic leading-relaxed"
-              style={{ fontFamily: "var(--font-display), serif" }}
-            >
-              "{ai.description}"
-            </p>
-          </section>
-        )}
       </div>
 
       {/* CTAs */}
