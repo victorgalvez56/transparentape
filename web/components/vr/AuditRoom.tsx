@@ -14,6 +14,7 @@ import AmbientAudio from "./AmbientAudio";
 import TimelineYears from "./TimelineYears";
 import GeoLabels from "./GeoLabels";
 import Postprocessing from "./Postprocessing";
+import Narrator from "./Narrator";
 import { useObrasVR } from "@/lib/vr/obras-source";
 import { projectToFloor } from "@/lib/vr/projection";
 
@@ -67,6 +68,7 @@ export default function AuditRoom() {
         onFindAlert={goToNearestRedFlag}
         totalObras={obras.length}
       />
+      <Narrator selectedId={selected} />
       <Canvas
         camera={{ position: [0, 1.6, 6], fov: 75, near: 0.1, far: 200 }}
         gl={{ antialias: true, powerPreference: "high-performance" }}
