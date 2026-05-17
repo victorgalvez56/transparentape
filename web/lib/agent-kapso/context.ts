@@ -12,7 +12,14 @@ import type { ParsedIntent } from "./intent";
 import type { Intent } from "./intent";
 import type { BuscarObrasFilters, Country } from "./queries";
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+// Lazy — context.ts is imported from pure consumers (tests, benches) that
+// don't need Groq. Initializing at module load would crash them when
+// GROQ_API_KEY isn't set.
+let groqClient: Groq | null = null;
+function getGroq(): Groq {
+  if (!groqClient) groqClient = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  return groqClient;
+}
 
 // ── Filter accumulation ───────────────────────────────────────────────────────
 
@@ -199,7 +206,7 @@ export async function summarizeHistory(
 
   try {
     const res = await Promise.race([
-      groq.chat.completions.create({
+      getGroq().chat.completions.create({
         messages: [
           { role: "system", content: SUMMARY_PROMPT },
           ...promptHistory.map((m) => ({ role: m.role, content: m.content })),
