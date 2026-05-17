@@ -19,6 +19,14 @@ import {
   obrasRetrasadas,
 } from "@/lib/agent-kapso/queries";
 import {
+  resolveObraTarget,
+  fetchStreetview,
+  fetchAiAnalysis,
+  sendStreetviewToWhatsApp,
+  sendAiAnalysisToWhatsApp,
+  autoAttachVisualsWhatsApp,
+} from "@/lib/agent-kapso/streetview";
+import {
   fmtObras,
   fmtDetalle,
   fmtCercanas,
@@ -325,6 +333,12 @@ async function handleMessage(
       if (!id) return `Solo tengo ${ids.length} resultado(s) de la última búsqueda.`;
       const obra = await getObraResumen(id);
       if (!obra) return `No encontré la obra con ID ${id}.`;
+      // Auto-attach cached visuals — same DB-only path as VER_DETALLE.
+      waitUntil(
+        autoAttachVisualsWhatsApp(getKapso().messages, phoneNumberId, to, obra.id).catch(
+          (e) => console.error("[CONTEXTO_DETALLE auto-attach] failed:", e)
+        )
+      );
       return fmtDetalle(obra, country);
     }
 
@@ -332,7 +346,58 @@ async function handleMessage(
       if (!parsed.obraId) return "Especifica el ID de la obra. Ej: *detalle #123*";
       const obra = await getObraResumen(parsed.obraId);
       if (!obra) return `No encontré la obra con ID ${parsed.obraId}.`;
+      // Auto-attach cached visuals (DB read only — never triggers Google/Vision).
+      // Runs in background so the detail text lands first; images follow ~200ms later.
+      waitUntil(
+        autoAttachVisualsWhatsApp(getKapso().messages, phoneNumberId, to, obra.id).catch(
+          (e) => console.error("[VER_DETALLE auto-attach] failed:", e)
+        )
+      );
       return fmtDetalle(obra, country);
+    }
+
+    case "STREETVIEW_OBRA": {
+      const target = resolveObraTarget({
+        explicitId: parsed.obraId,
+        ordinalPos: parsed.contextPosition ?? undefined,
+        lastResultIds: session.lastResultIds,
+      });
+      if (target.kind === "clarify") return target.msg;
+
+      const sv = await fetchStreetview(target.id);
+      if (!sv.ok) {
+        if (sv.status === 404) return "No encontré esa obra.";
+        if (sv.status === 422) return "Esa obra no tiene coordenadas registradas, no puedo mostrar Street View.";
+        if (sv.status === 502) return "Google no tiene cobertura Street View en esa ubicación.";
+        return "Tuve un problema obteniendo las imágenes. Intenta de nuevo en un momento.";
+      }
+      // Send images out-of-band and return null so handler doesn't double-send text.
+      await sendStreetviewToWhatsApp(getKapso().messages, phoneNumberId, to, sv.data);
+      return null;
+    }
+
+    case "ANALIZAR_OBRA": {
+      const target = resolveObraTarget({
+        explicitId: parsed.obraId,
+        ordinalPos: parsed.contextPosition ?? undefined,
+        lastResultIds: session.lastResultIds,
+      });
+      if (target.kind === "clarify") return target.msg;
+
+      // Heads-up — Vision call is ~4s.
+      await getKapso().messages.sendText({
+        phoneNumberId,
+        to,
+        body: "🔍 Analizando la obra con Claude Vision... (puede tardar unos segundos)",
+      });
+      const ai = await fetchAiAnalysis(target.id);
+      if (!ai.ok) {
+        if (ai.status === 404) return "No encontré esa obra o no hay imágenes disponibles.";
+        if (ai.status === 422) return "Esa obra no tiene coordenadas o no hay Street View.";
+        return "No pude completar el análisis. Intenta de nuevo en un momento.";
+      }
+      await sendAiAnalysisToWhatsApp(getKapso().messages, phoneNumberId, to, ai.data);
+      return null;
     }
 
     case "INVESTIGAR_CONTRATISTA": {

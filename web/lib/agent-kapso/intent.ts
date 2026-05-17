@@ -19,6 +19,8 @@ export type Intent =
   | "VER_DETALLE"
   | "CONTEXTO_DETALLE"
   | "INVESTIGAR_CONTRATISTA"
+  | "STREETVIEW_OBRA"
+  | "ANALIZAR_OBRA"
   | "AYUDA"
   | "AGRADECIMIENTO"
   | "PREGUNTA_LIBRE";
@@ -204,6 +206,36 @@ export function parseIntent(text: string, sessionCountry: Country): ParsedIntent
   // ── Proximity ──
   if (/\bcerca(n[ao]s?)?\b|\bproxim[ao]s?\b|\bmas\s+cercana\b|\bmi\s+ubicacion\b|\bcercania\b/i.test(tn)) {
     return { intent: "BUSCAR_CERCANOS", country };
+  }
+
+  // ── Streetview / Vision analysis ──
+  // High-confidence trigger keywords. Checked BEFORE the ordinal/plural
+  // shortcuts so "muéstrame la foto de la primera" routes to STREETVIEW_OBRA
+  // (with contextPosition=1 carried forward) instead of CONTEXTO_DETALLE.
+  // The keyword set is conservative — anything ambiguous ("la primera",
+  // "más detalle") still flows to CONTEXTO_DETALLE.
+  // Scope of target obra:
+  //   - explicit numeric id  ("foto obra 86988")
+  //   - ordinal              ("foto de la primera", "imagen #3")
+  //   - bare                 ("foto", "analiza") → resolved by handler
+  //                          from session.lastResultIds (or clarify).
+  const SV_TRIGGER =
+    /\b(street\s*view|antes\s*y\s*despu[eé]s|foto[s]?|imagen(?:es)?|c[oó]mo\s+(?:se\s+ve|luce|est[aá])|m[ií]rala?|mu[eé]strame\s+(?:la\s+)?(?:imagen|foto))\b/i;
+  const AI_TRIGGER =
+    /\b(anal[ií]za(?:me|le)?|an[aá]lisis|qu[eé]\s+opinas|qu[eé]\s+piensas|evidencia|veredicto|comparativa|compara(?:r)?\s+(?:la\s+)?(?:obra|im[aá]genes?)|fue\s+ejecutada|se\s+ejecut[oó]|inteligencia\s+artificial|visi[oó]n\b)\b/i;
+
+  if (AI_TRIGGER.test(tn) || SV_TRIGGER.test(tn)) {
+    const intent: Intent = AI_TRIGGER.test(tn) ? "ANALIZAR_OBRA" : "STREETVIEW_OBRA";
+    // Explicit DB id (4+ digits) vs ordinal (#3 → position 3).
+    const bigIdM = tn.match(/\b(?:obra|id)\s*[:#]?\s*(\d{3,})\b/i);
+    const obraId = bigIdM ? parseInt(bigIdM[1], 10) : undefined;
+    const ordinal = obraId == null ? extractContextPosition(tn) : null;
+    return {
+      intent,
+      country,
+      obraId,
+      contextPosition: ordinal ?? undefined,
+    };
   }
 
   // ── Context detail (plural): "los primeros 3", "ultimas 2" ──

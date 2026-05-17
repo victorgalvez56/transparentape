@@ -46,8 +46,8 @@ export async function GET(
     // Stored dates aren't kept, so date is null; history is inferred from
     // the two pano URLs differing (different pano => real before/after).
     if (obra.streetview_before && obra.streetview_after) {
-      const before: SvSide = { url: obra.streetview_before, date: null };
-      const after: SvSide = { url: obra.streetview_after, date: null };
+      const before: SvSide = { url: obra.streetview_before.trim(), date: null };
+      const after: SvSide = { url: obra.streetview_after.trim(), date: null };
       return NextResponse.json(
         {
           id: obra.id,
@@ -78,15 +78,15 @@ export async function GET(
     // keyed by numeric id even when the obra was resolved by ocid.
     await query(
       `UPDATE obras SET streetview_before = $1, streetview_after = $2 WHERE id = $3`,
-      [sv.before.url, sv.after.url, obra.id]
+      [sv.before.url.trim(), sv.after.url.trim(), obra.id]
     );
 
     const before: SvSide = {
-      url: sv.before.url,
+      url: sv.before.url.trim(),
       date: normalizeDate(sv.before.date),
     };
     const after: SvSide = {
-      url: sv.after.url,
+      url: sv.after.url.trim(),
       date: normalizeDate(sv.after.date),
     };
 

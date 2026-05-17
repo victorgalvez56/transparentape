@@ -28,6 +28,7 @@ import {
 } from "@/lib/agent-kapso/queries";
 import { classifyQuery } from "@/lib/agent-kapso/places";
 import { lookupDefinition, fmtDefinition, listKnownTerms } from "@/lib/agent-kapso/definitions";
+import { fetchStreetview, fetchAiAnalysis } from "@/lib/agent-kapso/streetview";
 import {
   fmtObras,
   fmtStats,
@@ -45,11 +46,31 @@ export interface ToolContext {
   country: Country;
 }
 
+export type Attachment =
+  | {
+      type: "streetview";
+      obra_id: number;
+      before: { url: string; date: string | null } | null;
+      after: { url: string; date: string | null } | null;
+      has_history: boolean;
+    }
+  | {
+      type: "ai_analysis";
+      obra_id: number;
+      score: number | null;
+      description: string | null;
+      before: { url: string; date: string | null } | null;
+      after: { url: string; date: string | null } | null;
+      has_history: boolean;
+    };
+
 export interface ToolResult {
   data: unknown;
   formatted: string;
   /** IDs of obras returned, if applicable — webhook stores in session for ordinal follow-ups. */
   obraIds?: number[];
+  /** Structured payloads the web client renders inline (images, slider, score badge). */
+  attachments?: Attachment[];
 }
 
 export interface Tool {
@@ -301,6 +322,85 @@ export const TOOLS: Tool[] = [
             "Prueba *obras con alertas* o *ranking contratistas* para otro ángulo.",
         };
       }
+    },
+  },
+  {
+    name: "streetview_obra",
+    description:
+      "USA ESTE TOOL cuando el usuario pide ver/mostrar la imagen, foto, Street View, o el antes-y-después de una OBRA ESPECÍFICA ya identificada. NO uses este tool para hacer análisis o veredicto — para eso usa `analizar_obra`. Requiere un `id` numérico de obra. El web cliente renderiza un comparador deslizante (antes/después) con las URLs devueltas. No corre Claude Vision — es rápido (~150ms cache hit, ~1.5s miss).",
+    parameters: {
+      id: "número requerido — ID numérico de la obra (de un buscar_obras previo)",
+    },
+    async run(args) {
+      const id = asNumber(args.id);
+      if (!id) return { data: null, formatted: "Falta el ID de la obra para mostrar Street View." };
+      const sv = await fetchStreetview(id);
+      if (!sv.ok) {
+        if (sv.status === 404) return { data: null, formatted: "No encontré esa obra." };
+        if (sv.status === 422) return { data: null, formatted: "Esa obra no tiene coordenadas registradas." };
+        if (sv.status === 502) return { data: null, formatted: "Google no tiene Street View en esa ubicación." };
+        return { data: null, formatted: "No pude obtener Street View en este momento." };
+      }
+      const d = sv.data;
+      const text = d.has_history
+        ? `📸 Comparativa Street View de la obra #${d.id}${d.before?.date ? ` (antes: ${d.before.date})` : ""}${d.after?.date ? ` (después: ${d.after.date})` : ""}.`
+        : `📍 Vista actual de la obra #${d.id}${d.after?.date ? ` (${d.after.date})` : ""}. Sin histórico Street View en esta ubicación.`;
+      return {
+        data: d,
+        formatted: text,
+        obraIds: [d.id],
+        attachments: [
+          {
+            type: "streetview",
+            obra_id: d.id,
+            before: d.before,
+            after: d.after,
+            has_history: d.has_history,
+          },
+        ],
+      };
+    },
+  },
+  {
+    name: "analizar_obra",
+    description:
+      "USA ESTE TOOL cuando el usuario pide un ANÁLISIS, veredicto, opinión, comparativa o evidencia visual de una obra: 'analiza la obra #5', '¿se ejecutó realmente?', '¿hay evidencia?', '¿qué opinas de la obra?'. Corre Claude Vision sobre las imágenes Street View antes/después y devuelve un score (0-100) + descripción + URLs. Más lento (~4s) y costoso — NO lo uses si solo piden ver la imagen (para eso `streetview_obra`). Requiere `id` numérico.",
+    parameters: {
+      id: "número requerido — ID numérico de la obra",
+    },
+    async run(args) {
+      const id = asNumber(args.id);
+      if (!id) return { data: null, formatted: "Falta el ID de la obra para analizar." };
+      const ai = await fetchAiAnalysis(id);
+      if (!ai.ok) {
+        if (ai.status === 404) return { data: null, formatted: "No encontré esa obra o no hay imágenes disponibles." };
+        if (ai.status === 422) return { data: null, formatted: "Esa obra no tiene coordenadas o Street View útil." };
+        return { data: null, formatted: "No pude completar el análisis con IA. Intenta de nuevo en un momento." };
+      }
+      const d = ai.data;
+      const sv = d.streetview;
+      const verdict =
+        d.score == null ? "" : d.score <= 30 ? "🔴 RIESGO ALTO" : d.score <= 60 ? "🟡 DUDOSO" : "🟢 OK";
+      const scorePart = d.score != null ? ` · ${verdict} (${d.score}/100)` : "";
+      const text = d.description
+        ? `🔍 Análisis IA de la obra #${id}${scorePart}\n\n"${d.description}"`
+        : `Imágenes obtenidas para la obra #${id}, pero no hay análisis IA disponible (puede faltar la clave de Claude o el SV es de baja calidad).`;
+      return {
+        data: d,
+        formatted: text,
+        obraIds: [id],
+        attachments: [
+          {
+            type: "ai_analysis",
+            obra_id: id,
+            score: d.score,
+            description: d.description,
+            before: sv.beforeUrl ? { url: sv.beforeUrl, date: sv.beforeDate } : null,
+            after: { url: sv.afterUrl, date: sv.afterDate },
+            has_history: sv.hasHistory,
+          },
+        ],
+      };
     },
   },
 ];

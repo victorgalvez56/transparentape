@@ -402,6 +402,23 @@ const FLOWS: Flow[] = [
       { input: "gracias", intent: "AGRADECIMIENTO" },
     ],
   },
+  {
+    // K. Street View + Vision — auto-attach (VER_DETALLE), explicit
+    //    streetview, explicit Vision analysis, ordinal pointing into
+    //    lastResultIds. The handler resolves ordinal against session
+    //    state; here we just check parseIntent routes to the right intent
+    //    and carries contextPosition / obraId forward.
+    name: "K. Street View + análisis Vision",
+    steps: [
+      { input: "obras en Piura", intent: "BUSCAR_OBRAS", filters: { q_geo: "piura" } },
+      { input: "muéstrame la foto de la primera", intent: "STREETVIEW_OBRA", contextPosition: 1 },
+      { input: "y el antes y después de la #2", intent: "STREETVIEW_OBRA", contextPosition: 2 },
+      { input: "analiza la obra", intent: "ANALIZAR_OBRA" },
+      { input: "qué opinas de la tercera", intent: "ANALIZAR_OBRA", contextPosition: 3 },
+      { input: "imagen", intent: "STREETVIEW_OBRA" },
+      { input: "gracias", intent: "AGRADECIMIENTO" },
+    ],
+  },
 ];
 
 console.log("\n── Multi-turn flows ────────────────────────────────────────");

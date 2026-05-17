@@ -1,6 +1,6 @@
 import Groq from "groq-sdk";
 import { query } from "@/lib/db";
-import type { Tool, ToolContext } from "./tools";
+import type { Tool, ToolContext, Attachment } from "./tools";
 import { parseIntent, type ParsedIntent } from "@/lib/agent-kapso/intent";
 import { findPlaceInIndex } from "@/lib/agent-kapso/places";
 import {
@@ -38,7 +38,7 @@ export interface CoreResult {
   /** Obra IDs returned by the tool (if any) so the caller can persist them for ordinal follow-ups. */
   obra_ids?: number[];
   /** Structured renderables (images, slider, score badge) — web client renders inline. */
-  attachments?: import("./tools").Attachment[];
+  attachments?: Attachment[];
 }
 
 export interface RunOptions {
