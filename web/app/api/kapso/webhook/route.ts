@@ -145,9 +145,10 @@ async function sendAyudaWithButtons(
       header: { type: "text", text: "👋 Soy Transparentape" },
       bodyText:
         "Vigilo obras públicas de Perú, Chile, Colombia y más.\n\n" +
-        "Detecta contratos con alertas, investiga empresas contratistas " +
-        "y consulta rankings de transparencia — directo desde WhatsApp.\n\n" +
-        "¿Por dónde empezamos?",
+        "Toca un botón para empezar — o escríbeme libre, ej:\n" +
+        "• _obras en Cusco 2024_\n" +
+        "• _investigar Odebrecht_\n" +
+        "• _cuánto dinero está en riesgo_",
       footerText: "Datos: OCDS · SEACE · Mercado Público",
       buttons: [
         { id: "btn_buscar", title: "🔍 Buscar obras" },
@@ -214,11 +215,19 @@ function resolveIndexFromText(text: string, suggestions: string[] | undefined): 
 }
 
 // ── intent routing ────────────────────────────────────────────────────────────
+// `meta` is an out-parameter the caller can read after await to know which
+// path resolved the message (regex shortcut / LLM tool-call / SQL-libre /
+// clarify / context). Cheaper than restructuring 15 case-statements.
+interface HandleMeta {
+  layer?: string;
+}
+
 async function handleMessage(
   text: string,
   conversationId: string,
   phoneNumberId: string,
-  to: string
+  to: string,
+  meta: HandleMeta = {}
 ): Promise<string | null> {
   const session = await getSession(conversationId);
 
@@ -233,6 +242,10 @@ async function handleMessage(
   }
 
   const country = parsed.country ?? session.country;
+
+  // Tag every regex-resolved branch as a fast-path shortcut. The
+  // PREGUNTA_LIBRE default overrides this with the pipeline's own layer.
+  meta.layer = `atajo:${parsed.intent}`;
 
   switch (parsed.intent) {
     case "CAMBIAR_PAIS": {
@@ -342,13 +355,38 @@ async function handleMessage(
 
     case "PREGUNTA_LIBRE":
     default: {
-      // Use shared pipeline (web + WhatsApp). On failure, fallback to legacy engine.
+      // Shared pipeline (web + WhatsApp). On WhatsApp we hand it the tool
+      // catalogue so the router can map free-form questions to typed query
+      // functions instead of falling straight to SQL-libre. NEEDS_SQL stays
+      // as a last-resort fallback inside the pipeline.
       const history: ChatMessage[] = [
         ...((session.lastMessages ?? []) as ChatMessage[]),
         { role: "user", content: effectiveText },
       ];
       try {
-        const result = await runChatPipeline(history);
+        const result = await runChatPipeline(history, {
+          tools: TOOLS,
+          toolContext: { country },
+        });
+        // Pipeline-resolved layer overrides the default "atajo:PREGUNTA_LIBRE"
+        // tag so logs can distinguish tool-call from context-answer from
+        // sql-libre fallback from clarify.
+        meta.layer =
+          result.intent === "TOOL_CALL"
+            ? `tool:${result.tool ?? "unknown"}`
+            : result.intent === "ANSWER_FROM_CONTEXT"
+              ? "context"
+              : result.intent === "NEEDS_SQL"
+                ? "sql_libre"
+                : "clarify";
+        // Persist obra IDs from tool execution so ordinal follow-ups
+        // ("el primero", "más detalle") keep working after a TOOL_CALL path.
+        if (result.obra_ids?.length) {
+          await updateSession(conversationId, {
+            lastResultIds: result.obra_ids,
+            lastQuery: effectiveText,
+          });
+        }
         if (result.suggested_questions?.length) {
           await sendReplyWithSuggestions(phoneNumberId, to, result.reply, result.suggested_questions);
           await updateSession(conversationId, { lastSuggestions: result.suggested_questions });
@@ -360,8 +398,10 @@ async function handleMessage(
         }
         return result.reply;
       } catch (e) {
-        console.error("[kapso/webhook] core pipeline failed, fallback:", e);
-        return chatEngine(effectiveText, session.lastMessages ?? []);
+        console.error("[kapso/webhook] core pipeline failed:", e);
+        return (
+          "Tuve un problema procesando tu pregunta. Intenta reformularla o escribe *ayuda* para ver las opciones."
+        );
       }
     }
   }
@@ -473,7 +513,8 @@ export async function POST(req: NextRequest) {
       waitUntil((async () => {
         try {
           await updateSession(from, { lastLocation: { lat: latitude, lng: longitude } });
-          const reply = await handleMessage("obras cerca de mí", from, phoneNumberId, to);
+          const meta: HandleMeta = {};
+          const reply = await handleMessage("obras cerca de mí", from, phoneNumberId, to, meta);
           if (reply) {
             const truncated = reply.length > AGENT.limits.waMaxChars ? reply.slice(0, AGENT.limits.waMaxChars - 6) + "…" : reply;
             await getKapso().messages.sendText({ phoneNumberId, to, body: truncated });
@@ -481,7 +522,7 @@ export async function POST(req: NextRequest) {
           }
           query(
             `INSERT INTO agent_logs(endpoint, params, n_resultados, latencia_ms) VALUES ($1, $2, $3, $4)`,
-            ["/api/kapso/webhook", JSON.stringify({ from, text: "location", lat: latitude, lng: longitude }), 1, Date.now() - t0]
+            ["/api/kapso/webhook", JSON.stringify({ from, text: "location", lat: latitude, lng: longitude, layer: meta.layer }), 1, Date.now() - t0]
           ).catch(() => {});
         } catch (e) {
           console.error("[kapso/webhook] location error:", e);
@@ -554,7 +595,8 @@ export async function POST(req: NextRequest) {
         return;
       }
       steps.dedup_ok = Date.now() - t0;
-      const reply = await handleMessage(text!, from, phoneNumberId, to);
+      const meta: HandleMeta = {};
+      const reply = await handleMessage(text!, from, phoneNumberId, to, meta);
       steps.handle_done = Date.now() - t0;
       if (reply !== null) {
         const truncated = reply.length > AGENT.limits.waMaxChars ? reply.slice(0, AGENT.limits.waMaxChars - 6) + "…" : reply;
@@ -566,7 +608,7 @@ export async function POST(req: NextRequest) {
       }
       query(
         `INSERT INTO agent_logs(endpoint, params, n_resultados, latencia_ms) VALUES ($1, $2, $3, $4)`,
-        ["/api/kapso/webhook", JSON.stringify({ from, text, steps }), 1, Date.now() - t0]
+        ["/api/kapso/webhook", JSON.stringify({ from, text, layer: meta.layer, steps }), 1, Date.now() - t0]
       ).catch(() => {});
     } catch (e) {
       console.error("[kapso/webhook] error:", e);
