@@ -20,11 +20,12 @@ import MultiplayerProvider from "./MultiplayerProvider";
 import PresenceTracker from "./PresenceTracker";
 import RemoteAvatars from "./RemoteAvatars";
 import RedFlagPulses from "./RedFlagPulses";
+import PeruMap from "./PeruMap";
 import ConnectionStatus from "./ConnectionStatus";
 import LoadingOverlay from "./LoadingOverlay";
 import ContextLostListener, { ContextLostBanner } from "./ContextLostBanner";
 import { useObrasVR } from "@/lib/vr/obras-source";
-import { projectToFloor } from "@/lib/vr/projection";
+import { projectToFloor, LIMA_POSITION } from "@/lib/vr/projection";
 
 const store = createXRStore({
   controller: true,
@@ -98,7 +99,12 @@ function AuditRoomScene() {
       <ContextLostBanner visible={contextLost} />
       <Narrator selectedId={selected} />
       <Canvas
-        camera={{ position: [0, 1.6, 6], fov: 75, near: 0.1, far: 200 }}
+        camera={{
+          position: [LIMA_POSITION[0], 1.6, LIMA_POSITION[1] + 3],
+          fov: 75,
+          near: 0.1,
+          far: 300,
+        }}
         gl={{ antialias: true, powerPreference: "high-performance" }}
       >
         <XR store={store}>
@@ -111,6 +117,7 @@ function AuditRoomScene() {
           />
           <Player ref={playerRef} />
           <Floor onTeleport={handleTeleport} />
+          <PeruMap />
           <GeoLabels />
           <RedFlagPulses />
           <ColumnaForest

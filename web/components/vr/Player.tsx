@@ -3,6 +3,7 @@
 import { forwardRef } from "react";
 import { XROrigin, useXRControllerLocomotion } from "@react-three/xr";
 import type { Group } from "three";
+import { LIMA_POSITION, FLOOR_DIMENSIONS } from "@/lib/vr/projection";
 
 /**
  * El origen del jugador. Habilita locomoción por joystick:
@@ -20,9 +21,9 @@ const Player = forwardRef<Group>(function Player(_, ref) {
       if (!g) return;
       g.position.x += velocity.x * dt;
       g.position.z += velocity.z * dt;
-      // Clamp dentro del piso 100×60 para no caer al vacío
-      const halfW = 49;
-      const halfD = 29;
+      // Clamp dentro del piso 80×100 para no caer al vacío
+      const halfW = FLOOR_DIMENSIONS.width / 2 - 1;
+      const halfD = FLOOR_DIMENSIONS.depth / 2 - 1;
       if (g.position.x > halfW) g.position.x = halfW;
       if (g.position.x < -halfW) g.position.x = -halfW;
       if (g.position.z > halfD) g.position.z = halfD;
@@ -34,7 +35,13 @@ const Player = forwardRef<Group>(function Player(_, ref) {
     { type: "snap", degrees: 30, deadZone: 0.5 }
   );
 
-  return <XROrigin ref={ref} position={[0, 0, 6]} />;
+  // Spawn justo al sur de Lima, mirando al norte (-Z)
+  return (
+    <XROrigin
+      ref={ref}
+      position={[LIMA_POSITION[0], 0, LIMA_POSITION[1] + 3]}
+    />
+  );
 });
 
 export default Player;

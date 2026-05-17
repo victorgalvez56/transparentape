@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { Text } from "@react-three/drei";
+import { LIMA_POSITION } from "@/lib/vr/projection";
 
 const YEARS = [2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026];
 
@@ -30,7 +31,7 @@ export default function TimelineYears({ year, onChange }: Props) {
   const startX = -totalWidth / 2 + buttonWidth / 2;
 
   return (
-    <group position={[0, 1.2, 4]}>
+    <group position={[LIMA_POSITION[0], 1.2, LIMA_POSITION[1] + 1.5]}>
       {/* Línea de fondo sutil */}
       <mesh position={[0, 0, -0.01]}>
         <planeGeometry args={[totalWidth + 0.4, buttonHeight + 0.3]} />
