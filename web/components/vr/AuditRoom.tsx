@@ -28,6 +28,9 @@ import { projectToFloor } from "@/lib/vr/projection";
 const store = createXRStore({
   controller: true,
   hand: true,
+  // Desactivamos el emulator bundleado de iwer — tiene bugs (onDeviceFrame).
+  // Para testear VR sin Quest: instalar la Chrome ext "WebXR API Emulator"
+  emulate: false,
 });
 
 export default function AuditRoom() {
