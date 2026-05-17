@@ -1,0 +1,182 @@
+import type { Country } from "./session";
+import type { BuscarObrasFilters } from "./queries";
+
+export type Intent =
+  | "CAMBIAR_PAIS"
+  | "BUSCAR_OBRAS"
+  | "VER_DETALLE"
+  | "CONTEXTO_DETALLE"
+  | "STATS"
+  | "RANKING_CONTRATISTAS"
+  | "INVESTIGAR_CONTRATISTA"
+  | "INHABILITADOS"
+  | "AYUDA"
+  | "PREGUNTA_LIBRE";
+
+export interface ParsedIntent {
+  intent: Intent;
+  country?: Country;
+  filters?: BuscarObrasFilters;
+  obraId?: number;
+  contextPosition?: number; // 1-based index into session.lastResultIds; -1 = last
+  contratista?: string;
+  ruc?: string;
+}
+
+const ORDINAL_MAP: [RegExp, number][] = [
+  [/\bel\s+primer[ao]?\b|\b#?1\b|\buno\b/i, 1],
+  [/\bel\s+segund[ao]?\b|\b#?2\b|\bdos\b/i, 2],
+  [/\bel\s+tercer[ao]?\b|\b#?3\b|\btres\b/i, 3],
+  [/\bel\s+cuart[ao]?\b|\b#?4\b|\bcuatro\b/i, 4],
+  [/\bel\s+quint[ao]?\b|\b#?5\b|\bcinco\b/i, 5],
+  [/\b[uú]ltim[ao]\b/i, -1],
+];
+
+function extractContextPosition(text: string): number | null {
+  for (const [re, pos] of ORDINAL_MAP) {
+    if (re.test(text)) return pos;
+  }
+  return null;
+}
+
+const COUNTRY_PATTERNS: [RegExp, Country][] = [
+  [/\bper[uú]\b/i, "PE"],
+  [/\bchile\b|\bchileno\b/i, "CL"],
+  [/\bcolombia\b/i, "CO"],
+  [/\bm[eé]xico\b|\bmexicano\b/i, "MX"],
+  [/\bargentina\b/i, "AR"],
+  [/\bbrasil\b/i, "BR"],
+];
+
+export function detectCountry(text: string): Country | null {
+  for (const [re, code] of COUNTRY_PATTERNS) {
+    if (re.test(text)) return code;
+  }
+  return null;
+}
+
+const YEAR_RE = /\b(20\d{2})\b/;
+const RUC_RE = /\b(\d{8,12})\b/;
+
+function extractYear(text: string): number | undefined {
+  const m = text.match(YEAR_RE);
+  return m ? parseInt(m[1]) : undefined;
+}
+
+function extractRegion(text: string): string | undefined {
+  // Common Peruvian departments + Chilean regions (lowercase tokens)
+  const PE_DEPTS = [
+    "amazonas","ancash","apurímac","arequipa","ayacucho","cajamarca","callao",
+    "cusco","huancavelica","huánuco","huanuco","ica","junín","junin","la libertad",
+    "lambayeque","lima","loreto","madre de dios","moquegua","pasco","piura","puno",
+    "san martín","san martin","tacna","tumbes","ucayali",
+  ];
+  const CL_REGIONES = [
+    "arica","tarapacá","tarapaca","antofagasta","atacama","coquimbo","valparaíso",
+    "valparaiso","metropolitana","o'higgins","maule","ñuble","nuble","biobío","biobio",
+    "araucanía","araucania","los ríos","los rios","los lagos","aysén","aysen","magallanes",
+  ];
+  const lower = text.toLowerCase();
+  for (const r of [...PE_DEPTS, ...CL_REGIONES]) {
+    if (lower.includes(r)) return r;
+  }
+  return undefined;
+}
+
+export function parseIntent(text: string, sessionCountry: Country): ParsedIntent {
+  const t = text.trim();
+
+  // Country switch
+  const newCountry = detectCountry(t);
+  if (
+    newCountry &&
+    /\bcambiar?\b|\bseleccionar?\b|\bquiero\b.*\bpai[s]?\b|\bpai[s]?\b.*\bcambiar?\b/i.test(t)
+  ) {
+    return { intent: "CAMBIAR_PAIS", country: newCountry };
+  }
+  // If message only names a country, switch
+  if (newCountry && t.split(/\s+/).length <= 3) {
+    return { intent: "CAMBIAR_PAIS", country: newCountry };
+  }
+
+  const country: Country = newCountry ?? sessionCountry;
+
+  // Help
+  if (/\bayuda\b|\bcomandos\b|\b\?{2,}\b|\bqu[eé] puedes\b|\bqué haces\b|\bhola\b/i.test(t)) {
+    return { intent: "AYUDA", country };
+  }
+
+  // Context: "el primero", "el segundo", "más detalle del 3"
+  const contextRe = /\bel\s+(primer|segund|tercer|cuart|quint|[uú]ltim)[ao]?\b|\bm[aá]s\s+(detalle|info)\b/i;
+  if (contextRe.test(t)) {
+    const pos = extractContextPosition(t);
+    if (pos !== null) return { intent: "CONTEXTO_DETALLE", country, contextPosition: pos };
+  }
+
+  // Detail by explicit ID
+  const idMatch = t.match(/\b(?:detalle|ver|obra|id)\s*[:#]?\s*(\d+)\b/i);
+  if (idMatch) {
+    return { intent: "VER_DETALLE", country, obraId: parseInt(idMatch[1]) };
+  }
+
+  // Investigate contractor
+  const rucMatch = t.match(RUC_RE);
+  if (rucMatch && /\bcontratista\b|\bempresa\b|\bruc\b|\binvestigar?\b/i.test(t)) {
+    return { intent: "INVESTIGAR_CONTRATISTA", country, ruc: rucMatch[1] };
+  }
+  if (/\binvestigar?\b|\bcontratista\b.*\bempresa\b/i.test(t)) {
+    const nameMatch = t.match(/(?:investigar?|empresa|contratista)\s+(.+)/i);
+    return {
+      intent: "INVESTIGAR_CONTRATISTA",
+      country,
+      contratista: nameMatch?.[1]?.trim(),
+    };
+  }
+
+  // Inhabilitados
+  if (/\binhabilitad[oa]s?\b|\bsancionad[oa]s?\b|\bpenalidad\b/i.test(t)) {
+    return { intent: "INHABILITADOS", country };
+  }
+
+  // Ranking contractors
+  if (/\branking\b|\bmayores?\s+contratistas?\b|\btop\b.*\bcontratistas?\b/i.test(t)) {
+    return { intent: "RANKING_CONTRATISTAS", country };
+  }
+
+  // Stats
+  if (/\bestad[ií]sticas?\b|\bresumen\b|\btotal\b|\bcuantas?\s+obras\b|\bpanorama\b/i.test(t)) {
+    return { intent: "STATS", country };
+  }
+
+  // Search obras — default intent for most queries
+  if (
+    /\bobras?\b|\bproyecto\b|\bconcurso\b|\blicitaci[oó]n\b|\badjudicaci[oó]n\b|\bcontrato\b|\bconstrucci[oó]n\b/i.test(t) ||
+    extractRegion(t) ||
+    extractYear(t)
+  ) {
+    const filters: BuscarObrasFilters = { country };
+    const year = extractYear(t);
+    if (year) filters.year = year;
+    const region = extractRegion(t);
+    if (region) filters.region = region;
+
+    if (/\balerta[s]?\b|\brisk\b|\bflag\b|\bsospech[oa]\b/i.test(t)) {
+      filters.red_flag = true;
+    }
+    if (/\bdirect[ao]?\b|\badjudicaci[oó]n\s+directa\b/i.test(t)) {
+      filters.procurement_method = "direct";
+    }
+
+    // generic keyword
+    if (!region && !year) {
+      filters.q = t
+        .replace(/\b(obras?|proyectos?|en|de|del|la|los|las|el|un|una)\b/gi, "")
+        .trim()
+        .slice(0, 60) || undefined;
+    }
+
+    return { intent: "BUSCAR_OBRAS", country, filters };
+  }
+
+  return { intent: "PREGUNTA_LIBRE", country };
+}
