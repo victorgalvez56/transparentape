@@ -10,7 +10,9 @@
     "postinstall": "node ./scripts/patch-iwer.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.96.0",
     "@googlemaps/js-api-loader": "^2.0.2",
+    "@kapso/whatsapp-cloud-api": "^0.2.1",
     "@liveblocks/client": "^3.19.1",
     "@liveblocks/react": "^3.19.1",
     "@react-three/drei": "^10.7.7",
