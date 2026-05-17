@@ -17,7 +17,10 @@ export async function GET(req: NextRequest) {
   const distrito = obra?.buyer_locality ?? "Perú";
   const region = obra?.buyer_region ?? "";
   const monto = obra
-    ? fmtSolesLong(obra.contract_amount ?? obra.award_amount ?? obra.tender_amount)
+    ? fmtSolesLong(
+        obra.contract_amount ?? obra.award_amount ?? obra.tender_amount,
+        obra.country
+      )
     : "";
   const contratista = obra?.supplier_name ?? "";
   const emoji = riesgo === "alto" ? "🔴" : riesgo === "medio" ? "🟡" : "🟢";

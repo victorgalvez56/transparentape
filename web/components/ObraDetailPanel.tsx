@@ -3,7 +3,7 @@
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { Obra, riesgoDeObra } from "@/lib/types";
-import { fmtSolesLong, fmtSolesShort, fmtFecha, displayTitle, truncar } from "@/lib/format";
+import { fmtSolesLong, fmtSolesShort, montoSymbol, fmtFecha, displayTitle, truncar } from "@/lib/format";
 import dynamic from "next/dynamic";
 
 const BeforeAfterSlider = dynamic(() => import("@/components/BeforeAfterSlider"), { ssr: false });
@@ -72,7 +72,7 @@ export default function ObraDetailPanel({
   const [infobrasLoaded, setInfobrasLoaded] = useState(false);
   const monto = obra.contract_amount ?? obra.award_amount ?? obra.tender_amount;
   const tituloDisplay = displayTitle(obra);
-  const tweetText = `${truncar(tituloDisplay, 120)} · ${obra.buyer_locality} · ${fmtSolesLong(monto)} · Transparentape`;
+  const tweetText = `${truncar(tituloDisplay, 120)} · ${obra.buyer_locality} · ${fmtSolesLong(monto, obra.country)} · Transparentape`;
   const tweetUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/obras/${obra.ocid}`;
   const twitterHref = `https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetText)}&url=${encodeURIComponent(tweetUrl)}`;
 
@@ -232,17 +232,23 @@ export default function ObraDetailPanel({
             Rastreo del billete
           </p>
           <div className="grid grid-cols-3 divide-x divide-[var(--rule)]">
-            <Money label="Lo que dijeron" value={obra.tender_amount} />
+            <Money
+              label="Lo que dijeron"
+              value={obra.tender_amount}
+              currency={montoSymbol(obra.country)}
+            />
             <Money
               label="Lo que firmaron"
               value={obra.award_amount}
               delta={deltaAdj}
+              currency={montoSymbol(obra.country)}
             />
             <Money
               label="Lo que costó"
               value={obra.contract_amount}
               accent
               delta={deltaCon}
+              currency={montoSymbol(obra.country)}
             />
           </div>
         </section>
@@ -570,11 +576,13 @@ function Money({
   value,
   delta,
   accent = false,
+  currency = "S/",
 }: {
   label: string;
   value: number | null;
   delta?: number | null;
   accent?: boolean;
+  currency?: string;
 }) {
   const positive = (delta ?? 0) > 0.005;
   return (
@@ -591,7 +599,9 @@ function Money({
         }`}
         style={{ fontFamily: "var(--font-mono), monospace" }}
       >
-        <span className="text-[10px] text-[var(--fg-faint)] mr-1">S/</span>
+        <span className="text-[10px] text-[var(--fg-faint)] mr-1">
+          {currency}
+        </span>
         {fmtSolesShort(value)}
       </p>
       {delta != null && (

@@ -220,7 +220,8 @@ export default function CodexGlobe({
       const meta = document.createElement("span");
       const loc = [o.buyer_locality, o.buyer_region].filter(Boolean)[0] ?? "—";
       meta.textContent = `${loc} · ${fmtSoles(
-        o.contract_amount ?? o.award_amount ?? o.tender_amount
+        o.contract_amount ?? o.award_amount ?? o.tender_amount,
+        o.country
       )}`;
       meta.style.cssText =
         "font-size:11px;line-height:1.2;color:var(--cx-muted);font-family:var(--font-mono),monospace";

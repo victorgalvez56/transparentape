@@ -223,7 +223,7 @@ export default function ObrasListPanel({
                       className="text-[13px] tabular-nums text-white"
                       style={{ fontFamily: "var(--font-mono), monospace" }}
                     >
-                      {fmtSoles(o.contract_amount ?? o.award_amount)}
+                      {fmtSoles(o.contract_amount ?? o.award_amount, o.country)}
                     </p>
                     {o.is_red_flag && (
                       <p
