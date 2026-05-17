@@ -39,7 +39,7 @@ function Seg({
   );
 }
 
-export default function CodexHeader({
+export default function CodexHeaderHybrid({
   obrasCount,
   redFlagsCount,
   regionLabel,
@@ -78,7 +78,7 @@ export default function CodexHeader({
           }}
         >
           <a
-            href="/end"
+            href="/"
             className="pb-0.5 border-b"
             style={{
               color: "var(--cx-fg)",
