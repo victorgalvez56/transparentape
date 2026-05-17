@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 import { WhatsAppClient } from "@kapso/whatsapp-cloud-api";
 import { query } from "@/lib/db";
 import { chatEngine } from "@/lib/agent-kapso/engine";
@@ -27,58 +28,45 @@ import {
   fmtMontoEnRiesgo,
   AYUDA_MSG,
 } from "@/lib/agent-kapso/wa-format";
-import crypto from "node:crypto";
 
 export const runtime = "nodejs";
+export const maxDuration = 30;
+
+// ── signature validation ──────────────────────────────────────────────────────
+// Kapso sends x-kapso-signature or x-hub-signature-256, value may be prefixed "sha256="
+function verifySignature(body: string, header: string | null): boolean {
+  const secret = process.env.KAPSO_WEBHOOK_SECRET;
+  if (!secret) return true;
+  if (!header) return false;
+  const sig = header.replace(/^sha256=/i, "");
+  const expected = crypto
+    .createHmac("sha256", secret)
+    .update(body, "utf8")
+    .digest("hex");
+  try {
+    return crypto.timingSafeEqual(
+      Buffer.from(expected, "hex"),
+      Buffer.from(sig, "hex")
+    );
+  } catch {
+    return false;
+  }
+}
 
 const kapso = new WhatsAppClient({
   baseUrl: "https://app.kapso.ai/api/meta/",
   kapsoApiKey: process.env.KAPSO_API_KEY!,
 });
 
-function verifySignature(rawBody: string, signature: string | null): boolean {
-  const secret = process.env.KAPSO_WEBHOOK_SECRET;
-  if (!secret) return true;
-  if (!signature) return false;
-  const expected = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
-  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
-}
-
-type KapsoMessage = {
-  type?: string;
-  from?: string;
-  text?: { body?: string };
-  interactive?: {
-    type?: string;
-    button_reply?: { id?: string; title?: string };
-    list_reply?: { id?: string; title?: string };
-  };
+// ── button helpers ────────────────────────────────────────────────────────────
+const BUTTON_MAP: Record<string, string> = {
+  btn_buscar: "obras en",
+  btn_stats: "estadísticas",
+  btn_ranking: "ranking contratistas",
+  btn_inhabilitados: "inhabilitados",
+  btn_adjdirecta: "adjudicación directa",
+  btn_entidades: "ranking entidades",
 };
-
-type KapsoEvent = {
-  message?: KapsoMessage;
-  whatsapp_config?: { phone_number_id?: string };
-};
-
-function extractEvents(body: Record<string, unknown>): KapsoEvent[] {
-  const batched = body["whatsapp.message.received"];
-  if (Array.isArray(batched)) return batched as KapsoEvent[];
-  if (body.message) return [body as KapsoEvent];
-  return [];
-}
-
-// Map button IDs to text commands for intent parsing
-function resolveButtonReply(id: string): string {
-  const MAP: Record<string, string> = {
-    btn_buscar: "obras en",
-    btn_stats: "estadísticas",
-    btn_ranking: "ranking contratistas",
-    btn_inhabilitados: "inhabilitados",
-    btn_adjdirecta: "adjudicación directa",
-    btn_entidades: "ranking entidades",
-  };
-  return MAP[id] ?? id;
-}
 
 async function sendAyudaWithButtons(
   phoneNumberId: string,
@@ -98,11 +86,49 @@ async function sendAyudaWithButtons(
       ],
     });
   } catch {
-    // Fallback to plain text if interactive fails
     await kapso.messages.sendText({ phoneNumberId, to, body: AYUDA_MSG });
   }
 }
 
+// ── message extraction ────────────────────────────────────────────────────────
+type MsgExtract = { from: string; text: string; type: "text" | "interactive_btn" };
+
+function extractMessage(payload: Record<string, unknown>): MsgExtract | null {
+  // 1. Meta Cloud API format: payload.entry[0].changes[0].value.messages[0]
+  type MetaMsg = { from?: string; type?: string; text?: { body?: string }; interactive?: { type?: string; button_reply?: { id?: string }; list_reply?: { id?: string } } };
+  const entry = (payload.entry as { changes?: { value?: { messages?: MetaMsg[] } }[] }[])?.[0];
+  const metaMsg = entry?.changes?.[0]?.value?.messages?.[0];
+  if (metaMsg?.type === "text" && metaMsg.text?.body && metaMsg.from) {
+    return { from: metaMsg.from, text: metaMsg.text.body.trim(), type: "text" };
+  }
+  if (metaMsg?.type === "interactive" && metaMsg.from) {
+    const btnId = metaMsg.interactive?.button_reply?.id ?? metaMsg.interactive?.list_reply?.id;
+    if (btnId) return { from: metaMsg.from, text: BUTTON_MAP[btnId] ?? btnId, type: "interactive_btn" };
+  }
+
+  // 2. Kapso batched format: payload["whatsapp.message.received"][0]
+  type KapsoMsg = { from?: string; type?: string; text?: { body?: string }; interactive?: { type?: string; button_reply?: { id?: string }; list_reply?: { id?: string } } };
+  const batchedArr = payload["whatsapp.message.received"];
+  const kMsg = (Array.isArray(batchedArr) ? batchedArr[0] : payload) as { message?: KapsoMsg; whatsapp_config?: unknown };
+  const km = kMsg?.message;
+  if (km?.type === "text" && km.text?.body && km.from) {
+    return { from: km.from, text: km.text.body.trim(), type: "text" };
+  }
+  if (km?.type === "interactive" && km.from) {
+    const btnId = km.interactive?.button_reply?.id ?? km.interactive?.list_reply?.id;
+    if (btnId) return { from: km.from, text: BUTTON_MAP[btnId] ?? btnId, type: "interactive_btn" };
+  }
+
+  // 3. Kapso simplified format: payload.message.text (string)
+  const simpleMsg = payload.message as { from?: string; type?: string; text?: string } | undefined;
+  if (simpleMsg?.type === "text" && simpleMsg.text && simpleMsg.from) {
+    return { from: simpleMsg.from, text: simpleMsg.text.trim(), type: "text" };
+  }
+
+  return null;
+}
+
+// ── intent routing ────────────────────────────────────────────────────────────
 async function handleMessage(
   text: string,
   conversationId: string,
@@ -129,7 +155,7 @@ async function handleMessage(
 
     case "AYUDA":
       await sendAyudaWithButtons(phoneNumberId, to);
-      return null; // already sent interactively
+      return null;
 
     case "STATS": {
       const stats = await statsPorPais(country);
@@ -154,9 +180,7 @@ async function handleMessage(
 
     case "CONTEXTO_DETALLE": {
       const ids = session.lastResultIds ?? [];
-      if (!ids.length) {
-        return "No tengo una búsqueda reciente. Primero pregunta por obras en una región o año.";
-      }
+      if (!ids.length) return "No tengo una búsqueda reciente. Primero pregunta por obras en una región o año.";
       const pos = parsed.contextPosition ?? 1;
       const idx = pos === -1 ? ids.length - 1 : pos - 1;
       const id = ids[idx];
@@ -207,63 +231,50 @@ async function handleMessage(
   }
 }
 
+// ── webhook handler ───────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
-  const signature = req.headers.get("x-webhook-signature");
 
-  if (!verifySignature(rawBody, signature)) {
+  const sigHeader =
+    req.headers.get("x-kapso-signature") ??
+    req.headers.get("x-hub-signature-256") ??
+    req.headers.get("x-webhook-signature");
+
+  if (!verifySignature(rawBody, sigHeader)) {
     return NextResponse.json({ error: "invalid_signature" }, { status: 401 });
   }
 
-  let body: Record<string, unknown>;
+  let payload: Record<string, unknown>;
   try {
-    body = JSON.parse(rawBody);
+    payload = JSON.parse(rawBody);
   } catch {
     return NextResponse.json({ ok: true });
   }
 
-  const events = extractEvents(body);
+  const extracted = extractMessage(payload);
+  if (!extracted) return NextResponse.json({ ok: true, skipped: true });
 
-  for (const event of events) {
-    const msg = event.message;
-    if (!msg) continue;
+  const { from, text } = extracted;
+  const phoneNumberId = process.env.KAPSO_PHONE_NUMBER_ID!;
+  const to = from.startsWith("+") ? from : `+${from}`;
+  const t0 = Date.now();
 
-    const from = msg.from;
-    const phoneNumberId =
-      event.whatsapp_config?.phone_number_id ?? process.env.KAPSO_PHONE_NUMBER_ID!;
-
-    if (!from) continue;
-
-    const to = from.startsWith("+") ? from : `+${from}`;
-    const t0 = Date.now();
-
-    // Resolve text: plain text OR interactive button reply
-    let text: string | undefined;
-    if (msg.type === "text") {
-      text = msg.text?.body?.trim();
-    } else if (msg.type === "interactive") {
-      const btnId = msg.interactive?.button_reply?.id ?? msg.interactive?.list_reply?.id;
-      if (btnId) text = resolveButtonReply(btnId);
-    }
-
-    if (!text) continue;
-
+  // fire-and-forget — return 200 immediately to avoid Kapso retry
+  (async () => {
     try {
       const reply = await handleMessage(text, from, phoneNumberId, to);
-
       if (reply !== null) {
         const truncated = reply.length > 4096 ? reply.slice(0, 4090) + "…" : reply;
         await kapso.messages.sendText({ phoneNumberId, to, body: truncated });
       }
-
       query(
         `INSERT INTO agent_logs(endpoint, params, n_resultados, latencia_ms) VALUES ($1, $2, $3, $4)`,
         ["/api/kapso/webhook", JSON.stringify({ from, text }), 1, Date.now() - t0]
       ).catch(() => {});
-    } catch (err) {
-      console.error("Kapso webhook handler error:", err);
+    } catch (e) {
+      console.error("[kapso/webhook] error:", e);
     }
-  }
+  })();
 
   return NextResponse.json({ ok: true });
 }
