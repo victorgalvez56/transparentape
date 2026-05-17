@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { useObrasVR } from "@/lib/vr/obras-source";
 import { projectToFloor } from "@/lib/vr/projection";
 
 const PULSE_COLOR = new THREE.Color("#ef4444");
+const MAX_PULSES = 2000; // cap igual que las columnas, prioriza los mas relevantes
 
 /**
  * Anillos emissive en el suelo bajo cada columna red_flag.
@@ -22,6 +23,7 @@ export default function RedFlagPulses() {
   const positions = useMemo(() => {
     return obras
       .filter((o) => o.is_red_flag)
+      .slice(0, MAX_PULSES)
       .map((o) => projectToFloor(o.lng, o.lat));
   }, [obras]);
 
@@ -37,20 +39,19 @@ export default function RedFlagPulses() {
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
     }
-    // Limpiar sobrantes
-    const empty = new THREE.Object3D();
-    empty.scale.set(0, 0, 0);
-    empty.updateMatrix();
-    for (let i = positions.length; i < mesh.count; i++) {
-      mesh.setMatrixAt(i, empty.matrix);
-    }
     mesh.instanceMatrix.needsUpdate = true;
+    mesh.count = positions.length;
   }, [positions]);
+
+  // Ref callback: count=0 al mountar para evitar overdraw inicial
+  const handleMeshRef = useCallback((m: THREE.InstancedMesh | null) => {
+    if (m && meshRef.current !== m) m.count = 0;
+    meshRef.current = m;
+  }, []);
 
   useFrame((_, delta) => {
     pulseTime.current += delta;
     if (!matRef.current) return;
-    // Pulso lento entre 0.5 y 1.0 de opacidad
     matRef.current.opacity = 0.5 + Math.sin(pulseTime.current * 1.5) * 0.25;
   });
 
@@ -58,11 +59,11 @@ export default function RedFlagPulses() {
 
   return (
     <instancedMesh
-      ref={meshRef}
-      args={[undefined, undefined, Math.max(100, positions.length)]}
+      ref={handleMeshRef}
+      args={[undefined, undefined, MAX_PULSES]}
       frustumCulled={false}
     >
-      <ringGeometry args={[0.35, 0.6, 24]} />
+      <ringGeometry args={[0.35, 0.6, 16]} />
       <meshBasicMaterial
         ref={matRef}
         color={PULSE_COLOR}

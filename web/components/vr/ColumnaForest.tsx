@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { useXR } from "@react-three/xr";
 import * as THREE from "three";
@@ -10,8 +10,8 @@ import { projectToFloor, montoToHeight } from "@/lib/vr/projection";
 const COLOR_ALTO = new THREE.Color("#ef4444"); // red_flag
 const COLOR_BAJO = new THREE.Color("#42dc3a"); // brand
 
-const XR_INSTANCE_CAP = 15000; // Quest 3S manda los real importantes
-const DESKTOP_INSTANCE_CAP = 8000; // MacBook Air integrated GPU es limitado
+const XR_INSTANCE_CAP = 15000;
+const DESKTOP_INSTANCE_CAP = 8000;
 
 interface Props {
   yearFilter?: number | null; // null = todos
@@ -79,7 +79,19 @@ export default function ColumnaForest({
 
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    // Solo despues de setear matrices, exponer las instancias reales al render
+    mesh.count = visible.length;
   }, [visible]);
+
+  // Ref callback que inicializa count=0 antes del primer paint.
+  // Asi nunca renderizamos 2000 cilindros con matrices identity overlapeados
+  // (un frame de overdraw extremo que crashea el driver Metal en M5).
+  const handleMeshRef = useCallback((m: THREE.InstancedMesh | null) => {
+    if (m && meshRef.current !== m) {
+      m.count = 0;
+    }
+    meshRef.current = m;
+  }, []);
 
   // Pulso de emissive intensity
   useFrame((_, delta) => {
@@ -110,7 +122,7 @@ export default function ColumnaForest({
 
   return (
     <instancedMesh
-      ref={meshRef}
+      ref={handleMeshRef}
       args={[undefined, undefined, DESKTOP_INSTANCE_CAP]}
       onPointerOver={handlePointerOver}
       onPointerOut={() => onPointerOut?.()}
