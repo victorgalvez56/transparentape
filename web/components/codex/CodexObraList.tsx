@@ -88,7 +88,7 @@ export default function CodexObraList({
       </div>
 
       <div
-        className="px-3 py-2 border-t shrink-0 text-[10px] text-center uppercase tracking-[0.18em]"
+        className="px-3 py-2 border-t shrink-0 text-[11px] text-center tracking-tight"
         style={{
           borderColor: "var(--cx-border)",
           color: "var(--cx-faint)",

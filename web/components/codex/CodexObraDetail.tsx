@@ -21,10 +21,10 @@ function Field({
   return (
     <div className="flex flex-col gap-0.5">
       <span
-        className="text-[9px] uppercase tracking-[0.18em]"
+        className="text-[11px] font-medium tracking-tight"
         style={{
-          color: "var(--cx-faint)",
-          fontFamily: "var(--font-mono), monospace",
+          color: "var(--cx-muted)",
+          fontFamily: "var(--font-body), system-ui, sans-serif",
         }}
       >
         {label}
@@ -78,7 +78,7 @@ export default function CodexObraDetail({
       >
         <div className="min-w-0">
           <span
-            className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider"
+            className="inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold tracking-tight"
             style={{ background: r.bg, color: r.c }}
           >
             {obra.is_red_flag ? "⚑ " : ""}
@@ -174,10 +174,10 @@ export default function CodexObraDetail({
         {obra.red_flag_types && obra.red_flag_types.length > 0 && (
           <div className="col-span-2 flex flex-col gap-1.5">
             <span
-              className="text-[9px] uppercase tracking-[0.18em]"
+              className="text-[11px] font-medium tracking-tight"
               style={{
-                color: "var(--cx-faint)",
-                fontFamily: "var(--font-mono), monospace",
+                color: "var(--cx-muted)",
+                fontFamily: "var(--font-body), system-ui, sans-serif",
               }}
             >
               Señales detectadas
@@ -208,8 +208,11 @@ export default function CodexObraDetail({
             }}
           >
             <span
-              className="block mb-1 text-[9px] uppercase tracking-[0.18em]"
-              style={{ color: "var(--cx-faint)" }}
+              className="block mb-1 text-[11px] font-medium tracking-tight"
+              style={{
+                color: "var(--cx-muted)",
+                fontFamily: "var(--font-body), system-ui, sans-serif",
+              }}
             >
               Análisis IA
               {obra.ai_score != null ? ` · score ${obra.ai_score}` : ""}

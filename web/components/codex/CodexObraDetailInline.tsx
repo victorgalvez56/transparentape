@@ -67,9 +67,9 @@ export default function CodexObraDetailInline({ obra, onInvestigar }: Props) {
           style={{ borderColor: "var(--cx-border)" }}
         >
           <p
-            className="text-[9px] uppercase tracking-[0.28em] truncate"
+            className="text-[11px] tracking-tight truncate"
             style={{
-              color: "var(--cx-faint)",
+              color: "var(--cx-muted)",
               fontFamily: "var(--font-mono), monospace",
             }}
           >
@@ -78,17 +78,17 @@ export default function CodexObraDetailInline({ obra, onInvestigar }: Props) {
             {obra.source_year ? ` · ${obra.source_year}` : ""}
           </p>
           <h2
-            className="mt-2 text-[17px] leading-[1.18] font-medium tracking-[-0.005em]"
+            className="mt-2 text-[17px] leading-[1.2] font-medium tracking-tight"
             style={{
               color: "var(--cx-fg)",
-              fontFamily: "var(--font-display), serif",
+              fontFamily: "var(--font-body), system-ui, sans-serif",
             }}
           >
             {truncar(tituloDisplay, 160)}
           </h2>
           {obra.tender_title && obra.tender_title !== tituloDisplay && (
             <p
-              className="mt-2 text-[9.5px] uppercase tracking-[0.22em] leading-relaxed"
+              className="mt-2 text-[11px] tracking-tight leading-relaxed"
               style={{
                 color: "var(--cx-faint)",
                 fontFamily: "var(--font-mono), monospace",
@@ -103,10 +103,10 @@ export default function CodexObraDetailInline({ obra, onInvestigar }: Props) {
               style={{ background: riesgoTone.dot }}
             />
             <span
-              className="text-[10px] uppercase tracking-[0.24em] font-medium"
+              className="text-[12px] font-medium tracking-tight"
               style={{
                 color: riesgoTone.fg,
-                fontFamily: "var(--font-mono), monospace",
+                fontFamily: "var(--font-body), system-ui, sans-serif",
               }}
             >
               {riesgoTone.label}
@@ -120,10 +120,10 @@ export default function CodexObraDetailInline({ obra, onInvestigar }: Props) {
           style={{ borderColor: "var(--cx-border)" }}
         >
           <p
-            className="text-[9px] uppercase tracking-[0.26em] mb-3"
+            className="text-[11.5px] font-medium tracking-tight mb-3"
             style={{
-              color: "var(--cx-faint)",
-              fontFamily: "var(--font-mono), monospace",
+              color: "var(--cx-muted)",
+              fontFamily: "var(--font-body), system-ui, sans-serif",
             }}
           >
             Rastreo del billete
@@ -167,7 +167,7 @@ export default function CodexObraDetailInline({ obra, onInvestigar }: Props) {
               className="w-full h-36 object-cover"
             />
             <p
-              className="text-[9px] tracking-[0.22em] uppercase px-4 py-1.5 border-t"
+              className="text-[11px] tracking-tight px-4 py-1.5 border-t"
               style={{
                 color: "var(--cx-faint)",
                 fontFamily: "var(--font-mono), monospace",
@@ -179,7 +179,7 @@ export default function CodexObraDetailInline({ obra, onInvestigar }: Props) {
           </div>
         ) : (
           <div
-            className="px-4 py-2.5 text-[9.5px] uppercase tracking-[0.22em] border-b"
+            className="px-4 py-2.5 text-[11px] tracking-tight border-b"
             style={{
               color: "var(--cx-faint)",
               fontFamily: "var(--font-mono), monospace",
@@ -196,25 +196,25 @@ export default function CodexObraDetailInline({ obra, onInvestigar }: Props) {
           style={{ borderColor: "var(--cx-border)" }}
         >
           <p
-            className="text-[9px] uppercase tracking-[0.26em] mb-1.5"
+            className="text-[11.5px] font-medium tracking-tight mb-1.5"
             style={{
-              color: "var(--cx-faint)",
-              fontFamily: "var(--font-mono), monospace",
+              color: "var(--cx-muted)",
+              fontFamily: "var(--font-body), system-ui, sans-serif",
             }}
           >
             Quién recibió el billete
           </p>
           <h3
-            className="text-[15px] leading-[1.22] font-medium"
+            className="text-[15px] leading-[1.22] font-medium tracking-tight"
             style={{
               color: "var(--cx-fg)",
-              fontFamily: "var(--font-display), serif",
+              fontFamily: "var(--font-body), system-ui, sans-serif",
             }}
           >
             {obra.supplier_name ?? "—"}
           </h3>
           <p
-            className="text-[10.5px] mt-1.5 tracking-wide"
+            className="text-[11px] mt-1.5 tracking-tight"
             style={{
               color: "var(--cx-muted)",
               fontFamily: "var(--font-mono), monospace",
@@ -232,10 +232,10 @@ export default function CodexObraDetailInline({ obra, onInvestigar }: Props) {
               style={{ borderColor: "var(--cx-alarm)" }}
             >
               <p
-                className="text-[9px] uppercase tracking-[0.22em]"
+                className="text-[11px] font-medium tracking-tight"
                 style={{
                   color: "var(--cx-alarm)",
-                  fontFamily: "var(--font-mono), monospace",
+                  fontFamily: "var(--font-body), system-ui, sans-serif",
                 }}
               >
                 Antecedentes
@@ -260,10 +260,10 @@ export default function CodexObraDetailInline({ obra, onInvestigar }: Props) {
           style={{ borderColor: "var(--cx-border)" }}
         >
           <p
-            className="text-[9px] uppercase tracking-[0.26em] mb-2.5"
+            className="text-[11.5px] font-medium tracking-tight mb-2.5"
             style={{
-              color: "var(--cx-faint)",
-              fontFamily: "var(--font-mono), monospace",
+              color: "var(--cx-muted)",
+              fontFamily: "var(--font-body), system-ui, sans-serif",
             }}
           >
             Contrato
@@ -291,10 +291,10 @@ export default function CodexObraDetailInline({ obra, onInvestigar }: Props) {
           style={{ borderColor: "var(--cx-border)" }}
         >
           <p
-            className="text-[9px] uppercase tracking-[0.26em] mb-1.5"
+            className="text-[11.5px] font-medium tracking-tight mb-1.5"
             style={{
-              color: "var(--cx-faint)",
-              fontFamily: "var(--font-mono), monospace",
+              color: "var(--cx-muted)",
+              fontFamily: "var(--font-body), system-ui, sans-serif",
             }}
           >
             Quién pagó
@@ -314,15 +314,15 @@ export default function CodexObraDetailInline({ obra, onInvestigar }: Props) {
             style={{ borderColor: "var(--cx-border)" }}
           >
             <p
-              className="text-[9px] uppercase tracking-[0.26em] mb-1.5"
+              className="text-[11.5px] font-medium tracking-tight mb-1.5"
               style={{
-                color: "var(--cx-faint)",
-                fontFamily: "var(--font-mono), monospace",
+                color: "var(--cx-muted)",
+                fontFamily: "var(--font-body), system-ui, sans-serif",
               }}
             >
               Análisis automático
               {obra.ai_score != null && (
-                <span style={{ color: "var(--cx-muted)" }}>
+                <span style={{ color: "var(--cx-faint)" }}>
                   {" "}
                   · score {obra.ai_score}/100
                 </span>
@@ -437,10 +437,10 @@ function MoneyCell({
       style={{ borderColor: "var(--cx-border)" }}
     >
       <p
-        className="text-[8.5px] uppercase tracking-[0.18em] leading-tight"
+        className="text-[10.5px] tracking-tight leading-tight"
         style={{
           color: "var(--cx-faint)",
-          fontFamily: "var(--font-mono), monospace",
+          fontFamily: "var(--font-body), system-ui, sans-serif",
         }}
       >
         {label}
@@ -489,10 +489,10 @@ function KVRow({
   return (
     <div className={wide ? "col-span-2 min-w-0" : "min-w-0"}>
       <dt
-        className="text-[9px] uppercase tracking-[0.2em]"
+        className="text-[11px] font-medium tracking-tight"
         style={{
-          color: "var(--cx-faint)",
-          fontFamily: "var(--font-mono), monospace",
+          color: "var(--cx-muted)",
+          fontFamily: "var(--font-body), system-ui, sans-serif",
         }}
       >
         {label}

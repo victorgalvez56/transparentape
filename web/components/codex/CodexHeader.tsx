@@ -71,10 +71,10 @@ export default function CodexHeaderHybrid({
           <span style={{ color: "var(--cx-brand)" }}>.</span>
         </a>
         <nav
-          className="hidden md:flex items-center gap-4 text-[10px] uppercase tracking-[0.22em]"
+          className="hidden md:flex items-center gap-5 text-[12.5px] font-medium tracking-tight"
           style={{
-            fontFamily: "var(--font-mono), monospace",
-            color: "var(--cx-faint)",
+            fontFamily: "var(--font-body), system-ui, sans-serif",
+            color: "var(--cx-muted)",
           }}
         >
           <a
@@ -89,18 +89,18 @@ export default function CodexHeaderHybrid({
           </a>
           <a
             href="/vr"
-            className="hover:opacity-80 transition"
+            className="hover:text-[var(--cx-fg)] transition-colors"
           >
             Audit Room VR
           </a>
         </nav>
       </div>
 
-      {/* CENTRO — stats vivos (paridad con / local) */}
+      {/* CENTRO — stats vivos */}
       <div
-        className="flex-1 hidden md:flex items-center justify-center gap-5 text-[10px] tracking-[0.18em] uppercase min-w-0"
+        className="flex-1 hidden md:flex items-center justify-center gap-4 text-[12.5px] tracking-tight min-w-0"
         style={{
-          fontFamily: "var(--font-mono), monospace",
+          fontFamily: "var(--font-body), system-ui, sans-serif",
           color: "var(--cx-muted)",
         }}
       >

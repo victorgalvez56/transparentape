@@ -87,11 +87,11 @@ export default function CodexObraCard({
           )}
           {obra.is_red_flag && (
             <span
-              className="inline-block mt-1.5 px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wider font-semibold"
+              className="inline-block mt-1.5 px-1.5 py-0.5 rounded text-[10.5px] tracking-tight font-semibold"
               style={{
                 background: "var(--cx-alarm-soft)",
                 color: "var(--cx-alarm)",
-                fontFamily: "var(--font-mono), monospace",
+                fontFamily: "var(--font-body), system-ui, sans-serif",
               }}
             >
               ⚑ Alerta
