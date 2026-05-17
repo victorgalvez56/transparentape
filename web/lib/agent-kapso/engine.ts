@@ -176,7 +176,8 @@ export async function chatEngine(
       }),
       AGENT.timeoutMs.context
     );
-    return ctxRes.choices[0]?.message?.content?.trim() ?? "Sin respuesta.";
+    const ctxRaw = ctxRes.choices[0]?.message?.content?.trim() ?? "Sin respuesta.";
+    return ctxRaw.replace(/\*\*([^*]+)\*\*/g, "*$1*");
   }
 
   // ── STEP 3: NEEDS_SQL — gen + exec + synthesis ──────────────────────────────

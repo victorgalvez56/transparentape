@@ -28,6 +28,16 @@ export interface ParsedIntent {
   ruc?: string;
 }
 
+// ── Text normalization ────────────────────────────────────────────────────────
+// JS regex \b is ASCII-only. Without normalization, accented characters break
+// word boundary matching: \bperu\b fails on "Perú" because ú is not \w.
+// Strip combining diacritics + lowercase so all regex tests work uniformly.
+// Original text is preserved for q/extraction; only matching uses normalized.
+
+function normalize(s: string): string {
+  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+}
+
 // ── Ordinal context ───────────────────────────────────────────────────────────
 
 const ORDINAL_MAP: [RegExp, number][] = [
@@ -36,7 +46,7 @@ const ORDINAL_MAP: [RegExp, number][] = [
   [/\bel\s+tercer[ao]?\b|\b#?3\b|\btres\b/i, 3],
   [/\bel\s+cuart[ao]?\b|\b#?4\b|\bcuatro\b/i, 4],
   [/\bel\s+quint[ao]?\b|\b#?5\b|\bcinco\b/i, 5],
-  [/\b[uú]ltim[ao]\b/i, -1],
+  [/\bultim[ao]\b/i, -1],
 ];
 
 function extractContextPosition(text: string): number | null {
@@ -70,11 +80,12 @@ const YEAR_RE = /\b(20\d{2})\b/;
 const RUC_RE = /\b(\d{8,12})\b/;
 const THIS_YEAR = new Date().getFullYear();
 
+// Expects ASCII-normalized input ("año" → "ano")
 function extractYear(text: string): number | undefined {
   const m = text.match(YEAR_RE);
   if (m) return parseInt(m[1]);
-  if (/\beste\s+año\b|\baño\s+actual\b|\baño\s+en\s+curso\b/i.test(text)) return THIS_YEAR;
-  if (/\baño\s+pasado\b|\baño\s+anterior\b/i.test(text)) return THIS_YEAR - 1;
+  if (/\beste\s+ano\b|\bano\s+actual\b|\bano\s+en\s+curso\b/i.test(text)) return THIS_YEAR;
+  if (/\bano\s+pasado\b|\bano\s+anterior\b/i.test(text)) return THIS_YEAR - 1;
   return undefined;
 }
 
@@ -110,98 +121,107 @@ function buildSearchQuery(text: string, _year: number | undefined): string | und
 
 export function parseIntent(text: string, sessionCountry: Country): ParsedIntent {
   const t = text.trim();
+  // tn = ASCII-normalized for regex matching (\b is ASCII-only in JS).
+  // Original t is still used for q extraction so DB ILIKE preserves accents/case.
+  const tn = normalize(t);
 
   // ── Country switch ──
-  const newCountry = detectCountry(t);
-  if (newCountry && /\bcambiar?\b|\bseleccionar?\b|\bquiero.*pa[ií]s\b/i.test(t)) {
+  const newCountry = detectCountry(tn);
+  if (newCountry && /\bcambiar?\b|\bseleccionar?\b|\bquiero.*pais\b/i.test(tn)) {
     return { intent: "CAMBIAR_PAIS", country: newCountry };
   }
-  const ACTION_KEYWORDS = /\bestad[ií]sticas?\b|\bresumen\b|\branking\b|\bobras?\b|\binhabilitados?\b|\badjudicaci[oó]n\b|\bmonto\b|\binvestigar?\b|\bcontratistas?\b|\bentidades?\b|\balertas?\b/i;
-  if (newCountry && t.split(/\s+/).length <= 3 && !ACTION_KEYWORDS.test(t)) {
+  const ACTION_KEYWORDS = /\bestadisticas?\b|\bresumen\b|\branking\b|\bobras?\b|\binhabilitados?\b|\badjudicaci[oó]n\b|\bmonto\b|\binvestigar?\b|\bcontratistas?\b|\bentidades?\b|\balertas?\b/i;
+  if (newCountry && tn.split(/\s+/).length <= 3 && !ACTION_KEYWORDS.test(tn)) {
     return { intent: "CAMBIAR_PAIS", country: newCountry };
   }
 
   const country: Country = newCountry ?? sessionCountry;
 
   // ── Gratitude / farewell → deterministic, no LLM ──
-  if (/^\s*(gracias|thank[s]?|ok\s+gracias|okey|dale|entendido|perfecto|listo|claro|genial|excelente|bu[eé]n[ií]simo|adi[oó]s|hasta\s+luego|bye|chau[o]?|👍|🙏)\s*[!.?]*\s*$/i.test(t)) {
+  if (/^\s*(gracias|thank[s]?|ok\s+gracias|okey|dale|entendido|perfecto|listo|claro|genial|excelente|buen[ií]simo|adios|hasta\s+luego|bye|chau[o]?|👍|🙏)\s*[!.?]*\s*$/i.test(tn)) {
     return { intent: "AGRADECIMIENTO", country };
   }
 
   // ── Greeting / help ──
-  if (/^\s*(hola|holi|hey|hi|buenos?\s+d[ií]as?|buenas?\s+tardes?|buenas?\s+noches?|buenas?|saludos?|qué\s+tal|como\s+est[aá]s?|ayuda|comandos|\?{2,}|qu[eé]\s+puedes|qu[eé]\s+haces|inicio|empezar|start|men[uú])\s*[!.?,]*\s*$/i.test(t)) {
+  if (/^\s*(hola|holi|hey|hi|buenos?\s+dias?|buenas?\s+tardes?|buenas?\s+noches?|buenas?|saludos?|que\s+tal|como\s+estas?|ayuda|comandos|\?{2,}|que\s+puedes(?:\s+\w+)?|que\s+haces|que\s+sabes|inicio|empezar|start|menu)\s*[!.?,]*\s*$/i.test(tn)) {
     return { intent: "AYUDA", country };
   }
 
   // ── Proximity ──
-  if (/\bcerca(n[ao]s?)?\b|\bpr[oó]xim[ao]s?\b|\bm[aá]s\s+cercana\b|\bm[ií]\s+ubicaci[oó]n\b|\bcercan[ií]a\b/i.test(t)) {
+  if (/\bcerca(n[ao]s?)?\b|\bproxim[ao]s?\b|\bmas\s+cercana\b|\bmi\s+ubicacion\b|\bcercania\b/i.test(tn)) {
     return { intent: "BUSCAR_CERCANOS", country };
   }
 
-  // ── Context detail: "el primero", "el segundo" ──
-  if (/\bel\s+(primer|segund|tercer|cuart|quint|[uú]ltim)[ao]?\b|\bm[aá]s\s+(detalle|info)\b/i.test(t)) {
-    const pos = extractContextPosition(t);
-    if (pos !== null) return { intent: "CONTEXTO_DETALLE", country, contextPosition: pos };
+  // ── Context detail: "el primero", "#5", "uno", "más detalle" ──
+  // Gate is presence of any ordinal — checked directly via extractContextPosition.
+  // "más detalle/info" without ordinal → default to position 1 (first result).
+  const pos = extractContextPosition(tn);
+  if (pos !== null) {
+    return { intent: "CONTEXTO_DETALLE", country, contextPosition: pos };
+  }
+  if (/\bmas\s+(detalle|info|informacion)\b/i.test(tn)) {
+    return { intent: "CONTEXTO_DETALLE", country, contextPosition: 1 };
   }
 
   // ── Detail by ID ──
-  const idMatch = t.match(/\b(?:detalle|ver|obra|id)\s*[:#]?\s*(\d+)\b/i);
+  const idMatch = tn.match(/\b(?:detalle|ver|obra|id)\s*[:#]?\s*(\d+)\b/i);
   if (idMatch) {
     return { intent: "VER_DETALLE", country, obraId: parseInt(idMatch[1]) };
   }
 
   // ── Investigate contractor ──
-  const rucMatch = t.match(RUC_RE);
-  if (rucMatch && /\bcontratista\b|\bempresa\b|\bruc\b|\binvestigar?\b/i.test(t)) {
+  const rucMatch = tn.match(RUC_RE);
+  if (rucMatch && /\bcontratista\b|\bempresa\b|\bruc\b|\binvestigar?\b/i.test(tn)) {
     return { intent: "INVESTIGAR_CONTRATISTA", country, ruc: rucMatch[1] };
   }
-  if (/\binvestigar?\b/i.test(t)) {
+  if (/\binvestigar?\b/i.test(tn)) {
+    // Use original t for name to preserve case/accents in DB ILIKE
     const nameMatch = t.match(/investiga[r]?\s+(.+)/i);
     return { intent: "INVESTIGAR_CONTRATISTA", country, contratista: nameMatch?.[1]?.trim() };
   }
 
   // ── Inhabilitados ──
-  if (/\binhabilitad[oa]s?\b|\bsancionad[oa]s?\b|\bpenalidad\b/i.test(t)) {
+  if (/\binhabilitad[oa]s?\b|\bsancionad[oa]s?\b|\bpenalidad\b/i.test(tn)) {
     return { intent: "INHABILITADOS", country };
   }
 
-  // ── Adjudicación directa ──
-  if (/\badjudicaci[oó]n\s+direct[ao]\b|\bcontrat[ao]s?\s+direct[ao]s?\b/i.test(t)) {
+  // ── Adjudicación directa (plural OK) ──
+  if (/\badjudicaci(?:on|ones)\s+direct[ao]s?\b|\bcontrat[ao]s?\s+direct[ao]s?\b/i.test(tn)) {
     return { intent: "ADJUDICACION_DIRECTA", country };
   }
 
   // ── Ranking entidades ──
-  if (/\branking\s+entidades?\b|\bentidades?\s+compradoras?\b|\btop\s+entidades?\b|\bmayores?\s+compradores?\b/i.test(t)) {
+  if (/\branking\s+entidades?\b|\bentidades?\s+compradoras?\b|\btop\s+entidades?\b|\bmayores?\s+compradores?\b/i.test(tn)) {
     return { intent: "RANKING_ENTIDADES", country };
   }
 
   // ── Ranking contratistas ──
-  if (/\branking\b|\bmayores?\s+contratistas?\b|\btop\b.*\bcontratistas?\b/i.test(t)) {
+  if (/\branking\b|\bmayores?\s+contratistas?\b|\btop\b.*\bcontratistas?\b/i.test(tn)) {
     return { intent: "RANKING_CONTRATISTAS", country };
   }
 
   // ── Monto en riesgo ──
-  if (/\bmonto\s+en\s+riesgo\b|\bcuanto\s+est[aá]\s+en\s+riesgo\b|\bdinero\s+en\s+riesgo\b/i.test(t)) {
+  if (/\bmonto\s+en\s+riesgo\b|\bcuanto\s+esta\s+en\s+riesgo\b|\bdinero\s+en\s+riesgo\b/i.test(tn)) {
     return { intent: "MONTO_EN_RIESGO", country };
   }
 
   // ── Stats ──
-  if (/\bestad[ií]sticas?\b|\bresumen\b|\bcuantas?\s+obras\b|\bpanorama\b/i.test(t)) {
+  if (/\bestadisticas?\b|\bresumen\b|\bcuantas?\s+obras\b|\bpanorama\b/i.test(tn)) {
     return { intent: "STATS", country };
   }
 
   // ── Buscar obras ──
   // Trigger: explicit obra keywords (all plural forms) OR a year extracted.
   // Geography goes into q — DB searches all location columns, no hardcoded lists.
-  const year = extractYear(t);
+  const year = extractYear(tn);
   if (
-    /\bobras?\b|\bproyectos?\b|\bconcursos?\b|\blicitaci[oó]nes?\b|\badjudicaci[oó]nes?\b|\bcontratos?\b|\bconstrucci[oó]n\b/i.test(t) ||
+    /\bobras?\b|\bproyectos?\b|\bconcursos?\b|\blicitaciones?\b|\badjudicaciones?\b|\bcontratos?\b|\bconstruccion\b/i.test(tn) ||
     year !== undefined
   ) {
     const filters: BuscarObrasFilters = { country };
     if (year) filters.year = year;
-    if (/\balerta[s]?\b|\brisk\b|\bflag\b|\bsospech[oa]\b/i.test(t)) filters.red_flag = true;
-    if (/\bdirect[ao]?\b/i.test(t) && !/adjudicaci[oó]n\s+directa/i.test(t)) {
+    if (/\balerta[s]?\b|\brisk\b|\bflag\b|\bsospech[oa]\b/i.test(tn)) filters.red_flag = true;
+    if (/\bdirect[ao]?\b/i.test(tn) && !/adjudicacion\s+directa/i.test(tn)) {
       filters.procurement_method = "direct";
     }
     const q = buildSearchQuery(t, year);
