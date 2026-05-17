@@ -19,7 +19,22 @@ function calcDelta(base: number | null, comp: number | null) {
   return comp / base - 1;
 }
 
-type AiState = { loading: boolean; score: number | null; description: string | null; imageUrl: string | null };
+type SvData = {
+  beforeUrl: string | null;
+  afterUrl: string;
+  beforeDate: string | null;
+  afterDate: string | null;
+  hasHistory: boolean;
+  totalPanos?: number;
+  cached?: boolean;
+};
+
+type AiState = {
+  status: "idle" | "loading" | "done" | "error" | "no_sv";
+  score: number | null;
+  description: string | null;
+  sv: SvData | null;
+};
 
 export default function ObraDetailPanel({
   obra,
@@ -33,32 +48,62 @@ export default function ObraDetailPanel({
   const tweetUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/obras/${obra.ocid}`;
   const twitterHref = `https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetText)}&url=${encodeURIComponent(tweetUrl)}`;
 
-  const [svUrl, setSvUrl] = useState<string | null>(obra.streetview_after ?? null);
+  // Pre-populate from cached DB values if available
+  const hasCachedSv =
+    obra.streetview_after &&
+    obra.streetview_before &&
+    obra.streetview_before !== obra.streetview_after;
+
   const [ai, setAi] = useState<AiState>({
-    loading: false,
+    status: obra.ai_description ? "done" : "idle",
     score: obra.ai_score ?? null,
     description: obra.ai_description ?? null,
-    imageUrl: obra.streetview_after ?? null,
+    sv: hasCachedSv
+      ? {
+          beforeUrl: obra.streetview_before!,
+          afterUrl: obra.streetview_after!,
+          beforeDate: null,
+          afterDate: null,
+          hasHistory: true,
+          cached: true,
+        }
+      : obra.streetview_after
+      ? {
+          beforeUrl: null,
+          afterUrl: obra.streetview_after,
+          beforeDate: null,
+          afterDate: null,
+          hasHistory: false,
+          cached: true,
+        }
+      : null,
   });
 
-  // Fetch Street View URL from API when we have coordinates but no stored image
+  // Auto-run analysis on mount for obras with coordinates
   useEffect(() => {
-    if (svUrl || !obra.lat || !obra.lng) return;
-    fetch(`/api/streetview?lat=${obra.lat}&lng=${obra.lng}`)
-      .then((r) => r.json())
-      .then((d) => { if (d.found) setSvUrl(d.image_url); })
-      .catch(() => null);
+    if (!obra.lat || !obra.lng) return;
+    // If already analyzed and cached, don't re-run automatically
+    if (ai.status === "done" && ai.sv) return;
+    runAiAnalysis();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [obra.id]);
 
-  async function runAiAnalysis() {
-    setAi((prev) => ({ ...prev, loading: true }));
+  async function runAiAnalysis(force = false) {
+    if (!obra.lat || !obra.lng) { setAi((p) => ({ ...p, status: "no_sv" })); return; }
+    setAi((p) => ({ ...p, status: "loading" }));
     try {
-      const res = await fetch(`/api/ai?id=${obra.id}`);
+      const url = `/api/ai?id=${obra.id}${force ? "&force=1" : ""}`;
+      const res = await fetch(url);
+      if (!res.ok) { setAi((p) => ({ ...p, status: "no_sv" })); return; }
       const d = await res.json();
-      setAi({ loading: false, score: d.ai_score, description: d.ai_description, imageUrl: d.streetview_after ?? null });
-      if (d.streetview_after) setSvUrl(d.streetview_after);
+      setAi({
+        status: "done",
+        score: d.score ?? null,
+        description: d.description ?? null,
+        sv: d.streetview ?? null,
+      });
     } catch {
-      setAi((prev) => ({ ...prev, loading: false }));
+      setAi((p) => ({ ...p, status: "error" }));
     }
   }
 
@@ -159,104 +204,121 @@ export default function ObraDetailPanel({
         </section>
 
         {/* STREET VIEW + AI */}
-        {(svUrl || obra.lat) && (
+        {obra.lat && obra.lng && (
           <div className="border-b border-[var(--rule)]">
-            {/* Image area */}
-            {obra.streetview_before && svUrl ? (
-              <BeforeAfterSlider
-                beforeUrl={obra.streetview_before}
-                afterUrl={ai.imageUrl ?? svUrl}
-                beforeLabel="Antes"
-                afterLabel="Ahora"
-              />
-            ) : svUrl ? (
-              <div className="relative">
-                <img
-                  src={ai.imageUrl ?? svUrl}
-                  alt="Street View"
-                  className="w-full h-48 object-cover"
-                />
-                {/* AI score overlay */}
-                {ai.score !== null && (
-                  <div
-                    className={`absolute bottom-2 left-2 flex items-center gap-1.5 px-2 py-1 rounded text-xs font-bold backdrop-blur-sm ${
-                      ai.score <= 30
-                        ? "bg-[var(--alarm)]/90 text-white"
-                        : ai.score <= 60
-                        ? "bg-[var(--warn)]/90 text-black"
-                        : "bg-[var(--safe)]/90 text-black"
-                    }`}
+
+            {/* Loading state */}
+            {ai.status === "loading" && (
+              <div className="flex flex-col items-center justify-center h-32 gap-2 bg-[var(--ink-0)]/60">
+                <span className="text-2xl animate-spin">🛰</span>
+                <p className="text-[10px] uppercase tracking-[0.22em] text-[var(--fg-faint)] animate-pulse"
+                   style={{ fontFamily: "var(--font-mono), monospace" }}>
+                  Buscando imágenes históricas…
+                </p>
+              </div>
+            )}
+
+            {/* No Street View coverage */}
+            {(ai.status === "no_sv" || ai.status === "error") && (
+              <div className="flex flex-col items-center justify-center h-20 gap-1 bg-[var(--ink-0)]/40">
+                <p className="text-[10px] uppercase tracking-[0.22em] text-[var(--fg-faint)]"
+                   style={{ fontFamily: "var(--font-mono), monospace" }}>
+                  Sin cobertura Street View en esta zona
+                </p>
+              </div>
+            )}
+
+            {/* Images */}
+            {(ai.status === "done" || ai.status === "idle") && ai.sv && (
+              <>
+                {ai.sv.hasHistory ? (
+                  /* BEFORE + AFTER: thumbnails side-by-side + draggable slider */
+                  <>
+                    <div className="grid grid-cols-2 gap-0.5 bg-[var(--rule)]">
+                      <div className="relative">
+                        <img src={ai.sv.beforeUrl!} alt="Antes" className="w-full h-28 object-cover block" />
+                        <span className="absolute bottom-1 left-1 text-[8px] uppercase tracking-wider bg-black/70 text-white px-1.5 py-0.5"
+                              style={{ fontFamily: "var(--font-mono), monospace" }}>
+                          Antes · {ai.sv.beforeDate ?? "—"}
+                        </span>
+                      </div>
+                      <div className="relative">
+                        <img src={ai.sv.afterUrl} alt="Ahora" className="w-full h-28 object-cover block" />
+                        <span className="absolute bottom-1 right-1 text-[8px] uppercase tracking-wider bg-[var(--brand)]/80 text-black px-1.5 py-0.5"
+                              style={{ fontFamily: "var(--font-mono), monospace" }}>
+                          Ahora · {ai.sv.afterDate ?? "—"}
+                        </span>
+                      </div>
+                    </div>
+                    <BeforeAfterSlider
+                      beforeUrl={ai.sv.beforeUrl!}
+                      afterUrl={ai.sv.afterUrl}
+                      beforeLabel={ai.sv.beforeDate ? `Antes · ${ai.sv.beforeDate}` : "Antes"}
+                      afterLabel={ai.sv.afterDate ? `Ahora · ${ai.sv.afterDate}` : "Ahora"}
+                    />
+                  </>
+                ) : (
+                  /* Single image — no genuine historical comparison available */
+                  <div className="relative">
+                    <img src={ai.sv.afterUrl} alt="Street View" className="w-full h-40 object-cover block" />
+                    <span className="absolute bottom-1 left-1 text-[8px] uppercase tracking-wider bg-black/70 text-white px-1.5 py-0.5"
+                          style={{ fontFamily: "var(--font-mono), monospace" }}>
+                      {ai.sv.afterDate ?? "Actual"} · Sin histórico disponible
+                    </span>
+                    {ai.score !== null && (
+                      <span className={`absolute top-1 right-1 text-[10px] font-bold px-2 py-0.5 ${
+                        ai.score <= 30 ? "bg-[var(--alarm)]/90 text-white" :
+                        ai.score <= 60 ? "bg-[var(--warn)]/90 text-black" :
+                        "bg-[var(--safe)]/90 text-black"
+                      }`} style={{ fontFamily: "var(--font-mono), monospace" }}>
+                        IA {ai.score}/100
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* Footer row */}
+                <div className="flex items-center justify-between px-3 py-1.5 border-t border-[var(--rule)]">
+                  <p className="text-[8px] uppercase tracking-[0.2em] text-[var(--fg-faint)]"
+                     style={{ fontFamily: "var(--font-mono), monospace" }}>
+                    Google Street View
+                    {ai.sv.totalPanos != null && ` · ${ai.sv.totalPanos} panoramas`}
+                  </p>
+                  <button
+                    onClick={() => runAiAnalysis(true)}
+                    className="text-[8px] uppercase tracking-[0.18em] text-[var(--fg-faint)] hover:text-white transition"
                     style={{ fontFamily: "var(--font-mono), monospace" }}
                   >
-                    IA {ai.score}/100
-                  </div>
-                )}
-                {ai.loading && (
-                  <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-                    <p
-                      className="text-[10px] uppercase tracking-[0.22em] text-[var(--brand)] animate-pulse"
-                      style={{ fontFamily: "var(--font-mono), monospace" }}
-                    >
-                      Analizando imagen…
+                    Actualizar ↺
+                  </button>
+                </div>
+
+                {/* AI verdict */}
+                {ai.description && (
+                  <div className="px-4 py-3 border-t border-[var(--rule)] bg-[var(--ink-0)]/60">
+                    <p className={`text-[9px] uppercase tracking-[0.26em] mb-1.5 ${
+                      ai.score != null && ai.score <= 30 ? "text-[var(--alarm)]" :
+                      ai.score != null && ai.score <= 60 ? "text-[var(--warn)]" : "text-[var(--safe)]"
+                    }`} style={{ fontFamily: "var(--font-mono), monospace" }}>
+                      Veredicto IA · Claude Vision
+                      {ai.score != null && ` · ${ai.score}/100`}
+                      {ai.sv.hasHistory && " · comparación antes/ahora"}
                     </p>
+                    <p className="text-[13px] text-white/80 italic leading-relaxed"
+                       style={{ fontFamily: "var(--font-display), serif" }}>
+                      "{ai.description}"
+                    </p>
+                    {!ai.sv.cached && (
+                      <p className="text-[8px] text-[var(--fg-faint)] mt-1.5 text-right"
+                         style={{ fontFamily: "var(--font-mono), monospace" }}>
+                        análisis en vivo
+                      </p>
+                    )}
                   </div>
                 )}
-              </div>
-            ) : (
-              <div className="h-12 flex items-center px-5">
-                <p
-                  className="text-[10px] uppercase tracking-[0.22em] text-[var(--fg-faint)] animate-pulse"
-                  style={{ fontFamily: "var(--font-mono), monospace" }}
-                >
-                  Buscando Street View…
-                </p>
-              </div>
+              </>
             )}
 
-            {/* Footer row */}
-            <div className="flex items-center justify-between px-3 py-2 border-t border-[var(--rule)]">
-              <p
-                className="text-[9px] tracking-[0.2em] uppercase text-[var(--fg-faint)]"
-                style={{ fontFamily: "var(--font-mono), monospace" }}
-              >
-                {obra.streetview_before ? "Antes · Ahora · Google SV" : "Street View · Google"}
-              </p>
-              {ai.score === null && svUrl && obra.lat && obra.lng && (
-                <button
-                  onClick={runAiAnalysis}
-                  disabled={ai.loading}
-                  className="text-[10px] uppercase tracking-[0.18em] bg-[var(--brand)]/10 border border-[var(--brand)]/40 text-[var(--brand)] hover:bg-[var(--brand)]/20 disabled:opacity-40 transition px-2 py-1 rounded"
-                  style={{ fontFamily: "var(--font-mono), monospace" }}
-                >
-                  Analizar con IA →
-                </button>
-              )}
-            </div>
-
-            {/* AI description — right under the image */}
-            {ai.description && (
-              <div className="px-5 py-3 border-t border-[var(--rule)] bg-[var(--ink-0)]/60">
-                <p
-                  className={`text-[9px] uppercase tracking-[0.26em] mb-1.5 ${
-                    ai.score !== null && ai.score <= 30
-                      ? "text-[var(--alarm)]"
-                      : ai.score !== null && ai.score <= 60
-                      ? "text-[var(--warn)]"
-                      : "text-[var(--safe)]"
-                  }`}
-                  style={{ fontFamily: "var(--font-mono), monospace" }}
-                >
-                  Veredicto IA
-                  {ai.score !== null && ` · ${ai.score}/100`}
-                </p>
-                <p
-                  className="text-sm text-white/80 italic leading-relaxed"
-                  style={{ fontFamily: "var(--font-display), serif" }}
-                >
-                  "{ai.description}"
-                </p>
-              </div>
-            )}
           </div>
         )}
 
