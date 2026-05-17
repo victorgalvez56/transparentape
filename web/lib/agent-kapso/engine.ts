@@ -1,6 +1,7 @@
 import Groq from "groq-sdk";
 import { query } from "@/lib/db";
-import type { ChatMsg } from "./session";
+import type { ChatMsg, Session, UserProfile } from "./session";
+import { buildUserContext } from "./context";
 import { AGENT } from "./config";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
@@ -118,13 +119,23 @@ const SYSTEM_PROMPT_SYNTHESIS = `Sintetiza resultados de BD para el usuario de W
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
+export interface ChatEngineContext {
+  profile: UserProfile | null;
+  session: Session;
+}
+
 export async function chatEngine(
   message: string,
-  history: ChatMsg[] = []
+  history: ChatMsg[] = [],
+  ctx?: ChatEngineContext
 ): Promise<string> {
   if (!message || message.length > AGENT.limits.maxInputChars) {
     return "Consulta muy larga. Intenta con una pregunta más corta.";
   }
+
+  // Context prefix: user identity + active filters + entities + prior summary.
+  // Empty string when there's nothing to inject (first-time user, no state).
+  const ctxPrefix = ctx ? buildUserContext(ctx.profile, ctx.session) : "";
 
   const historyMsgs = toGroqHistory(history);
   const userTurn: Groq.Chat.Completions.ChatCompletionMessageParam = {
@@ -141,7 +152,7 @@ export async function chatEngine(
     const routerRes = await withTimeout(
       groq.chat.completions.create({
         messages: [
-          { role: "system", content: SYSTEM_PROMPT_ROUTER },
+          { role: "system", content: ctxPrefix + SYSTEM_PROMPT_ROUTER },
           ...historyMsgs,
           userTurn,
         ],
@@ -182,7 +193,7 @@ export async function chatEngine(
     const ctxRes = await withTimeout(
       groq.chat.completions.create({
         messages: [
-          { role: "system", content: SYSTEM_PROMPT_CONTEXT },
+          { role: "system", content: ctxPrefix + SYSTEM_PROMPT_CONTEXT },
           ...historyMsgs,
           userTurn,
         ],
@@ -202,7 +213,7 @@ export async function chatEngine(
   const sqlRes = await withTimeout(
     groq.chat.completions.create({
       messages: [
-        { role: "system", content: SYSTEM_PROMPT_SQL },
+        { role: "system", content: ctxPrefix + SYSTEM_PROMPT_SQL },
         ...slidingWindow,
         userTurn,
       ],
@@ -249,7 +260,7 @@ export async function chatEngine(
   const synthesisRes = await withTimeout(
     groq.chat.completions.create({
       messages: [
-        { role: "system", content: SYSTEM_PROMPT_SYNTHESIS },
+        { role: "system", content: ctxPrefix + SYSTEM_PROMPT_SYNTHESIS },
         ...slidingWindow,
         userTurn,
         {

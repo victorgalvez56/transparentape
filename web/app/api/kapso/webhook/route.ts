@@ -5,7 +5,24 @@ import { normalizeWebhook, verifySignature as sdkVerifySignature } from "@kapso/
 import { query } from "@/lib/db";
 import { chatEngine } from "@/lib/agent-kapso/engine";
 import { parseIntent } from "@/lib/agent-kapso/intent";
-import { getSession, updateSession, appendHistoryAtomic } from "@/lib/agent-kapso/session";
+import {
+  getSession,
+  updateSession,
+  appendHistoryAtomic,
+  clearActiveFilters,
+  getProfile,
+  bumpProfile,
+  type Session,
+  type UserProfile,
+} from "@/lib/agent-kapso/session";
+import {
+  extractTurnEntities,
+  mergeEntities,
+  mergeFilters,
+  effectiveSearchFilters,
+  shouldResummarize,
+  summarizeHistory,
+} from "@/lib/agent-kapso/context";
 import { AGENT } from "@/lib/agent-kapso/config";
 import {
   buscarObras,
@@ -104,21 +121,34 @@ async function sendAyudaWithButtons(
   }
 }
 
+// Greet the user by name once per session if we know it. Returns "" when
+// nothing to add. Idempotent — only fires for the first message after a TTL gap.
+function greetingPrefix(profile: UserProfile | null, session: Session): string {
+  if (!profile?.displayName) return "";
+  // Only on the first turn of a session (no prior messages).
+  if ((session.lastMessages?.length ?? 0) > 0) return "";
+  return `Hola ${profile.displayName.split(/\s+/)[0]} 👋\n\n`;
+}
+
 // ── intent routing ────────────────────────────────────────────────────────────
 async function handleMessage(
   text: string,
   conversationId: string,
   phoneNumberId: string,
-  to: string
+  to: string,
+  session: Session,
+  profile: UserProfile | null
 ): Promise<string | null> {
-  const session = await getSession(conversationId);
   const parsed = parseIntent(text, session.country);
 
-  if (parsed.country && parsed.country !== session.country) {
-    await updateSession(conversationId, { country: parsed.country });
-  }
+  // Country resolution priority: explicit in message > session > profile default > "PE"
+  const resolvedCountry =
+    parsed.country ?? session.country ?? profile?.defaultCountry ?? "PE";
 
-  const country = parsed.country ?? session.country;
+  if (resolvedCountry !== session.country) {
+    await updateSession(conversationId, { country: resolvedCountry });
+  }
+  const country = resolvedCountry;
 
   switch (parsed.intent) {
     case "CAMBIAR_PAIS": {
@@ -136,7 +166,7 @@ async function handleMessage(
     case "STATS": {
       const stats = await statsPorPais(country);
       if (!stats) return "No hay datos disponibles para ese país.";
-      return fmtStats({ ...stats, country });
+      return greetingPrefix(profile, session) + fmtStats({ ...stats, country });
     }
 
     case "MONTO_EN_RIESGO": {
@@ -161,9 +191,9 @@ async function handleMessage(
     }
 
     case "BUSCAR_OBRAS": {
-      const filters = parsed.filters ?? { country };
+      // Filters carry across turns within the same search thread.
+      const filters = effectiveSearchFilters(session.activeFilters, parsed.filters, country);
       const obras = await buscarObras({ ...filters, limit: 5 });
-      // If year filter returned 0 results, suggest the most recent available year
       let yearSugerido: number | undefined;
       if (!obras.length && filters.year) {
         const years = await yearsDisponibles(country);
@@ -173,7 +203,7 @@ async function handleMessage(
         lastResultIds: obras.map((o) => o.id),
         lastQuery: text,
       });
-      return fmtObras(obras, country, yearSugerido);
+      return greetingPrefix(profile, session) + fmtObras(obras, country, yearSugerido);
     }
 
     case "CONTEXTO_DETALLE": {
@@ -228,7 +258,56 @@ async function handleMessage(
 
     case "PREGUNTA_LIBRE":
     default:
-      return chatEngine(text, session.lastMessages ?? []);
+      return chatEngine(text, session.lastMessages ?? [], { profile, session });
+  }
+}
+
+// Post-reply state propagation: filters, entities, profile counters, summary.
+// Runs after the user has the response — its latency doesn't matter.
+async function propagateContext(
+  conversationId: string,
+  text: string,
+  session: Session,
+  profile: UserProfile | null,
+  displayName: string | undefined
+): Promise<void> {
+  const parsed = parseIntent(text, session.country);
+
+  // 1. Update active filters (or clear them on a topic break).
+  const newFilters = mergeFilters(session.activeFilters, parsed.filters, parsed.intent);
+  if (newFilters === undefined && session.activeFilters !== undefined) {
+    await clearActiveFilters(conversationId);
+  } else if (newFilters !== undefined) {
+    await updateSession(conversationId, { activeFilters: newFilters });
+  }
+
+  // 2. Update mentioned entities.
+  const turnEntities = extractTurnEntities(text, parsed);
+  if (Object.keys(turnEntities).length > 0) {
+    const merged = mergeEntities(session.mentionedEntities, turnEntities);
+    await updateSession(conversationId, { mentionedEntities: merged });
+  }
+
+  // 3. Bump user profile counters.
+  const topicDelta: Record<string, number> = { [parsed.intent]: 1 };
+  if (parsed.country) topicDelta[`country:${parsed.country}`] = 1;
+  if (parsed.filters?.q) topicDelta[`region:${parsed.filters.q.toLowerCase()}`] = 1;
+  await bumpProfile(conversationId, topicDelta, {
+    displayName,
+    defaultCountry: parsed.country ?? session.country,
+  });
+
+  // 4. Maybe rebuild rolling summary. Re-read session to capture the freshly
+  // appended history pair.
+  const fresh = await getSession(conversationId);
+  if (shouldResummarize(fresh)) {
+    const summary = await summarizeHistory(fresh.lastMessages ?? [], fresh.sessionSummary);
+    if (summary) {
+      await updateSession(conversationId, {
+        sessionSummary: summary,
+        summaryMsgCount: fresh.lastMessages?.length ?? 0,
+      });
+    }
   }
 }
 
@@ -334,6 +413,11 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Extract WhatsApp display name if Kapso forwards it.
+  const profileName = (normalized as { profileName?: string }).profileName
+    ?? (msg as { profile?: { name?: string } }).profile?.name
+    ?? undefined;
+
   // Location message — save coords to session and search nearby obras
   if (msg.type === "location" && msg.location) {
     const { latitude, longitude } = msg.location as { latitude?: number; longitude?: number };
@@ -341,11 +425,15 @@ export async function POST(req: NextRequest) {
       (async () => {
         try {
           await updateSession(from, { lastLocation: { lat: latitude, lng: longitude } });
-          const reply = await handleMessage("obras cerca de mí", from, phoneNumberId, to);
+          const [session, profile] = await Promise.all([getSession(from), getProfile(from)]);
+          const reply = await handleMessage("obras cerca de mí", from, phoneNumberId, to, session, profile);
           if (reply) {
             const truncated = reply.length > AGENT.limits.waMaxChars ? reply.slice(0, AGENT.limits.waMaxChars - 6) + "…" : reply;
             await kapso.messages.sendText({ phoneNumberId, to, body: truncated });
             saveHistory(from, "📍 ubicación compartida", truncated).catch(() => {});
+            propagateContext(from, "obras cerca de mí", session, profile, profileName).catch((e) =>
+              console.error("[kapso/webhook] propagate (location) error:", e)
+            );
           }
           query(
             `INSERT INTO agent_logs(endpoint, params, n_resultados, latencia_ms) VALUES ($1, $2, $3, $4)`,
@@ -388,13 +476,19 @@ export async function POST(req: NextRequest) {
   // fire-and-forget — return 200 immediately to avoid Kapso retry
   (async () => {
     try {
-      const reply = await handleMessage(text!, from, phoneNumberId, to);
+      const [session, profile] = await Promise.all([getSession(from), getProfile(from)]);
+      const reply = await handleMessage(text!, from, phoneNumberId, to, session, profile);
       if (reply !== null) {
         const truncated = reply.length > AGENT.limits.waMaxChars ? reply.slice(0, AGENT.limits.waMaxChars - 6) + "…" : reply;
         await Promise.all([
           kapso.messages.sendText({ phoneNumberId, to, body: truncated }),
           saveHistory(from, text!, truncated).catch(() => {}),
         ]);
+        // Context propagation runs after the user has the reply; its latency
+        // and any failures don't affect what they see.
+        propagateContext(from, text!, session, profile, profileName).catch((e) =>
+          console.error("[kapso/webhook] propagate error:", e)
+        );
       }
       query(
         `INSERT INTO agent_logs(endpoint, params, n_resultados, latencia_ms) VALUES ($1, $2, $3, $4)`,
