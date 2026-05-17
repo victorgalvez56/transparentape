@@ -16,6 +16,9 @@ interface Props {
   onSelectPreset: (key: string) => void;
   onlyRedFlag: boolean;
   onToggleRedFlag: () => void;
+  years: number[];
+  yearFilter: number | null;
+  onSelectYear: (y: number | null) => void;
 }
 
 /**
@@ -34,6 +37,9 @@ export default function HudOverlay({
   onSelectPreset,
   onlyRedFlag,
   onToggleRedFlag,
+  years,
+  yearFilter,
+  onSelectYear,
 }: Props) {
   // Stats live calculados de las obras renderizadas
   const stats = (() => {
@@ -132,6 +138,29 @@ export default function HudOverlay({
           >
             {onlyRedFlag ? "● mostrando solo alertas" : "○ filtrar solo alertas OECE"}
           </button>
+          {/* Filtro de año */}
+          {years.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] uppercase tracking-[0.22em] text-white/40">
+                Año
+              </span>
+              <select
+                value={yearFilter ?? ""}
+                onChange={(e) =>
+                  onSelectYear(e.target.value === "" ? null : Number(e.target.value))
+                }
+                className="bg-black/80 border border-white/15 text-white/80 text-[11px] tracking-[0.1em] px-2 py-1.5 focus:outline-none focus:border-[var(--brand)]"
+                style={{ fontFamily: "var(--font-mono), monospace" }}
+              >
+                <option value="">Todos los años</option>
+                {years.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       )}
 

@@ -12,7 +12,7 @@ import ContextLostListener, { ContextLostBanner } from "./ContextLostBanner";
 import HudOverlay from "./HudOverlay";
 import CameraController from "./CameraController";
 import { useObrasVR } from "@/lib/vr/obras-source";
-import { LIMA_POSITION } from "@/lib/vr/projection";
+import { LIMA_POSITION, projectToFloor, montoToHeight } from "@/lib/vr/projection";
 import { CITY_PRESETS, cameraForPreset } from "@/lib/vr/city-presets";
 
 export default function AuditRoom() {
@@ -21,6 +21,7 @@ export default function AuditRoom() {
   const [selected, setSelected] = useState<number | null>(null);
   const [activePreset, setActivePreset] = useState<string>("lima");
   const [onlyRedFlag, setOnlyRedFlag] = useState(false);
+  const [yearFilter, setYearFilter] = useState<number | null>(null);
   const [flyTo, setFlyTo] = useState<{
     target: [number, number, number];
     position: [number, number, number];
@@ -41,6 +42,27 @@ export default function AuditRoom() {
     });
   };
 
+  // Click columna → seleccionar + fly camera a esa obra
+  const handleSelectObra = (id: number) => {
+    setSelected(id);
+    const obra = obras.find((o) => o.id === id);
+    if (!obra) return;
+    const [x, z] = projectToFloor(obra.lng, obra.lat);
+    const h = montoToHeight(obra.monto);
+    setFlyTo({
+      target: [x, h / 2, z],
+      position: [x + 2, h + 1.5, z + 3],
+      seq: (flyTo?.seq ?? 0) + 1,
+    });
+  };
+
+  // Años disponibles en el dataset
+  const availableYears = (() => {
+    const set = new Set<number>();
+    for (const o of obras) if (o.source_year != null) set.add(o.source_year);
+    return [...set].sort((a, b) => b - a);
+  })();
+
   return (
     <>
       <HudOverlay
@@ -55,6 +77,9 @@ export default function AuditRoom() {
         onSelectPreset={handleSelectPreset}
         onlyRedFlag={onlyRedFlag}
         onToggleRedFlag={() => setOnlyRedFlag((v) => !v)}
+        years={availableYears}
+        yearFilter={yearFilter}
+        onSelectYear={(y) => setYearFilter(y)}
       />
       <ContextLostBanner visible={contextLost} />
       <Canvas
@@ -74,9 +99,10 @@ export default function AuditRoom() {
         <RedFlagPulses />
         <ColumnaForest
           onlyRedFlag={onlyRedFlag}
+          yearFilter={yearFilter}
           onPointerOver={(id) => setHovered(id)}
           onPointerOut={() => setHovered(null)}
-          onSelect={(id) => setSelected(id)}
+          onSelect={handleSelectObra}
         />
         <OrbitControls
           ref={controlsRef}
