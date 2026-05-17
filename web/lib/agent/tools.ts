@@ -118,6 +118,7 @@ export const TOOLS: Tool[] = [
           if (c.q_geo) filters.q_geo = c.q_geo;
           if (c.q_supplier) filters.q_supplier = c.q_supplier;
           if (c.q_sector) filters.q_sector = c.q_sector;
+          if (c.q) filters.q = c.q;
           // If classifyQuery returned {}, the raw was noise — leave q empty
           // so we return the top of the country instead of an ILIKE that
           // matches zero rows.

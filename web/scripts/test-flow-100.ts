@@ -22,6 +22,7 @@ type Expectation = {
   contextPosition?: number;
   contextCount?: number;
   filters?: {
+    q?: string;
     q_geo?: string;
     q_supplier?: string;
     q_sector?: string;
@@ -60,11 +61,19 @@ const CASES: Expectation[] = [
   { input: "obras en Cusco con alerta", intent: "BUSCAR_OBRAS", filters: { q_geo: "cusco", red_flag: true } },
   { input: "proyectos del 2023 en Iquitos", intent: "BUSCAR_OBRAS", filters: { q_geo: "iquitos", year: 2023 } },
   { input: "construcciones en Arequipa", intent: "BUSCAR_OBRAS", filters: { q_geo: "arequipa" } },
-  { input: "obras de Cosapi", intent: "BUSCAR_OBRAS", filters: { q_supplier: "Cosapi" } },
+  // Single ambiguous capitalised word — could be place OR company. classifyQuery
+  // returns legacy `q` so buscarObras ILIKEs all three columns.
+  { input: "obras de Cosapi", intent: "BUSCAR_OBRAS", filters: { q: "Cosapi" } },
   { input: "obras de Cosapi en Lima", intent: "BUSCAR_OBRAS", filters: { q_geo: "lima", q_supplier: "cosapi" } },
-  { input: "obras de Odebrecht", intent: "BUSCAR_OBRAS", filters: { q_supplier: "Odebrecht" } },
+  { input: "obras de Odebrecht", intent: "BUSCAR_OBRAS", filters: { q: "Odebrecht" } },
   { input: "obras en Lima Norte", intent: "BUSCAR_OBRAS", filters: { q_geo: "lima norte" } },
   { input: "obras en San Juan de Lurigancho", intent: "BUSCAR_OBRAS", filters: { q_geo: "san juan de lurigancho" } },
+  // Provincias/distritos NO en seed allowlist — pueden ser place o supplier,
+  // sin cache DB ambos ILIKE caen al WHERE legacy `q` (OR sobre 3 cols).
+  // Con cache DB warm: case 1 los atrapa como q_geo. Aquí simulamos cold-start.
+  { input: "obras en Chota", intent: "BUSCAR_OBRAS", filters: { q: "Chota" } },
+  { input: "obras en Tarapoto", intent: "BUSCAR_OBRAS", filters: { q: "Tarapoto" } },
+  { input: "obras en Pacasmayo", intent: "BUSCAR_OBRAS", filters: { q: "Pacasmayo" } },
   { input: "obras de saneamiento", intent: "BUSCAR_OBRAS", filters: { q_sector: "saneamiento" } },
 
   // C. BUSCAR_OBRAS edge (21-28)
@@ -158,10 +167,10 @@ const CASES: Expectation[] = [
 ];
 
 // ── classifyQuery direct tests — independent of parseIntent ──────────────────
-const QUERY_CASES: { input: string; expect: { q_geo?: string; q_supplier?: string; q_sector?: string } }[] = [
+const QUERY_CASES: { input: string; expect: { q?: string; q_geo?: string; q_supplier?: string; q_sector?: string } }[] = [
   { input: "Piura", expect: { q_geo: "piura" } },
   { input: "Lima Norte", expect: { q_geo: "lima norte" } },
-  { input: "Cosapi", expect: { q_supplier: "Cosapi" } },
+  { input: "Cosapi", expect: { q: "Cosapi" } },
   { input: "Cosapi en Lima", expect: { q_geo: "lima", q_supplier: "cosapi" } },
   { input: "Odebrecht SAC", expect: { q_supplier: "Odebrecht SAC" } },
   { input: "saneamiento", expect: { q_sector: "saneamiento" } },

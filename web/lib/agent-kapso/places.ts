@@ -1,24 +1,36 @@
 /**
- * Shared place + company allowlist used by intent.ts, tools.ts, and core.ts.
+ * Place + company classifier used by intent.ts, tools.ts, and core.ts.
+ *
+ * Two-tier source for the place dictionary:
+ *
+ *   1. **DB-backed index (primary).** A lazy cache pulls every distinct
+ *      `buyer_region` + `buyer_locality` value from the `obras` table and
+ *      keeps them in memory for 4 hours. This means the agent automatically
+ *      learns new districts/provinces as the ETL feeds them, works across
+ *      any country (PE/CL/CO/MX/AR/BR/...) without code changes, and never
+ *      falls behind reality. ~1ms lookup once warmed; warm itself is one
+ *      DB query under 200ms typically.
+ *
+ *   2. **Seed allowlist (cold-start + offline fallback).** A small
+ *      hardcoded set covers the most common LATAM places. Used when the
+ *      DB cache is not yet warm or when the host is offline (test
+ *      runner). Keeps the classifier deterministic during boot.
  *
  * Two related problems this solves:
  *
- *   1. False-positive `q` searches. "obras grandes" → buildSearchQuery →
- *      "grandes" → ILIKE %grandes% on region/locality → zero rows. The
- *      allowlist drops `q` entirely when the cleaned phrase doesn't look
- *      like a real place AND doesn't look like a company name.
+ *   - False-positive `q` searches. "obras grandes" → buildSearchQuery →
+ *     "grandes" → ILIKE %grandes% on region/locality → zero rows. We drop
+ *     `q` entirely when the cleaned phrase doesn't look like a real
+ *     place AND doesn't look like a company name.
  *
- *   2. Mixed geo + company queries. "obras de Cosapi en Lima" → buildSearch
- *      returns "Cosapi en Lima" → ILIKE %Cosapi en Lima% matches nothing.
- *      classifyQuery() pulls "Lima" into q_geo and leaves "Cosapi" as
- *      q_supplier so the WHERE clause filters each column with the right
- *      token.
- *
- * The list is intentionally compact — major PE departments + capitals plus
- * a thin slice of CL/CO/MX/AR/BR landmarks. Extending it is cheap; missing
- * a place just degrades to the legacy `q` behaviour which still works for
- * users who type lowercase known company names.
+ *   - Mixed geo + company queries. "obras de Cosapi en Lima" → buildSearch
+ *     returns "Cosapi en Lima" → ILIKE %Cosapi en Lima% matches nothing.
+ *     classifyQuery() pulls "Lima" into q_geo and leaves "Cosapi" as
+ *     q_supplier so the WHERE clause filters each column with the right
+ *     token.
  */
+
+import { query, hasDatabase } from "../db";
 
 const PLACES_PE = [
   // Departments
@@ -139,16 +151,134 @@ function normalize(s: string): string {
   return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 }
 
+// ── DB-backed place index ─────────────────────────────────────────────────────
+//
+// Lazy cache of every distinct buyer_region + buyer_locality currently in the
+// obras table, keyed by normalised string. Multi-country by construction —
+// CO/MX/AR/BR places appear automatically as soon as their ETL loads data.
+// Lifecycle:
+//   - First call to findPlace() fires warmPlaceCache() (non-blocking).
+//   - While the warm runs, findPlace falls back to the seed list.
+//   - After warm completes, all subsequent calls hit the in-memory map.
+//   - After PLACE_CACHE_TTL_MS the next call re-warms in the background.
+// Failure modes:
+//   - DATABASE_URL absent (offline test runner) → warm short-circuits,
+//     cache stays null, seed is the only source. Tests still pass.
+//   - DB error during warm → silently caught, retried next call.
+
+interface PlaceCacheEntry {
+  /** Normalised key (lowercase, no diacritics). */
+  key: string;
+  /** Original casing as stored in DB. */
+  display: string;
+  /** ISO 3166-1 alpha-2. */
+  country: string;
+  /** Where the name came from in the obras schema. */
+  kind: "region" | "locality";
+  /** Number of obras rows referencing this name — used to break ties. */
+  usage: number;
+}
+
+let placeCache: { map: Map<string, PlaceCacheEntry>; keysByLen: string[] } | null = null;
+let placeCacheLoadedAt = 0;
+let placeCacheWarmingPromise: Promise<void> | null = null;
+const PLACE_CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
+const PLACE_CACHE_MAX_ROWS = 20000;
+
+/**
+ * Warms the place cache from `obras`. Fire-and-forget — callers do not
+ * await; findPlace just checks whether the cache is ready and falls back
+ * to the seed list when it isn't.
+ */
+export function warmPlaceCache(): Promise<void> {
+  if (placeCacheWarmingPromise) return placeCacheWarmingPromise;
+  if (placeCache && Date.now() - placeCacheLoadedAt < PLACE_CACHE_TTL_MS) {
+    return Promise.resolve();
+  }
+  if (!hasDatabase()) return Promise.resolve();
+
+  placeCacheWarmingPromise = (async () => {
+    try {
+      const rows = await query<{ name: string; country: string; kind: string; n: string }>(
+        `WITH names AS (
+           SELECT buyer_region AS name, country, 'region' AS kind, COUNT(*) AS n
+           FROM obras
+           WHERE buyer_region IS NOT NULL AND length(buyer_region) >= 3
+           GROUP BY buyer_region, country
+           UNION ALL
+           SELECT buyer_locality AS name, country, 'locality' AS kind, COUNT(*) AS n
+           FROM obras
+           WHERE buyer_locality IS NOT NULL AND length(buyer_locality) >= 3
+           GROUP BY buyer_locality, country
+         )
+         SELECT name, country, kind, n
+         FROM names
+         ORDER BY n DESC
+         LIMIT $1`,
+        [PLACE_CACHE_MAX_ROWS]
+      );
+      const map = new Map<string, PlaceCacheEntry>();
+      for (const r of rows) {
+        const key = normalize(r.name);
+        if (key.length < 3) continue;
+        const usage = Number(r.n) || 0;
+        const existing = map.get(key);
+        // Keep the highest-usage entry for the same normalised key (handles
+        // the case where the same town name appears in multiple countries).
+        if (!existing || usage > existing.usage) {
+          map.set(key, {
+            key,
+            display: r.name,
+            country: r.country,
+            kind: (r.kind === "region" ? "region" : "locality"),
+            usage,
+          });
+        }
+      }
+      const keysByLen = [...map.keys()].sort((a, b) => b.length - a.length);
+      placeCache = { map, keysByLen };
+      placeCacheLoadedAt = Date.now();
+    } catch (e) {
+      console.error("[places] warmPlaceCache failed:", e);
+    } finally {
+      placeCacheWarmingPromise = null;
+    }
+  })();
+  return placeCacheWarmingPromise;
+}
+
+/** Returns metadata about the matched place, or null. Cache-only. */
+export function findPlaceInIndex(q: string): PlaceCacheEntry | null {
+  if (!placeCache || !q || q.length < 3) return null;
+  const padded = ` ${normalize(q)} `;
+  // Longest-first scan handles "Lima Norte" before "Lima".
+  for (const k of placeCache.keysByLen) {
+    if (padded.includes(` ${k} `) || padded.includes(` ${k}.`) || padded.includes(` ${k},`)) {
+      return placeCache.map.get(k) ?? null;
+    }
+  }
+  const compact = normalize(q);
+  return placeCache.map.get(compact) ?? null;
+}
+
 /** Returns the longest place word found inside `q`, or null. */
 export function findPlace(q: string): string | null {
   if (!q || q.length < 3) return null;
+  // Fire the warm in the background — first call kicks it off, subsequent
+  // calls find the cache populated.
+  void warmPlaceCache();
+  // Prefer the DB-backed index when warm — covers any locality/province
+  // currently present in the obras table (multi-country, no allowlist).
+  const fromIndex = findPlaceInIndex(q);
+  if (fromIndex) return fromIndex.key;
+  // Fallback to the compact seed list (handles cold start + offline tests
+  // + countries with no ETL data yet).
   const n = ` ${normalize(q)} `;
   for (const p of ALL_PLACES) {
     if (n.includes(` ${p} `) || n.includes(` ${p}.`) || n.includes(` ${p},`)) {
       return p;
     }
   }
-  // Substring fallback for single-word inputs ("piura", "lima")
   const compact = normalize(q);
   for (const p of ALL_PLACES) {
     if (compact === p) return p;
@@ -188,6 +318,8 @@ export function classifyQuery(q: string | undefined): {
   q_geo?: string;
   q_supplier?: string;
   q_sector?: string;
+  /** Ambiguous fallback — buscarObras ILIKEs all three columns (legacy). */
+  q?: string;
 } {
   if (!q) return {};
   const trimmed = q.trim();
@@ -226,10 +358,15 @@ export function classifyQuery(q: string | undefined): {
     return { q_supplier: trimmed };
   }
 
-  // 4. Single-word non-noise → assume proper noun (company name typed
-  //    lowercase: "odebrecht", "cosapi", "graña").
+  // 4. Single-word non-noise — TRULY ambiguous (could be place OR company).
+  //    "Cosapi" / "Odebrecht" / "Chota" / "Tarapoto" — without the DB
+  //    index there's no way to tell. Return legacy `q` so buscarObras
+  //    ILIKEs all three columns (buyer_region, buyer_locality, supplier_name).
+  //    Cosapi matches supplier_name, Chota matches buyer_locality — both
+  //    work, single SQL. Once the DB place-index is warm, case 1 above
+  //    routes Chota straight to q_geo; this case is the cold-start path.
   if (/^[\p{L}'-]+$/u.test(n) && n.length >= 4 && !NOISE_WORDS.has(n)) {
-    return { q_supplier: trimmed };
+    return { q: trimmed };
   }
 
   // 5. Multi-word with internal capitalisation → unknown place.

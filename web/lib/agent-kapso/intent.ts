@@ -315,6 +315,7 @@ export function parseIntent(text: string, sessionCountry: Country): ParsedIntent
       if (classified.q_geo) filters.q_geo = classified.q_geo;
       if (classified.q_supplier) filters.q_supplier = classified.q_supplier;
       if (classified.q_sector) filters.q_sector = classified.q_sector;
+      if (classified.q) filters.q = classified.q;
     }
     return { intent: "BUSCAR_OBRAS", country, filters };
   }
