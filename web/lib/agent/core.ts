@@ -149,6 +149,16 @@ function stripTrailingSemicolon(sql: string): string {
   return t.endsWith(";") ? t.slice(0, -1).trim() : t;
 }
 
+// Defense-in-depth against runaway result sets. The SQL prompt already asks
+// for LIMIT 3/5, but llama sometimes forgets — appending a hard cap here
+// makes the worst case "50 rows synthesised" instead of "30k rows OOM".
+// Only appended when no LIMIT clause is present; existing LIMITs are kept
+// even if larger, because the SQL prompt is allowed to widen on demand.
+function ensureLimit(sql: string, cap = 50): string {
+  if (/\blimit\s+\d+\b/i.test(sql)) return sql;
+  return `${sql.replace(/\s+$/, "")} LIMIT ${cap}`;
+}
+
 const REGION_HINT_RE = /\b(piura|lima|cusco|arequipa|trujillo|chiclayo|iquitos|ica|tacna|puno|huancayo|callao|ayacucho|cajamarca|huánuco|huanuco|junín|junin|loreto|madre de dios|moquegua|pasco|san martín|san martin|tumbes|ucayali|amazonas|apurímac|apurimac|áncash|ancash|huancavelica|lambayeque|la libertad|santiago|valparaíso|valparaiso|antofagasta|concepción|concepcion|bogotá|bogota|medellín|medellin|cali|barranquilla)\b/i;
 
 function extractRegionHint(history: ChatMessage[]): string | undefined {
@@ -340,7 +350,7 @@ export async function runChatPipeline(
     };
   }
 
-  const execSql = stripTrailingSemicolon(sqlQuery);
+  const execSql = ensureLimit(stripTrailingSemicolon(sqlQuery));
   let dbResults: unknown[] = [];
   try {
     dbResults = await query(execSql);
