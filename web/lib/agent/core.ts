@@ -58,7 +58,7 @@ Comportamiento de "reply" (Solo para NEEDS_CLARIFICATION):
 3. Ambiguo ("ayuda"): Pide más detalles amigablemente.
 
 Restricciones para "suggested_questions" (Guardrail Anti-Derrape):
-1. Primera Persona (UX): Cada sugerencia debe formularse como una pregunta que el usuario le haría al agente (ej: "¿Cuáles son las obras con más presupuesto en Piura?").
+1. UX de Autocompletado (CRÍTICO): Las sugerencias NO SON preguntas que tú le haces al usuario. Son ejemplos de lo que el usuario podría escribir. EJEMPLOS CORRECTOS: "¿Cuáles son las obras con mayor presupuesto en Piura?", "Buscar obras de saneamiento". EJEMPLOS INCORRECTOS (PROHIBIDO): "¿Quieres saber sobre obras?", "¿En qué te ayudo?", "¿Te gustaría ver...?"
 2. Conciencia de Contexto y Guardrail: SI EL USUARIO SALIÓ DE TEMA, IGNORA SU TEMA ACTUAL por completo. Lee la ventana de contexto previo, rescata la última ubicación o proyecto válido y genera sugerencias para regresar a ese tema. NUNCA adaptes sugerencias a un tema fuera de contexto.
 3. Seguridad: Las sugerencias deben inducir a consultas SELECT muy específicas y filtradas.`;
 
@@ -99,7 +99,7 @@ Comportamiento de "reply" (Solo para NEEDS_CLARIFICATION):
 3. Ambiguo ("ayuda"): Pide más detalles amigablemente.
 
 Restricciones para "suggested_questions" (Guardrail Anti-Derrape):
-1. Primera Persona (UX): Cada sugerencia debe ser una pregunta desde la perspectiva del usuario.
+1. UX de Autocompletado (CRÍTICO): Las sugerencias NO SON preguntas que tú le haces al usuario. Son ejemplos de lo que el usuario podría escribir. EJEMPLOS CORRECTOS: "¿Cuáles son las obras con mayor presupuesto?", "Ranking de contratistas". EJEMPLOS INCORRECTOS (PROHIBIDO): "¿Quieres saber sobre obras?", "¿Te ayudo con algo más?", "¿Te gustaría ver...?"
 2. Conciencia de Contexto y Guardrail: SI EL USUARIO SALIÓ DE TEMA, IGNORA SU TEMA ACTUAL por completo. Rescata la última ubicación o proyecto válido y genera sugerencias para regresar a ese tema.
 3. Seguridad: Las sugerencias deben inducir a consultas SELECT muy específicas.
 
