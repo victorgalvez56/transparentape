@@ -98,7 +98,7 @@ export default function ColumnaForest({
       onClick={handleClick}
       frustumCulled={false}
     >
-      <cylinderGeometry args={[0.04, 0.04, 1, 6]} />
+      <cylinderGeometry args={[0.04, 0.04, 1, 4]} />
       <meshStandardMaterial
         vertexColors={false}
         emissive="white"

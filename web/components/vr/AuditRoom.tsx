@@ -12,6 +12,8 @@ import Player from "./Player";
 import ObraPanel from "./ObraPanel";
 import AmbientAudio from "./AmbientAudio";
 import TimelineYears from "./TimelineYears";
+import GeoLabels from "./GeoLabels";
+import Postprocessing from "./Postprocessing";
 import { useObrasVR } from "@/lib/vr/obras-source";
 import { projectToFloor } from "@/lib/vr/projection";
 
@@ -79,6 +81,7 @@ export default function AuditRoom() {
           />
           <Player ref={playerRef} />
           <Floor onTeleport={handleTeleport} />
+          <GeoLabels />
           <ColumnaForest
             yearFilter={yearFilter}
             onPointerOver={(id) => setHovered(id)}
@@ -94,6 +97,8 @@ export default function AuditRoom() {
           {selected != null && <ObraPanel obraId={selected} variant="selected" />}
           {/* Audio ambiental: zumbido proporcional a la corrupción cercana */}
           <AmbientAudio />
+          {/* Bloom solo en desktop (postproc no plays well con XR) */}
+          <Postprocessing />
         </XR>
       </Canvas>
     </>
