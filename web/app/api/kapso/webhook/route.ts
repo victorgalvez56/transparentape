@@ -15,12 +15,14 @@ import {
   yearsDisponibles,
   getObraResumen,
   investigarContratista,
+  obrasRetrasadas,
 } from "@/lib/agent-kapso/queries";
 import {
   fmtObras,
   fmtDetalle,
   fmtCercanas,
   fmtInvestigacion,
+  fmtRetrasadas,
   INTRO_MSG,
 } from "@/lib/agent-kapso/wa-format";
 
@@ -278,6 +280,16 @@ async function handleMessage(
         lastQuery: effectiveText,
       });
       return fmtObras(obras, country, yearSugerido, filters);
+    }
+
+    case "OBRAS_RETRASADAS": {
+      const filters = parsed.filters ?? { country };
+      const list = await obrasRetrasadas(country, filters.q_geo, 5, filters.year);
+      await updateSession(conversationId, {
+        lastResultIds: list.map((o) => o.id),
+        lastQuery: effectiveText,
+      });
+      return fmtRetrasadas(list, country, filters.q_geo, filters.year);
     }
 
     case "CONTEXTO_DETALLE": {

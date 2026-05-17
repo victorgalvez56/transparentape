@@ -21,6 +21,7 @@ import {
   investigarContratista,
   inhabilitadosVigentes,
   montoEnRiesgo,
+  obrasRetrasadas,
   getObraResumen,
   type Country,
   type BuscarObrasFilters,
@@ -35,6 +36,7 @@ import {
   fmtInvestigacion,
   fmtInhabilitados,
   fmtMontoEnRiesgo,
+  fmtRetrasadas,
   fmtDetalle,
 } from "@/lib/agent-kapso/wa-format";
 
@@ -232,6 +234,25 @@ export const TOOLS: Tool[] = [
       const q = asString(args.q);
       const data = await montoEnRiesgo(ctx.country, q);
       return { data, formatted: fmtMontoEnRiesgo(data, q) };
+    },
+  },
+  {
+    name: "obras_retrasadas",
+    description:
+      "USA ESTE TOOL cuando el usuario pregunta sobre retrasos, atrasos, demoras, paralizaciones, estancamientos o incumplimientos de plazo en obras públicas. Acepta tanto formas adjetivas ('obras retrasadas', 'obras atrasadas', 'obras paralizadas', 'obras estancadas', 'obras demoradas') como SUSTANTIVAS ('qué retrasos hay', 'cuánto atraso tiene', 'qué demoras', 'cuántas obras incumplen plazo'). También cuando pregunten 'que obras no cumplen el cronograma', 'cuánto se atrasaron', 'fuera de plazo', 'sobre plazo', 'sin avance', 'qué no avanza', 'qué no termina'. Define 'excesivo' como >180 días tarde vs cronograma, o 3+ adendas de plazo, o cierre >365 días después de la fecha programada. IMPORTANTE: Cobertura limitada (~165 obras con datos INFOBRAS, no las 70K totales). Acepta `q` para acotar región/ciudad y `year` para acotar año.",
+    parameters: {
+      q: "string opcional — región/provincia/distrito para acotar",
+      year: "número opcional — año del registro (ej: 2024)",
+    },
+    async run(args, ctx) {
+      const q = asString(args.q);
+      const year = asNumber(args.year);
+      const data = await obrasRetrasadas(ctx.country, q, 5, year);
+      return {
+        data,
+        formatted: fmtRetrasadas(data, ctx.country, q, year),
+        obraIds: data.map((o) => o.id),
+      };
     },
   },
 ];

@@ -14,6 +14,7 @@ import { classifyQuery } from "./places";
 export type Intent =
   | "CAMBIAR_PAIS"
   | "BUSCAR_OBRAS"
+  | "OBRAS_RETRASADAS"
   | "BUSCAR_CERCANOS"
   | "VER_DETALLE"
   | "CONTEXTO_DETALLE"
@@ -264,6 +265,29 @@ export function parseIntent(text: string, sessionCountry: Country): ParsedIntent
   // national ranking) so they now fall through to PREGUNTA_LIBRE and let
   // the LLM router pick the matching tool from `tools.ts` with the chat
   // history visible.
+
+  // ── Obras retrasadas / atrasadas / paralizadas ──
+  // High-confidence trigger checked BEFORE BUSCAR_OBRAS because "obras
+  // retrasadas" would otherwise match the generic obras keyword and
+  // return a top-5 by alertas+monto with no delay filter.
+  // Triggers both ADJECTIVE forms (retrasada/atrasada/etc.) and NOUN
+  // forms (retraso/atraso/demora) — common in questions like "qué
+  // retrasos hay" or "cuánto atraso tiene".
+  if (
+    /\b(retrasad[oa]s?|atrasad[oa]s?|estancad[oa]s?|paralizad[oa]s?|demorad[oa]s?|retrasos?|atrasos?|demoras?|fuera\s+de\s+plazo|sin\s+avance|excesivos?\s+retrasos?|retrasos?\s+excesivos?|que\s+(no\s+)?(avanzan|terminan)|sobre\s+plazo|fuera\s+de\s+cronograma|cumplen\s+(con\s+)?(el\s+)?(plazo|cronograma|fecha)|incumplimiento\s+de\s+plazo)\b/i.test(
+      tn
+    )
+  ) {
+    const year = extractYear(tn);
+    const filters: BuscarObrasFilters = { country };
+    if (year) filters.year = year;
+    const cleanedQ = buildSearchQuery(t, year);
+    if (cleanedQ) {
+      const c = classifyQuery(cleanedQ);
+      if (c.q_geo) filters.q_geo = c.q_geo;
+    }
+    return { intent: "OBRAS_RETRASADAS", country, filters };
+  }
 
   // ── Buscar obras ──
   // Trigger: explicit obra keywords (singular + plural) OR a year extracted.
