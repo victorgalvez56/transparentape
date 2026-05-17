@@ -68,7 +68,7 @@ export default function GoogleStreetView({
           panControl: true,
           zoomControl: true,
           scrollwheel: true,
-          addressControl: true,
+          addressControl: false, // libera la esquina sup-izq para "Volver"
           showRoadLabels: true,
           fullscreenControl: true,
           motionTracking: true,
@@ -95,6 +95,28 @@ export default function GoogleStreetView({
   return (
     <div className="absolute inset-0 bg-black overflow-hidden">
       <div ref={containerRef} className="absolute inset-0" />
+
+      {/* Volver — z-index altísimo para quedar SOBRE la capa de Google
+          (su panorama capturaba el clic del antiguo link del footer). */}
+      <div
+        className="absolute top-4 left-4 flex items-center gap-2"
+        style={{ zIndex: 2147483000, fontFamily: "var(--font-mono), monospace" }}
+      >
+        <Link
+          href="/vr"
+          aria-label="Volver a la lista de obras"
+          className="flex items-center gap-2 px-4 h-11 bg-black/80 backdrop-blur border border-white/25 text-white text-[11px] uppercase tracking-[0.18em] hover:bg-black hover:border-white/50 transition"
+        >
+          ← Obras
+        </Link>
+        <Link
+          href="/"
+          aria-label="Ir al mapa"
+          className="flex items-center px-4 h-11 bg-black/55 backdrop-blur border border-white/15 text-white/70 text-[11px] uppercase tracking-[0.18em] hover:bg-black hover:text-white hover:border-white/40 transition"
+        >
+          Mapa
+        </Link>
+      </div>
 
       {!loaded && (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black">
@@ -123,21 +145,6 @@ export default function GoogleStreetView({
           className="max-w-lg"
           style={{ fontFamily: "var(--font-mono), monospace" }}
         >
-          <nav className="pointer-events-auto mb-3 flex items-center gap-5">
-            <Link
-              href="/vr"
-              className="text-[10px] uppercase tracking-[0.2em] text-white/55 hover:text-white transition"
-            >
-              ← Obras
-            </Link>
-            <Link
-              href="/"
-              className="text-[10px] uppercase tracking-[0.2em] text-white/30 hover:text-white transition"
-            >
-              Mapa
-            </Link>
-          </nav>
-
           {obra.is_red_flag && (
             <div className="mb-2 flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-[var(--alarm)] animate-pulse" />
