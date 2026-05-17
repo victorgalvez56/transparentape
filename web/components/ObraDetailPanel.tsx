@@ -1,8 +1,12 @@
 "use client";
 
 import { motion } from "motion/react";
+import { useEffect, useState } from "react";
 import { Obra, riesgoDeObra } from "@/lib/types";
 import { fmtSolesLong, fmtSolesShort, fmtFecha, displayTitle, truncar } from "@/lib/format";
+import dynamic from "next/dynamic";
+
+const BeforeAfterSlider = dynamic(() => import("@/components/BeforeAfterSlider"), { ssr: false });
 
 interface Props {
   obra: Obra;
@@ -15,6 +19,8 @@ function calcDelta(base: number | null, comp: number | null) {
   return comp / base - 1;
 }
 
+type AiState = { loading: boolean; score: number | null; description: string | null; imageUrl: string | null };
+
 export default function ObraDetailPanel({
   obra,
   onClose,
@@ -26,11 +32,35 @@ export default function ObraDetailPanel({
   const tweetText = `${truncar(tituloDisplay, 120)} · ${obra.buyer_locality} · ${fmtSolesLong(monto)} · Transparentape`;
   const tweetUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/obras/${obra.ocid}`;
   const twitterHref = `https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetText)}&url=${encodeURIComponent(tweetUrl)}`;
-  const gmapsKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
-  const hasStreetView = Boolean(gmapsKey && obra.lat && obra.lng);
-  const streetViewUrl = hasStreetView
-    ? `https://maps.googleapis.com/maps/api/streetview?size=600x300&location=${obra.lat},${obra.lng}&fov=80&key=${gmapsKey}`
-    : null;
+
+  const [svUrl, setSvUrl] = useState<string | null>(obra.streetview_after ?? null);
+  const [ai, setAi] = useState<AiState>({
+    loading: false,
+    score: obra.ai_score ?? null,
+    description: obra.ai_description ?? null,
+    imageUrl: obra.streetview_after ?? null,
+  });
+
+  // Fetch Street View URL from API when we have coordinates but no stored image
+  useEffect(() => {
+    if (svUrl || !obra.lat || !obra.lng) return;
+    fetch(`/api/streetview?lat=${obra.lat}&lng=${obra.lng}`)
+      .then((r) => r.json())
+      .then((d) => { if (d.found) setSvUrl(d.image_url); })
+      .catch(() => null);
+  }, [obra.id]);
+
+  async function runAiAnalysis() {
+    setAi((prev) => ({ ...prev, loading: true }));
+    try {
+      const res = await fetch(`/api/ai?id=${obra.id}`);
+      const d = await res.json();
+      setAi({ loading: false, score: d.ai_score, description: d.ai_description, imageUrl: d.streetview_after ?? null });
+      if (d.streetview_after) setSvUrl(d.streetview_after);
+    } catch {
+      setAi((prev) => ({ ...prev, loading: false }));
+    }
+  }
 
   const deltaAdj = calcDelta(obra.tender_amount, obra.award_amount);
   const deltaCon = calcDelta(obra.award_amount, obra.contract_amount);
@@ -128,29 +158,52 @@ export default function ObraDetailPanel({
           </div>
         </section>
 
-        {/* STREET VIEW */}
-        {hasStreetView ? (
+        {/* STREET VIEW + AI */}
+        {obra.streetview_before && (ai.imageUrl ?? svUrl) ? (
           <div className="border-b border-[var(--rule)]">
-            <img
-              src={streetViewUrl!}
-              alt="Street View"
-              className="w-full h-44 object-cover"
+            <BeforeAfterSlider
+              beforeUrl={obra.streetview_before}
+              afterUrl={ai.imageUrl ?? svUrl!}
             />
             <p
               className="text-[9px] tracking-[0.2em] uppercase text-[var(--fg-faint)] px-2 py-1.5 border-t border-[var(--rule)]"
               style={{ fontFamily: "var(--font-mono), monospace" }}
             >
-              Street View · Google
+              Street View · Google · Desliza para comparar
             </p>
           </div>
-        ) : (
-          <div
-            className="border-b border-[var(--rule)] px-5 py-3 text-[10px] uppercase tracking-[0.22em] text-[var(--fg-faint)]"
-            style={{ fontFamily: "var(--font-mono), monospace" }}
-          >
-            Sin Street View · configura GOOGLE_MAPS_KEY
+        ) : svUrl ? (
+          <div className="border-b border-[var(--rule)]">
+            <img src={svUrl} alt="Street View" className="w-full h-44 object-cover" />
+            <div className="flex items-center justify-between px-2 py-1.5 border-t border-[var(--rule)]">
+              <p
+                className="text-[9px] tracking-[0.2em] uppercase text-[var(--fg-faint)]"
+                style={{ fontFamily: "var(--font-mono), monospace" }}
+              >
+                Street View · Google
+              </p>
+              {obra.lat && obra.lng && (
+                <button
+                  onClick={runAiAnalysis}
+                  disabled={ai.loading}
+                  className="text-[9px] uppercase tracking-[0.18em] text-[var(--brand)] hover:text-white disabled:opacity-50 transition"
+                  style={{ fontFamily: "var(--font-mono), monospace" }}
+                >
+                  {ai.loading ? "Analizando…" : "Analizar con IA →"}
+                </button>
+              )}
+            </div>
           </div>
-        )}
+        ) : obra.lat && obra.lng ? (
+          <div className="border-b border-[var(--rule)] px-5 py-3 flex items-center justify-between">
+            <p
+              className="text-[10px] uppercase tracking-[0.22em] text-[var(--fg-faint)]"
+              style={{ fontFamily: "var(--font-mono), monospace" }}
+            >
+              Cargando Street View…
+            </p>
+          </div>
+        ) : null}
 
         {/* QUIÉN RECIBIÓ */}
         <section className="px-5 py-4 border-b border-[var(--rule)]">
@@ -231,17 +284,18 @@ export default function ObraDetailPanel({
         </section>
 
         {/* AI */}
-        {obra.ai_description && (
+        {ai.description && (
           <section className="px-5 py-4 border-b border-[var(--rule)]">
             <p
               className="text-[9px] uppercase tracking-[0.26em] text-[var(--fg-faint)] mb-2"
               style={{ fontFamily: "var(--font-mono), monospace" }}
             >
-              Análisis automático
-              {obra.ai_score != null && (
-                <span className="text-[var(--fg-dim)]">
-                  {" "}
-                  · score {obra.ai_score}/100
+              Análisis automático · Claude Vision
+              {ai.score != null && (
+                <span
+                  className={`ml-2 ${ai.score <= 30 ? "text-[var(--alarm)]" : ai.score <= 60 ? "text-[var(--warn)]" : "text-[var(--safe)]"}`}
+                >
+                  {ai.score}/100
                 </span>
               )}
             </p>
@@ -249,7 +303,7 @@ export default function ObraDetailPanel({
               className="text-sm text-white/80 italic leading-relaxed"
               style={{ fontFamily: "var(--font-display), serif" }}
             >
-              "{obra.ai_description}"
+              "{ai.description}"
             </p>
           </section>
         )}
