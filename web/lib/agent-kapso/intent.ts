@@ -15,6 +15,7 @@ export type Intent =
   | "INVESTIGAR_CONTRATISTA"
   | "INHABILITADOS"
   | "AYUDA"
+  | "AGRADECIMIENTO"
   | "PREGUNTA_LIBRE";
 
 export interface ParsedIntent {
@@ -61,10 +62,14 @@ export function detectCountry(text: string): Country | null {
 
 const YEAR_RE = /\b(20\d{2})\b/;
 const RUC_RE = /\b(\d{8,12})\b/;
+const THIS_YEAR = new Date().getFullYear();
 
 function extractYear(text: string): number | undefined {
   const m = text.match(YEAR_RE);
-  return m ? parseInt(m[1]) : undefined;
+  if (m) return parseInt(m[1]);
+  if (/\beste\s+año\b|\bdel\s+año\s+en\s+curso\b|\baño\s+actual\b|\bactual\b.*\baño\b/i.test(text)) return THIS_YEAR;
+  if (/\baño\s+pasado\b|\bel\s+a[nñ]o\s+anterior\b|\bdel\s+a[nñ]o\s+pasado\b/i.test(text)) return THIS_YEAR - 1;
+  return undefined;
 }
 
 const PE_DEPTS = [
@@ -121,9 +126,14 @@ export function parseIntent(text: string, sessionCountry: Country): ParsedIntent
 
   const country: Country = newCountry ?? sessionCountry;
 
-  // Greetings and help (broad pattern)
+  // Gratitude / acknowledgement → deterministic short reply, no LLM
+  if (/^\s*(gracias|thank|ok|okay|okey|dale|entendido|perfecto|listo|claro|genial|excelente|buenísimo|👍|🙏)\s*[!.?]*\s*$/i.test(t)) {
+    return { intent: "AGRADECIMIENTO", country };
+  }
+
+  // Greetings and help — both standalone AND as opener ("Hola, ¿cómo funciona?")
   if (
-    /^\s*(hola|holi|hey|hi|buenos?\s+d[ií]as?|buenas?\s+tardes?|buenas?\s+noches?|buenas?|saludos?|buen\s+d[ií]a|qué\s+tal|como\s+est[aá]s?|ayuda|comandos|\?{2,}|qu[eé]\s+puedes|qu[eé]\s+haces|qu[eé]\s+sabes|inicio|empezar|start|men[uú])\s*[!.?]*\s*$/i.test(t)
+    /^\s*(hola|holi|hey|hi|buenos?\s+d[ií]as?|buenas?\s+tardes?|buenas?\s+noches?|buenas?|saludos?|buen\s+d[ií]a|qué\s+tal|como\s+est[aá]s?|ayuda|comandos|\?{2,}|qu[eé]\s+puedes|qu[eé]\s+haces|qu[eé]\s+sabes|inicio|empezar|start|men[uú])\s*[!.?,]*\s*$/i.test(t)
   ) {
     return { intent: "AYUDA", country };
   }

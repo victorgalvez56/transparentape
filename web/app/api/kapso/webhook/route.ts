@@ -204,6 +204,9 @@ async function handleMessage(
       return fmtInhabilitados(list, country);
     }
 
+    case "AGRADECIMIENTO":
+      return "¡Con gusto! 😊 Escribe *ayuda* para ver todo lo que puedo consultar.";
+
     case "PREGUNTA_LIBRE":
     default:
       return chatEngine(text, session.lastMessages ?? []);
@@ -292,6 +295,19 @@ export async function POST(req: NextRequest) {
   const to = from.startsWith("+") ? from : `+${from}`;
   const t0 = Date.now();
 
+  // Idempotency — Kapso retries on timeout; same msg_id = duplicate
+  const msgId = (msg as Record<string, unknown>).id as string | undefined;
+  if (msgId) {
+    const inserted = await query(
+      `INSERT INTO webhook_dedup (msg_id) VALUES ($1) ON CONFLICT (msg_id) DO NOTHING RETURNING msg_id`,
+      [msgId]
+    ).catch(() => null);
+    // null = DB error (fail open); empty array = already processed
+    if (inserted !== null && inserted.length === 0) {
+      return NextResponse.json({ ok: true, dup: true });
+    }
+  }
+
   // Location message — save coords to session and search nearby obras
   if (msg.type === "location" && msg.location) {
     const { latitude, longitude } = msg.location as { latitude?: number; longitude?: number };
@@ -325,6 +341,20 @@ export async function POST(req: NextRequest) {
     const interactive = msg.interactive as { buttonReply?: { id?: string }; listReply?: { id?: string } } | undefined;
     const btnId = interactive?.buttonReply?.id ?? interactive?.listReply?.id;
     if (btnId) text = BUTTON_MAP[btnId] ?? btnId;
+  } else if (["image", "audio", "video", "document", "sticker", "voice"].includes(msg.type ?? "")) {
+    // Unsupported media type — send friendly reply and skip processing
+    (async () => {
+      try {
+        await kapso.messages.sendText({
+          phoneNumberId,
+          to,
+          body: "Solo proceso mensajes de texto 📝\n\nEscribe *ayuda* para ver los comandos disponibles.",
+        });
+      } catch (e) {
+        console.error("[kapso/webhook] media reply error:", e);
+      }
+    })();
+    return NextResponse.json({ ok: true });
   }
 
   if (!text) return NextResponse.json({ ok: true, skipped: true });
