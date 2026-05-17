@@ -19,6 +19,9 @@ import Narrator from "./Narrator";
 import MultiplayerProvider from "./MultiplayerProvider";
 import PresenceTracker from "./PresenceTracker";
 import RemoteAvatars from "./RemoteAvatars";
+import RedFlagPulses from "./RedFlagPulses";
+import ConnectionStatus from "./ConnectionStatus";
+import LoadingOverlay from "./LoadingOverlay";
 import { useObrasVR } from "@/lib/vr/obras-source";
 import { projectToFloor } from "@/lib/vr/projection";
 
@@ -40,7 +43,7 @@ function AuditRoomScene() {
   const [selected, setSelected] = useState<number | null>(null);
   const [yearFilter, setYearFilter] = useState<number | null>(null);
   const playerRef = useRef<Group>(null);
-  const { obras } = useObrasVR();
+  const { obras, loading } = useObrasVR();
 
   const handleTeleport = (point: Vector3) => {
     if (!playerRef.current) return;
@@ -83,6 +86,8 @@ function AuditRoomScene() {
         onFindAlert={goToNearestRedFlag}
         totalObras={obras.length}
       />
+      <ConnectionStatus />
+      <LoadingOverlay loading={loading} count={obras.length} />
       <Narrator selectedId={selected} />
       <Canvas
         camera={{ position: [0, 1.6, 6], fov: 75, near: 0.1, far: 200 }}
@@ -99,6 +104,7 @@ function AuditRoomScene() {
           <Player ref={playerRef} />
           <Floor onTeleport={handleTeleport} />
           <GeoLabels />
+          <RedFlagPulses />
           <ColumnaForest
             yearFilter={yearFilter}
             onPointerOver={(id) => setHovered(id)}

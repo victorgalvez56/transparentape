@@ -38,33 +38,46 @@ export default function AmbientAudio() {
     return flat;
   }, [obras]);
 
-  // Lazy-init del audio en primer gesto del usuario
+  // Lazy-init del audio en primer gesto del usuario, con tolerancia a fallos.
   useEffect(() => {
     let attached = true;
     const init = () => {
       if (!attached || ctxRef.current) return;
-      const Ctx =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext })
-          .webkitAudioContext;
-      const ctx = new Ctx();
-      // Sine principal en 55Hz — el "billete que tiembla"
-      const osc1 = ctx.createOscillator();
-      osc1.type = "sine";
-      osc1.frequency.value = 55;
-      // Segunda voz desafinada para mover el aire
-      const osc2 = ctx.createOscillator();
-      osc2.type = "sine";
-      osc2.frequency.value = 56.5;
-      const master = ctx.createGain();
-      master.gain.value = 0;
-      osc1.connect(master);
-      osc2.connect(master);
-      master.connect(ctx.destination);
-      osc1.start();
-      osc2.start();
-      ctxRef.current = ctx;
-      gainRef.current = master;
+      try {
+        const Ctx =
+          window.AudioContext ||
+          (window as unknown as { webkitAudioContext?: typeof AudioContext })
+            .webkitAudioContext;
+        if (!Ctx) {
+          // Sin Web Audio API — degradamos silenciosamente
+          return;
+        }
+        const ctx = new Ctx();
+        // Safari/iOS pueden empezar suspended hasta resume()
+        if (ctx.state === "suspended") {
+          ctx.resume().catch(() => {
+            /* ignore */
+          });
+        }
+        const osc1 = ctx.createOscillator();
+        osc1.type = "sine";
+        osc1.frequency.value = 55;
+        const osc2 = ctx.createOscillator();
+        osc2.type = "sine";
+        osc2.frequency.value = 56.5;
+        const master = ctx.createGain();
+        master.gain.value = 0;
+        osc1.connect(master);
+        osc2.connect(master);
+        master.connect(ctx.destination);
+        osc1.start();
+        osc2.start();
+        ctxRef.current = ctx;
+        gainRef.current = master;
+      } catch (e) {
+        // Web Audio negado por el navegador — sin drama, solo no hay zumbido
+        console.warn("AmbientAudio init failed, continuing silent:", e);
+      }
     };
     window.addEventListener("click", init, { once: true });
     window.addEventListener("touchstart", init, { once: true });
