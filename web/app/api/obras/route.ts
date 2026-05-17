@@ -16,6 +16,7 @@ export async function GET(req: NextRequest) {
     contratista: sp.get("contratista"),
     q: sp.get("q"),
     with_coords: sp.get("with_coords") !== "false",
+    has_panorama: sp.get("has_panorama") === "true" ? true : null,
     limit: Math.min(parseInt(sp.get("limit") ?? "1000", 10) || 1000, 5000),
   };
 

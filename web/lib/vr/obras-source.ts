@@ -27,7 +27,9 @@ let pending: Promise<VRObra[]> | null = null;
 async function loadObras(): Promise<VRObra[]> {
   if (cached) return cached;
   if (pending) return pending;
-  pending = fetch("/api/obras?with_coords=true&limit=70000")
+  // /vr sólo muestra obras con vista panorámica (Street View) — flag
+  // persistido por scripts/backfill-panorama.mjs.
+  pending = fetch("/api/obras?with_coords=true&has_panorama=true&limit=70000")
     .then((r) => r.json())
     .then((data) => {
       const list: VRObra[] = (data.obras ?? [])

@@ -11,6 +11,7 @@ export interface ObraFilters {
   contratista?: string | null;
   q?: string | null;
   with_coords?: boolean | null;
+  has_panorama?: boolean | null;
   limit?: number;
 }
 
@@ -105,6 +106,7 @@ function buildWhere(f: ObraFilters): { sql: string; values: unknown[] } {
   if (f.with_coords) {
     parts.push(`lat IS NOT NULL AND lng IS NOT NULL`);
   }
+  if (f.has_panorama) parts.push(`has_panorama = TRUE`);
 
   return {
     sql: parts.length ? `WHERE ${parts.join(" AND ")}` : "",
