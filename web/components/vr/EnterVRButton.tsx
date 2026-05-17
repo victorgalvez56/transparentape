@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { XRStore } from "@react-three/xr";
 
 interface Props {
@@ -17,6 +18,23 @@ export default function EnterVRButton({
   onFindAlert,
   totalObras,
 }: Props) {
+  const [xrError, setXrError] = useState<string | null>(null);
+
+  const handleEnterVR = async () => {
+    setXrError(null);
+    try {
+      await store.enterVR();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("No XR hardware") || msg.includes("NotSupportedError")) {
+        setXrError("Necesitas Quest 3/3S, Vision Pro u otro headset WebXR para entrar al modo immersive.");
+      } else {
+        setXrError(`WebXR no disponible: ${msg}`);
+      }
+      setTimeout(() => setXrError(null), 6000);
+    }
+  };
+
   return (
     <div className="pointer-events-none absolute inset-0 z-10 flex flex-col">
       {/* Header con wordmark */}
@@ -93,13 +111,21 @@ export default function EnterVRButton({
             </button>
           )}
           <button
-            onClick={() => store.enterVR()}
+            onClick={handleEnterVR}
             className="pointer-events-auto px-7 py-3 bg-[var(--brand)] text-black font-medium hover:bg-white transition"
             style={{ fontFamily: "var(--font-body), sans-serif" }}
           >
             ENTRAR A AUDIT ROOM →
           </button>
         </div>
+        {xrError && (
+          <div
+            className="pointer-events-none max-w-md text-center text-[11px] uppercase tracking-[0.18em] text-[var(--alarm)] mt-2"
+            style={{ fontFamily: "var(--font-mono), monospace" }}
+          >
+            {xrError}
+          </div>
+        )}
         <p
           className="text-[9px] uppercase tracking-[0.3em] text-white/30"
           style={{ fontFamily: "var(--font-mono), monospace" }}
