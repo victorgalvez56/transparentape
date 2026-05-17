@@ -163,7 +163,7 @@ export default function ObrasListPanel({
                 className={`group w-full text-left px-6 py-4 transition-all relative hover:translate-x-[2px] ${
                   isSel
                     ? "bg-[var(--brand-deep)]/30"
-                    : "hover:bg-white/[0.02]"
+                    : "hover:bg-[var(--ink-3)]"
                 }`}
               >
                 {/* Barra de riesgo lateral */}

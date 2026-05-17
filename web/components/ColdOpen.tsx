@@ -66,7 +66,7 @@ export default function ColdOpen({ onDone, total }: Props) {
       </motion.p>
 
       <motion.div
-        className="mt-3 text-[clamp(48px,9vw,128px)] font-medium tracking-tight tabular-nums text-white leading-none"
+        className="mt-3 text-[clamp(48px,9vw,128px)] font-medium tracking-tight tabular-nums text-[var(--fg)] leading-none"
         style={{ fontFamily: "var(--font-mono), monospace" }}
         initial={{ opacity: 0, filter: "blur(12px)", y: 30 }}
         animate={{ opacity: 1, filter: "blur(0px)", y: 0 }}
@@ -76,7 +76,7 @@ export default function ColdOpen({ onDone, total }: Props) {
       </motion.div>
 
       <motion.h1
-        className="mt-12 text-[clamp(28px,5vw,56px)] leading-[1.05] font-medium text-center max-w-3xl text-white"
+        className="mt-12 text-[clamp(28px,5vw,56px)] leading-[1.05] font-medium text-center max-w-3xl text-[var(--fg)]"
         style={{ fontFamily: "var(--font-display), serif" }}
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}

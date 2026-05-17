@@ -27,7 +27,7 @@ export default function AuthorityHud({
         {/* Wordmark + region scroll-spy */}
         <div className="flex items-baseline gap-3 min-w-0">
           <span
-            className="text-[20px] leading-none font-medium tracking-tight text-white shrink-0"
+            className="text-[20px] leading-none font-medium tracking-tight text-[var(--fg)] shrink-0"
             style={{ fontFamily: "var(--font-display), serif" }}
           >
             Transparentape
@@ -52,7 +52,7 @@ export default function AuthorityHud({
           style={{ fontFamily: "var(--font-mono), monospace" }}
         >
           <span>
-            <span className="text-white font-medium tabular-nums">
+            <span className="text-[var(--fg)] font-medium tabular-nums">
               {obrasCount.toLocaleString("es-PE")}
             </span>{" "}
             contratos {isDemo ? "demo" : "auditados"}
@@ -66,7 +66,7 @@ export default function AuthorityHud({
           </span>
           <Divider className="hidden md:inline" />
           <span className="hidden md:inline">
-            Fuente · <span className="text-white/70">OCDS / OECE / MEF</span>
+            Fuente · <span className="text-[var(--fg)]/70">OCDS / OECE / MEF</span>
           </span>
           <Divider className="hidden md:inline" />
           <span className="flex items-center gap-2">

@@ -132,7 +132,7 @@ export default function ForensicsPanel({ obra, onClose }: Props) {
         {/* CLOSE BTN */}
         <button
           onClick={onClose}
-          className="absolute top-6 right-6 text-[var(--fg-faint)] hover:text-white text-2xl leading-none z-10"
+          className="absolute top-6 right-6 text-[var(--fg-faint)] hover:text-[var(--fg)] text-2xl leading-none z-10"
           aria-label="Cerrar"
         >
           ×
@@ -147,14 +147,14 @@ export default function ForensicsPanel({ obra, onClose }: Props) {
             Investigación · OCID {obra.ocid}
           </p>
           <h1
-            className="mt-4 text-[clamp(28px,4.5vw,40px)] leading-[1.08] text-white font-medium"
+            className="mt-4 text-[clamp(28px,4.5vw,40px)] leading-[1.08] text-[var(--fg)] font-medium"
             style={{ fontFamily: "var(--font-display), serif" }}
           >
             {truncar(tituloDisplay, 220)}
           </h1>
           <p className="mt-5 text-base text-[var(--fg-dim)] max-w-prose leading-relaxed">
-            <span className="text-white">{obra.buyer_name}</span> contrató a{" "}
-            <span className="text-white">{obra.supplier_name}</span> por{" "}
+            <span className="text-[var(--fg)]">{obra.buyer_name}</span> contrató a{" "}
+            <span className="text-[var(--fg)]">{obra.supplier_name}</span> por{" "}
             <span
               className="text-[var(--brand)] tabular-nums"
               style={{ fontFamily: "var(--font-mono), monospace" }}
@@ -171,18 +171,18 @@ export default function ForensicsPanel({ obra, onClose }: Props) {
           style={{ fontFamily: "var(--font-mono), monospace" }}
         >
           <span>
-            Período · <span className="text-white">{periodo}</span>
+            Período · <span className="text-[var(--fg)]">{periodo}</span>
           </span>
           <span>
-            Adendas · <span className="text-white">{obra.n_amendments ?? 0}</span>
+            Adendas · <span className="text-[var(--fg)]">{obra.n_amendments ?? 0}</span>
           </span>
           <span>
             Método ·{" "}
-            <span className="text-white">{obra.procurement_method ?? "—"}</span>
+            <span className="text-[var(--fg)]">{obra.procurement_method ?? "—"}</span>
           </span>
           <span>
             Estado ·{" "}
-            <span className="text-white">{obra.contract_status ?? "—"}</span>
+            <span className="text-[var(--fg)]">{obra.contract_status ?? "—"}</span>
           </span>
         </section>
 
@@ -220,7 +220,7 @@ export default function ForensicsPanel({ obra, onClose }: Props) {
                     : "Contexto"}
                 </p>
                 <h2
-                  className="mt-2 text-[22px] leading-tight text-white font-medium"
+                  className="mt-2 text-[22px] leading-tight text-[var(--fg)] font-medium"
                   style={{ fontFamily: "var(--font-display), serif" }}
                 >
                   {h.titulo}
@@ -246,7 +246,7 @@ export default function ForensicsPanel({ obra, onClose }: Props) {
             href={shareUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-[12px] uppercase tracking-[0.22em] text-[var(--brand)] border-b border-[var(--brand)] pb-1 hover:text-white hover:border-white transition"
+            className="text-[12px] uppercase tracking-[0.22em] text-[var(--brand)] border-b border-[var(--brand)] pb-1 hover:text-[var(--fg)] hover:border-white transition"
             style={{ fontFamily: "var(--font-mono), monospace" }}
           >
             Compartir el caso ↗

@@ -6,6 +6,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { Obra, riesgoDeObra } from "@/lib/types";
 import { CountryView } from "@/lib/countries";
 import { detectLocation } from "@/lib/regions";
+import { useTheme } from "./ThemeProvider";
 import {
   preloadGeoJSON,
   getPeruDepts,
@@ -21,8 +22,19 @@ interface Props {
   onViewChange?: (label: string) => void;
 }
 
-const MAP_STYLE =
+/**
+ * Map styles según theme — CARTO basemaps.
+ * Dark: Dark Matter (negro estilo forense)
+ * Light: Positron (gris muy claro, papel)
+ */
+const MAP_STYLE_DARK =
   "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
+const MAP_STYLE_LIGHT =
+  "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
+
+function getMapStyle(theme: "light" | "dark"): string {
+  return theme === "light" ? MAP_STYLE_LIGHT : MAP_STYLE_DARK;
+}
 
 /**
  * Devuelve padding para encuadrar el área visible — excluye sidebar derecha
@@ -96,6 +108,7 @@ export default function MapGlobe({
   flyToCountry,
   onViewChange,
 }: Props) {
+  const { resolved: theme } = useTheme();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MLMap | null>(null);
   const obrasById = useRef<Map<number, Obra>>(new Map());
@@ -148,7 +161,7 @@ export default function MapGlobe({
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: MAP_STYLE,
+      style: getMapStyle(theme),
       center: [-75.0, -10.5],
       zoom: 4.6,
       pitch: 25,

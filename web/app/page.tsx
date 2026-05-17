@@ -16,6 +16,7 @@ import ColdOpen from "@/components/ColdOpen";
 import Topbar from "@/components/Topbar";
 import CountryChips from "@/components/CountryChips";
 import CustomCursor from "@/components/CustomCursor";
+import { useTheme } from "@/components/ThemeProvider";
 
 const MapGlobe = dynamic(() => import("@/components/MapGlobe"), {
   ssr: false,
@@ -35,6 +36,7 @@ interface Stats {
 }
 
 export default function HomePage() {
+  const { resolved: themeResolved } = useTheme();
   const [obras, setObras] = useState<Obra[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [source, setSource] = useState<string>("");
@@ -169,6 +171,7 @@ export default function HomePage() {
         }`}
       >
         <MapGlobe
+          key={`map-${themeResolved}`}
           obras={visibleObras}
           selectedId={selected?.id ?? null}
           onSelect={setSelected}
