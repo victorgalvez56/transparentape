@@ -8,10 +8,19 @@ import dynamic from "next/dynamic";
 
 const BeforeAfterSlider = dynamic(() => import("@/components/BeforeAfterSlider"), { ssr: false });
 
+interface AiPatch {
+  id: number;
+  ai_score: number | null;
+  ai_description: string | null;
+  streetview_before: string | null;
+  streetview_after: string | null;
+}
+
 interface Props {
   obra: Obra;
   onClose: () => void;
   onInvestigar: () => void;
+  onAiResult?: (patch: AiPatch) => void;
 }
 
 function calcDelta(base: number | null, comp: number | null) {
@@ -40,6 +49,7 @@ export default function ObraDetailPanel({
   obra,
   onClose,
   onInvestigar,
+  onAiResult,
 }: Props) {
   const riesgo = riesgoDeObra(obra);
   const monto = obra.contract_amount ?? obra.award_amount ?? obra.tender_amount;
@@ -96,12 +106,18 @@ export default function ObraDetailPanel({
       const res = await fetch(url);
       if (!res.ok) { setAi((p) => ({ ...p, status: "no_sv" })); return; }
       const d = await res.json();
-      setAi({
-        status: "done",
-        score: d.score ?? null,
-        description: d.description ?? null,
-        sv: d.streetview ?? null,
-      });
+      const sv: SvData | null = d.streetview ?? null;
+      setAi({ status: "done", score: d.score ?? null, description: d.description ?? null, sv });
+      // Patch parent so re-selecting this obra skips re-analysis
+      if (d.score != null && !d.streetview?.cached) {
+        onAiResult?.({
+          id: obra.id,
+          ai_score: d.score,
+          ai_description: d.description,
+          streetview_before: sv?.beforeUrl ?? null,
+          streetview_after: sv?.afterUrl ?? null,
+        });
+      }
     } catch {
       setAi((p) => ({ ...p, status: "error" }));
     }
