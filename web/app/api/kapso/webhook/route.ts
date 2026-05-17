@@ -91,32 +91,36 @@ async function sendAyudaWithButtons(
 }
 
 // ── message extraction ────────────────────────────────────────────────────────
-type MsgExtract = { from: string; text: string; type: "text" | "interactive_btn" };
+type MsgExtract = { from: string; text: string; type: "text" | "interactive_btn"; phoneNumberId?: string };
 
 function extractMessage(payload: Record<string, unknown>): MsgExtract | null {
   // 1. Meta Cloud API format: payload.entry[0].changes[0].value.messages[0]
   type MetaMsg = { from?: string; type?: string; text?: { body?: string }; interactive?: { type?: string; button_reply?: { id?: string }; list_reply?: { id?: string } } };
-  const entry = (payload.entry as { changes?: { value?: { messages?: MetaMsg[] } }[] }[])?.[0];
-  const metaMsg = entry?.changes?.[0]?.value?.messages?.[0];
+  type MetaValue = { messages?: MetaMsg[]; metadata?: { phone_number_id?: string } };
+  const entry = (payload.entry as { changes?: { value?: MetaValue }[] }[])?.[0];
+  const metaValue = entry?.changes?.[0]?.value;
+  const metaMsg = metaValue?.messages?.[0];
+  const metaPhoneId = metaValue?.metadata?.phone_number_id;
   if (metaMsg?.type === "text" && metaMsg.text?.body && metaMsg.from) {
-    return { from: metaMsg.from, text: metaMsg.text.body.trim(), type: "text" };
+    return { from: metaMsg.from, text: metaMsg.text.body.trim(), type: "text", phoneNumberId: metaPhoneId };
   }
   if (metaMsg?.type === "interactive" && metaMsg.from) {
     const btnId = metaMsg.interactive?.button_reply?.id ?? metaMsg.interactive?.list_reply?.id;
-    if (btnId) return { from: metaMsg.from, text: BUTTON_MAP[btnId] ?? btnId, type: "interactive_btn" };
+    if (btnId) return { from: metaMsg.from, text: BUTTON_MAP[btnId] ?? btnId, type: "interactive_btn", phoneNumberId: metaPhoneId };
   }
 
   // 2. Kapso batched format: payload["whatsapp.message.received"][0]
   type KapsoMsg = { from?: string; type?: string; text?: { body?: string }; interactive?: { type?: string; button_reply?: { id?: string }; list_reply?: { id?: string } } };
   const batchedArr = payload["whatsapp.message.received"];
-  const kMsg = (Array.isArray(batchedArr) ? batchedArr[0] : payload) as { message?: KapsoMsg; whatsapp_config?: unknown };
+  const kMsg = (Array.isArray(batchedArr) ? batchedArr[0] : payload) as { message?: KapsoMsg; whatsapp_config?: { phone_number_id?: string } };
   const km = kMsg?.message;
+  const kapsoPhoneId = (kMsg?.whatsapp_config as { phone_number_id?: string })?.phone_number_id;
   if (km?.type === "text" && km.text?.body && km.from) {
-    return { from: km.from, text: km.text.body.trim(), type: "text" };
+    return { from: km.from, text: km.text.body.trim(), type: "text", phoneNumberId: kapsoPhoneId };
   }
   if (km?.type === "interactive" && km.from) {
     const btnId = km.interactive?.button_reply?.id ?? km.interactive?.list_reply?.id;
-    if (btnId) return { from: km.from, text: BUTTON_MAP[btnId] ?? btnId, type: "interactive_btn" };
+    if (btnId) return { from: km.from, text: BUTTON_MAP[btnId] ?? btnId, type: "interactive_btn", phoneNumberId: kapsoPhoneId };
   }
 
   // 3. Kapso simplified format: payload.message.text (string)
@@ -266,8 +270,8 @@ export async function POST(req: NextRequest) {
   const extracted = extractMessage(payload);
   if (!extracted) return NextResponse.json({ ok: true, skipped: true });
 
-  const { from, text } = extracted;
-  const phoneNumberId = process.env.KAPSO_PHONE_NUMBER_ID!;
+  const { from, text, phoneNumberId: payloadPhoneId } = extracted;
+  const phoneNumberId = payloadPhoneId ?? process.env.KAPSO_PHONE_NUMBER_ID!;
   const to = from.startsWith("+") ? from : `+${from}`;
   const t0 = Date.now();
 
