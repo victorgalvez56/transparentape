@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface Message {
   role: "user" | "bot";
@@ -87,13 +89,30 @@ export default function AgentPage() {
                 }`}
               >
                 <div
-                  className={`max-w-[85%] rounded-2xl px-5 py-3 whitespace-pre-wrap ${
+                  className={`max-w-[85%] rounded-2xl px-5 py-3 ${
                     msg.role === "user"
-                      ? "bg-blue-600 text-white rounded-br-none"
+                      ? "bg-blue-600 text-white rounded-br-none whitespace-pre-wrap"
                       : "bg-neutral-800 text-neutral-200 border border-neutral-700 rounded-bl-none"
                   }`}
                 >
-                  {msg.content}
+                  {msg.role === "bot" ? (
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        ul: ({ node, ...props }) => <ul className="list-disc ml-5 my-2 space-y-1" {...props} />,
+                        ol: ({ node, ...props }) => <ol className="list-decimal ml-5 my-2 space-y-1" {...props} />,
+                        li: ({ node, ...props }) => <li className="pl-1" {...props} />,
+                        p: ({ node, ...props }) => <p className="mb-3 last:mb-0" {...props} />,
+                        strong: ({ node, ...props }) => <strong className="font-semibold text-white" {...props} />,
+                        em: ({ node, ...props }) => <em className="italic text-neutral-300" {...props} />,
+                        a: ({ node, ...props }) => <a className="text-blue-400 hover:text-blue-300 underline underline-offset-2" {...props} />,
+                      }}
+                    >
+                      {msg.content}
+                    </ReactMarkdown>
+                  ) : (
+                    msg.content
+                  )}
                 </div>
               </div>
             ))
