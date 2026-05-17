@@ -369,19 +369,19 @@ export default function CodexHomePage() {
                   >
                     <button
                       onClick={() => setSelected(null)}
-                      className="flex items-center gap-2 text-[10px] uppercase tracking-[0.2em] hover:opacity-80 transition"
+                      className="flex items-center gap-2 text-[11.5px] tracking-tight hover:opacity-80 transition font-medium"
                       style={{
                         color: "var(--cx-muted)",
-                        fontFamily: "var(--font-mono), monospace",
+                        fontFamily: "var(--font-body), system-ui, sans-serif",
                       }}
                     >
                       ← Volver al índice · {filtered.length}
                     </button>
                     <span
-                      className="text-[10px] uppercase tracking-[0.2em]"
+                      className="text-[11.5px] tracking-tight font-medium"
                       style={{
-                        color: "var(--cx-faint)",
-                        fontFamily: "var(--font-mono), monospace",
+                        color: "var(--cx-muted)",
+                        fontFamily: "var(--font-body), system-ui, sans-serif",
                       }}
                     >
                       Caso · {selected.source_year ?? "—"}
@@ -489,7 +489,7 @@ export default function CodexHomePage() {
               <div key={group}>
                 <div className="flex items-center gap-2 mb-3">
                   <h2
-                    className="text-xs sm:text-sm font-semibold uppercase tracking-wider"
+                    className="text-xs sm:text-sm font-semibold tracking-tight"
                     style={{ color: "var(--cx-muted)" }}
                   >
                     {group}

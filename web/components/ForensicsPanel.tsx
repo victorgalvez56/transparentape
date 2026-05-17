@@ -187,7 +187,7 @@ export default function ForensicsPanel({ obra, onClose }: Props) {
           transition={{ ...ENTRANCE, delay: 0.1 }}
           className="px-8 sm:px-12 mt-5
                      text-[clamp(28px,4.4vw,42px)] leading-[1.08]
-                     text-[var(--fg)] font-normal tracking-[-0.012em]"
+                     text-[var(--fg)] font-normal tracking-tight"
           style={{ fontFamily: "var(--font-display), serif" }}
         >
           {truncar(tituloDisplay, 220)}
@@ -293,7 +293,7 @@ export default function ForensicsPanel({ obra, onClose }: Props) {
                 <div>
                   <h2
                     className="text-[22px] sm:text-[24px] leading-[1.2]
-                               text-[var(--fg)] font-normal tracking-[-0.005em]"
+                               text-[var(--fg)] font-normal tracking-tight"
                     style={{ fontFamily: "var(--font-display), serif" }}
                   >
                     {h.titulo}

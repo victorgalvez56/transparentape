@@ -160,7 +160,7 @@ export default async function ObraPage({
         {/* Title — Fraunces regular weight, NO uppercase, tracking sutil */}
         <h1
           className="mt-7 text-[clamp(32px,5.2vw,56px)] leading-[1.06]
-                     text-[var(--fg)] font-normal tracking-[-0.018em]"
+                     text-[var(--fg)] font-normal tracking-tight"
           style={{ fontFamily: "var(--font-display), serif" }}
         >
           {truncar(displayTitle(obra), 240)}
@@ -266,7 +266,7 @@ export default async function ObraPage({
             <p
               className="text-[clamp(22px,3vw,30px)] leading-[1.25]
                          text-[var(--fg)] italic font-normal
-                         tracking-[-0.005em]"
+                         tracking-tight"
               style={{ fontFamily: "var(--font-display), serif" }}
             >
               Este contratista figura en{" "}
@@ -293,7 +293,7 @@ export default async function ObraPage({
         <header className="mb-6 flex items-baseline justify-between gap-3 flex-wrap">
           <h2
             className="text-[22px] sm:text-[24px] text-[var(--fg)]
-                       font-normal tracking-[-0.005em]"
+                       font-normal tracking-tight"
             style={{ fontFamily: "var(--font-display), serif" }}
           >
             El rastreo del billete
@@ -342,7 +342,7 @@ export default async function ObraPage({
           </p>
           <h3
             className="text-[20px] sm:text-[21px] leading-[1.22]
-                       text-[var(--fg)] font-normal tracking-[-0.005em]"
+                       text-[var(--fg)] font-normal tracking-tight"
             style={{ fontFamily: "var(--font-display), serif" }}
           >
             {obra.buyer_name ?? "—"}
@@ -366,7 +366,7 @@ export default async function ObraPage({
           </p>
           <h3
             className="text-[20px] sm:text-[21px] leading-[1.22]
-                       text-[var(--fg)] font-normal tracking-[-0.005em]"
+                       text-[var(--fg)] font-normal tracking-tight"
             style={{ fontFamily: "var(--font-display), serif" }}
           >
             {obra.supplier_name ?? "—"}
@@ -391,7 +391,7 @@ export default async function ObraPage({
         <header className="mb-6 flex items-baseline justify-between gap-3 flex-wrap">
           <h2
             className="text-[22px] sm:text-[24px] text-[var(--fg)]
-                       font-normal tracking-[-0.005em]"
+                       font-normal tracking-tight"
             style={{ fontFamily: "var(--font-display), serif" }}
           >
             El contrato, en detalle
@@ -445,7 +445,7 @@ export default async function ObraPage({
           <blockquote
             className="text-[clamp(19px,2.4vw,22px)] leading-[1.5]
                        text-[var(--fg)] italic font-normal
-                       tracking-[-0.003em]"
+                       tracking-tight"
             style={{ fontFamily: "var(--font-display), serif" }}
           >
             &ldquo;{obra.ai_description}&rdquo;

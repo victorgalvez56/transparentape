@@ -26,8 +26,8 @@ function money(n: number): string {
 function Kicker({ children }: { children: React.ReactNode }) {
   return (
     <p
-      className="text-[9px] uppercase tracking-[0.26em]"
-      style={{ color: "var(--cx-faint)", fontFamily: MONO }}
+      className="text-[11px] tracking-tight font-medium"
+      style={{ color: "var(--cx-muted)", fontFamily: "var(--font-body), system-ui, sans-serif" }}
     >
       {children}
     </p>
@@ -50,14 +50,14 @@ function Hero({
     <div className="flex flex-col gap-2 min-w-0">
       <Kicker>{label}</Kicker>
       <span
-        className="text-[clamp(1.6rem,3.4vw,2.6rem)] leading-none font-medium tracking-[-0.01em] tabular-nums truncate"
+        className="text-[clamp(1.6rem,3.4vw,2.6rem)] leading-none font-medium tracking-tight tabular-nums truncate"
         style={{ color: c, fontFamily: SERIF }}
       >
         {value}
       </span>
       {sub && (
         <span
-          className="text-[10px] tracking-[0.04em]"
+          className="text-[11.5px] tracking-tight tabular-nums"
           style={{ color: "var(--cx-muted)", fontFamily: MONO }}
         >
           {sub}
@@ -91,14 +91,14 @@ function Stat({
         {value}
       </span>
       <span
-        className="text-[10px] uppercase tracking-[0.16em]"
-        style={{ color: "var(--cx-muted)", fontFamily: MONO }}
+        className="text-[11.5px] tracking-tight font-medium"
+        style={{ color: "var(--cx-muted)", fontFamily: "var(--font-body), system-ui, sans-serif" }}
       >
         {label}
       </span>
       {hint && (
         <span
-          className="text-[9.5px] tracking-[0.02em]"
+          className="text-[11px] tracking-tight tabular-nums"
           style={{ color: "var(--cx-faint)", fontFamily: MONO }}
         >
           {hint}
@@ -126,7 +126,7 @@ function Section({
         <Kicker>{title}</Kicker>
         {note && (
           <span
-            className="text-[9px] tracking-[0.04em]"
+            className="text-[11px] tracking-tight tabular-nums"
             style={{ color: "var(--cx-faint)", fontFamily: MONO }}
           >
             {note}
@@ -170,10 +170,11 @@ function Bar({
         >
           {flags ? (
             <span
-              className="px-1.5 py-0.5 rounded text-[9px] tracking-[0.08em]"
+              className="px-1.5 py-0.5 rounded text-[11px] tracking-tight tabular-nums font-medium"
               style={{
                 color: "var(--cx-alarm)",
                 background: "var(--cx-alarm-soft)",
+                fontFamily: "var(--font-body), system-ui, sans-serif",
               }}
             >
               {nf(flags)} alertas
@@ -228,8 +229,8 @@ export default function CodexDashboard() {
   if (!k) {
     return (
       <div
-        className="h-full grid place-items-center text-xs uppercase tracking-[0.24em]"
-        style={{ color: "var(--cx-faint)", fontFamily: MONO }}
+        className="h-full grid place-items-center text-xs tracking-tight"
+        style={{ color: "var(--cx-muted)", fontFamily: "var(--font-body), system-ui, sans-serif" }}
       >
         Cargando indicadores…
       </div>
@@ -253,7 +254,7 @@ export default function CodexDashboard() {
       <header className="flex flex-col gap-1.5">
         <Kicker>Panel · Toda la base · Perú + Chile</Kicker>
         <h1
-          className="text-[clamp(1.3rem,2.6vw,2rem)] leading-tight font-medium tracking-[-0.01em]"
+          className="text-[clamp(1.3rem,2.6vw,2rem)] leading-tight font-medium tracking-tight"
           style={{ color: "var(--cx-fg)", fontFamily: SERIF }}
         >
           Seguimos el billete de la obra pública.
@@ -282,7 +283,7 @@ export default function CodexDashboard() {
       </div>
 
       <p
-        className="text-[10px] tracking-[0.04em] px-1"
+        className="text-[11.5px] tracking-tight px-1 tabular-nums"
         style={{ color: "var(--cx-muted)", fontFamily: MONO }}
       >
         Monto promedio por contrato {money(t.monto_promedio)} · {nf(t.suppliers)}{" "}
@@ -370,7 +371,7 @@ export default function CodexDashboard() {
                     />
                   </div>
                   <span
-                    className="text-[9px] tabular-nums"
+                    className="text-[11px] tabular-nums"
                     style={{ color: "var(--cx-faint)", fontFamily: MONO }}
                   >
                     {String(y.year).slice(2)}
@@ -380,8 +381,8 @@ export default function CodexDashboard() {
             })}
           </div>
           <p
-            className="mt-3 text-[9.5px] tracking-[0.04em] flex items-center gap-2"
-            style={{ color: "var(--cx-faint)", fontFamily: MONO }}
+            className="mt-3 text-[11px] tracking-tight flex items-center gap-2"
+            style={{ color: "var(--cx-muted)", fontFamily: "var(--font-body), system-ui, sans-serif" }}
           >
             <span
               className="inline-block w-2 h-2 rounded-sm"
@@ -433,7 +434,7 @@ export default function CodexDashboard() {
                   {s.name}
                 </p>
                 <p
-                  className="text-[9.5px] tracking-[0.04em]"
+                  className="text-[11px] tracking-tight tabular-nums"
                   style={{ color: "var(--cx-faint)", fontFamily: MONO }}
                 >
                   {s.ruc ? `RUC ${s.ruc} · ` : ""}
@@ -441,11 +442,11 @@ export default function CodexDashboard() {
                 </p>
               </div>
               <span
-                className="px-1.5 py-0.5 rounded text-[9px] tracking-[0.08em] shrink-0"
+                className="px-1.5 py-0.5 rounded text-[11px] tracking-tight shrink-0 font-medium tabular-nums"
                 style={{
                   color: "var(--cx-alarm)",
                   background: "var(--cx-alarm-soft)",
-                  fontFamily: MONO,
+                  fontFamily: "var(--font-body), system-ui, sans-serif",
                 }}
               >
                 {nf(s.red_flags)} alertas
@@ -480,8 +481,8 @@ export default function CodexDashboard() {
                 {nf(f.n)}
               </span>
               <span
-                className="text-[10px] uppercase tracking-[0.12em]"
-                style={{ color: "var(--cx-muted)", fontFamily: MONO }}
+                className="text-[11.5px] tracking-tight font-medium"
+                style={{ color: "var(--cx-muted)", fontFamily: "var(--font-body), system-ui, sans-serif" }}
               >
                 {f.tipo.replace(/_/g, " ")}
               </span>
@@ -492,8 +493,8 @@ export default function CodexDashboard() {
 
       {/* FUENTES */}
       <footer
-        className="pt-2 pb-6 text-[9.5px] tracking-[0.06em] leading-relaxed"
-        style={{ color: "var(--cx-faint)", fontFamily: MONO }}
+        className="pt-2 pb-6 text-[11px] tracking-tight leading-relaxed"
+        style={{ color: "var(--cx-muted)", fontFamily: "var(--font-body), system-ui, sans-serif" }}
       >
         Fuentes: OCDS Perú · OCDS Chile · SEACE · INFOBRAS · Registro de
         sanciones OSCE. Cruce y geocodificación propios. Datos a {fechaDatos}.
