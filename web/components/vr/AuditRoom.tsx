@@ -22,6 +22,7 @@ import RemoteAvatars from "./RemoteAvatars";
 import RedFlagPulses from "./RedFlagPulses";
 import ConnectionStatus from "./ConnectionStatus";
 import LoadingOverlay from "./LoadingOverlay";
+import ContextLostListener, { ContextLostBanner } from "./ContextLostBanner";
 import { useObrasVR } from "@/lib/vr/obras-source";
 import { projectToFloor } from "@/lib/vr/projection";
 
@@ -49,6 +50,7 @@ function AuditRoomScene() {
   const [yearFilter, setYearFilter] = useState<number | null>(null);
   const playerRef = useRef<Group>(null);
   const { obras, loading } = useObrasVR();
+  const [contextLost, setContextLost] = useState(false);
 
   const handleTeleport = (point: Vector3) => {
     if (!playerRef.current) return;
@@ -93,6 +95,7 @@ function AuditRoomScene() {
       />
       <ConnectionStatus />
       <LoadingOverlay loading={loading} count={obras.length} />
+      <ContextLostBanner visible={contextLost} />
       <Narrator selectedId={selected} />
       <Canvas
         camera={{ position: [0, 1.6, 6], fov: 75, near: 0.1, far: 200 }}
@@ -125,6 +128,8 @@ function AuditRoomScene() {
           {selected != null && <ObraPanel obraId={selected} variant="selected" />}
           {/* Audio ambiental: zumbido proporcional a la corrupción cercana */}
           <AmbientAudio />
+          {/* Detecta context lost (Chrome se queda sin contexts WebGL) */}
+          <ContextLostListener onLost={() => setContextLost(true)} />
           {/* Multiplayer — avatares + tracking de mi presencia */}
           <PresenceTracker pointingObraId={myPointing} />
           <RemoteAvatars />
