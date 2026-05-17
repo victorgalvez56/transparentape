@@ -49,10 +49,14 @@ function checkSignature(rawBody: string, req: NextRequest): boolean {
   return sdkVerifySignature({ appSecret: secret, rawBody, signatureHeader });
 }
 
-const kapso = new WhatsAppClient({
-  baseUrl: "https://api.kapso.ai/meta/whatsapp",
-  kapsoApiKey: process.env.KAPSO_API_KEY!,
-});
+let _kapso: WhatsAppClient | null = null;
+function getKapso() {
+  if (!_kapso) _kapso = new WhatsAppClient({
+    baseUrl: "https://api.kapso.ai/meta/whatsapp",
+    kapsoApiKey: process.env.KAPSO_API_KEY!,
+  });
+  return _kapso;
+}
 
 // ── button helpers ────────────────────────────────────────────────────────────
 const BUTTON_MAP: Record<string, string> = {
@@ -69,7 +73,7 @@ async function sendAyudaWithButtons(
   to: string
 ): Promise<void> {
   try {
-    await kapso.messages.sendInteractiveButtons({
+    await getKapso().messages.sendInteractiveButtons({
       phoneNumberId,
       to,
       header: { type: "text", text: "👋 Soy Transparentape" },
@@ -87,7 +91,7 @@ async function sendAyudaWithButtons(
     });
   } catch {
     // Interactive buttons not supported on this number tier — fall back to text
-    await kapso.messages.sendText({ phoneNumberId, to, body: INTRO_MSG });
+    await getKapso().messages.sendText({ phoneNumberId, to, body: INTRO_MSG });
   }
 }
 
@@ -324,7 +328,7 @@ export async function POST(req: NextRequest) {
           const reply = await handleMessage("obras cerca de mí", from, phoneNumberId, to);
           if (reply) {
             const truncated = reply.length > AGENT.limits.waMaxChars ? reply.slice(0, AGENT.limits.waMaxChars - 6) + "…" : reply;
-            await kapso.messages.sendText({ phoneNumberId, to, body: truncated });
+            await getKapso().messages.sendText({ phoneNumberId, to, body: truncated });
             saveHistory(from, "📍 ubicación compartida", truncated).catch(() => {});
           }
           query(
@@ -351,7 +355,7 @@ export async function POST(req: NextRequest) {
     // Unsupported media type — send friendly reply and skip processing
     (async () => {
       try {
-        await kapso.messages.sendText({
+        await getKapso().messages.sendText({
           phoneNumberId,
           to,
           body: "Solo proceso mensajes de texto 📝\n\nEscribe *ayuda* para ver los comandos disponibles.",
@@ -372,7 +376,7 @@ export async function POST(req: NextRequest) {
       if (reply !== null) {
         const truncated = reply.length > AGENT.limits.waMaxChars ? reply.slice(0, AGENT.limits.waMaxChars - 6) + "…" : reply;
         await Promise.all([
-          kapso.messages.sendText({ phoneNumberId, to, body: truncated }),
+          getKapso().messages.sendText({ phoneNumberId, to, body: truncated }),
           saveHistory(from, text!, truncated).catch(() => {}),
         ]);
       }

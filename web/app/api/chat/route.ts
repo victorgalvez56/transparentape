@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import Groq from "groq-sdk";
 import { query } from "@/lib/db";
 
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
-});
+let _groq: Groq | null = null;
+function getGroq() {
+  if (!_groq) _groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  return _groq;
+}
 
 // ROUTER PROMPT
 const SYSTEM_PROMPT_ROUTER = `Eres el enrutador principal de un agente de obras públicas de Perú. Tu trabajo es analizar la conversación y la última pregunta del usuario, y decidir qué acción tomar.
@@ -56,7 +58,7 @@ export async function POST(req: NextRequest) {
     }
 
     // --- STEP 1: ROUTER ---
-    const routerResponse = await groq.chat.completions.create({
+    const routerResponse = await getGroq().chat.completions.create({
       messages: [
         { role: "system", content: SYSTEM_PROMPT_ROUTER },
         ...chatHistory.map((m: any) => ({ role: m.role === "bot" ? "assistant" : m.role, content: m.content })),
@@ -80,7 +82,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (intent === "ANSWER_FROM_CONTEXT") {
-      const contextResponse = await groq.chat.completions.create({
+      const contextResponse = await getGroq().chat.completions.create({
         messages: [
           { role: "system", content: SYSTEM_PROMPT_ANSWER_CONTEXT },
           ...chatHistory.map((m: any) => ({ role: m.role === "bot" ? "assistant" : m.role, content: m.content })),
@@ -100,7 +102,7 @@ export async function POST(req: NextRequest) {
     // Sliding window para SQL Generator: Solo los últimos 4 mensajes
     const slidingWindow = chatHistory.slice(-4);
 
-    const sqlResponse = await groq.chat.completions.create({
+    const sqlResponse = await getGroq().chat.completions.create({
       messages: [
         { role: "system", content: SYSTEM_PROMPT_SQL },
         ...slidingWindow.map((m: any) => ({ role: m.role === "bot" ? "assistant" : m.role, content: m.content })),
@@ -141,7 +143,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Synthesis step
-    const synthesisResponse = await groq.chat.completions.create({
+    const synthesisResponse = await getGroq().chat.completions.create({
       messages: [
         { role: "system", content: SYSTEM_PROMPT_SYNTHESIS },
         ...chatHistory.map((m: any) => ({ role: m.role === "bot" ? "assistant" : m.role, content: m.content })),

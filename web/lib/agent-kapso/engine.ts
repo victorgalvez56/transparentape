@@ -3,7 +3,11 @@ import { query } from "@/lib/db";
 import type { ChatMsg } from "./session";
 import { AGENT } from "./config";
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+let _groq: Groq | null = null;
+function getGroq() {
+  if (!_groq) _groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  return _groq;
+}
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
@@ -123,7 +127,7 @@ export async function chatEngine(
 
   try {
     const routerRes = await withTimeout(
-      groq.chat.completions.create({
+      getGroq().chat.completions.create({
         messages: [
           { role: "system", content: SYSTEM_PROMPT_ROUTER },
           ...historyMsgs,
@@ -164,7 +168,7 @@ export async function chatEngine(
       return "Aún no tenemos conversación previa. Pregunta por obras en una región o año específico.";
     }
     const ctxRes = await withTimeout(
-      groq.chat.completions.create({
+      getGroq().chat.completions.create({
         messages: [
           { role: "system", content: SYSTEM_PROMPT_CONTEXT },
           ...historyMsgs,
@@ -185,7 +189,7 @@ export async function chatEngine(
   const slidingWindow = toGroqHistory(history.slice(-AGENT.limits.sqlContextWindow));
 
   const sqlRes = await withTimeout(
-    groq.chat.completions.create({
+    getGroq().chat.completions.create({
       messages: [
         { role: "system", content: SYSTEM_PROMPT_SQL },
         ...slidingWindow,
@@ -232,7 +236,7 @@ export async function chatEngine(
   }
 
   const synthesisRes = await withTimeout(
-    groq.chat.completions.create({
+    getGroq().chat.completions.create({
       messages: [
         { role: "system", content: SYSTEM_PROMPT_SYNTHESIS },
         ...slidingWindow,
