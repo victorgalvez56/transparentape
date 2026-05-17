@@ -20,6 +20,7 @@ export default function AuditRoom() {
   const [hovered, setHovered] = useState<number | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [activePreset, setActivePreset] = useState<string>("lima");
+  const [onlyRedFlag, setOnlyRedFlag] = useState(false);
   const [flyTo, setFlyTo] = useState<{
     target: [number, number, number];
     position: [number, number, number];
@@ -52,6 +53,8 @@ export default function AuditRoom() {
         presets={CITY_PRESETS}
         activePreset={activePreset}
         onSelectPreset={handleSelectPreset}
+        onlyRedFlag={onlyRedFlag}
+        onToggleRedFlag={() => setOnlyRedFlag((v) => !v)}
       />
       <ContextLostBanner visible={contextLost} />
       <Canvas
@@ -70,6 +73,7 @@ export default function AuditRoom() {
         <PeruMap />
         <RedFlagPulses />
         <ColumnaForest
+          onlyRedFlag={onlyRedFlag}
           onPointerOver={(id) => setHovered(id)}
           onPointerOut={() => setHovered(null)}
           onSelect={(id) => setSelected(id)}

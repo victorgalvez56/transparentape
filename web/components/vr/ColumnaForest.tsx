@@ -26,6 +26,7 @@ const DESKTOP_INSTANCE_CAP = 8000;
 
 interface Props {
   yearFilter?: number | null; // null = todos
+  onlyRedFlag?: boolean; // si true, oculta verdes
   onPointerOver?: (obraId: number) => void;
   onPointerOut?: () => void;
   onSelect?: (obraId: number) => void;
@@ -33,6 +34,7 @@ interface Props {
 
 export default function ColumnaForest({
   yearFilter,
+  onlyRedFlag,
   onPointerOver,
   onPointerOut,
   onSelect,
@@ -46,11 +48,12 @@ export default function ColumnaForest({
   const matRef = useRef<THREE.MeshStandardMaterial>(null);
   const pulseTime = useRef(0);
 
-  // Filtrar por año + cap segun XR session
+  // Filtrar por año + red flag toggle + cap segun XR session
   const visible = useMemo(() => {
     const cap = inXR ? XR_INSTANCE_CAP : DESKTOP_INSTANCE_CAP;
     let list = obras;
     if (yearFilter != null) list = list.filter((o) => o.source_year === yearFilter);
+    if (onlyRedFlag) list = list.filter((o) => o.is_red_flag);
     if (list.length <= cap) return list;
     return [...list]
       .sort((a, b) => {
@@ -58,7 +61,7 @@ export default function ColumnaForest({
         return (b.monto ?? 0) - (a.monto ?? 0);
       })
       .slice(0, cap);
-  }, [obras, yearFilter, inXR]);
+  }, [obras, yearFilter, onlyRedFlag, inXR]);
 
   // Posicionar y colorear las instancias cuando cambia el dataset
   useEffect(() => {

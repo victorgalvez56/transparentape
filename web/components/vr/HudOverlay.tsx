@@ -14,6 +14,8 @@ interface Props {
   presets: CityPreset[];
   activePreset: string;
   onSelectPreset: (key: string) => void;
+  onlyRedFlag: boolean;
+  onToggleRedFlag: () => void;
 }
 
 /**
@@ -30,7 +32,21 @@ export default function HudOverlay({
   presets,
   activePreset,
   onSelectPreset,
+  onlyRedFlag,
+  onToggleRedFlag,
 }: Props) {
+  // Stats live calculados de las obras renderizadas
+  const stats = (() => {
+    let total = 0;
+    let alertas = 0;
+    let huge = 0;
+    for (const o of obras) {
+      total += o.monto ?? 0;
+      if (o.is_red_flag) alertas++;
+      if ((o.monto ?? 0) >= 1e8) huge++;
+    }
+    return { total, alertas, huge };
+  })();
   const hoveredObra = hovered != null ? obras.find((o) => o.id === hovered) : null;
   const selectedObra =
     selected != null ? obras.find((o) => o.id === selected) : null;
@@ -83,13 +99,39 @@ export default function HudOverlay({
         </div>
       )}
 
-      {/* Counter top-left */}
+      {/* Stats live + Toggle red flag — top-left */}
       {!loading && totalObras > 0 && (
         <div
-          className="absolute top-20 left-6 text-[10px] uppercase tracking-[0.22em] text-white/45"
+          className="pointer-events-auto absolute top-20 left-6 flex flex-col gap-3"
           style={{ fontFamily: "var(--font-mono), monospace" }}
         >
-          {totalObras.toLocaleString("es-PE")} obras renderizadas
+          <div className="grid grid-cols-1 gap-1.5">
+            <Stat label="obras renderizadas" value={totalObras.toLocaleString("es-PE")} />
+            <Stat
+              label="alertas OECE"
+              value={stats.alertas.toLocaleString("es-PE")}
+              tone="alarm"
+            />
+            <Stat
+              label="megaproyectos > S/ 100M"
+              value={stats.huge.toLocaleString("es-PE")}
+              tone="brand"
+            />
+            <Stat
+              label="presupuesto total"
+              value={formatMontoCompact(stats.total).replace("S/ ", "S/ ")}
+            />
+          </div>
+          <button
+            onClick={onToggleRedFlag}
+            className={`px-3 py-2 text-[10px] uppercase tracking-[0.18em] border transition ${
+              onlyRedFlag
+                ? "bg-[var(--alarm)] text-black border-[var(--alarm)]"
+                : "text-white/70 border-white/15 hover:bg-white/5 hover:text-white"
+            }`}
+          >
+            {onlyRedFlag ? "● mostrando solo alertas" : "○ filtrar solo alertas OECE"}
+          </button>
         </div>
       )}
 
@@ -138,6 +180,31 @@ export default function HudOverlay({
           <span className="text-[var(--alarm)]">rojo = alerta OECE</span>
         </p>
       </div>
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: "alarm" | "brand";
+}) {
+  const colorClass =
+    tone === "alarm"
+      ? "text-[var(--alarm)]"
+      : tone === "brand"
+      ? "text-[var(--brand)]"
+      : "text-white";
+  return (
+    <div className="flex items-baseline gap-2">
+      <span className={`text-[15px] tabular-nums ${colorClass}`}>{value}</span>
+      <span className="text-[9px] uppercase tracking-[0.2em] text-white/40">
+        {label}
+      </span>
     </div>
   );
 }
