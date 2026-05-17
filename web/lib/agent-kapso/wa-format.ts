@@ -1,4 +1,5 @@
 import type { ObraResumen, ObraCercana, ContratistaStat, BuscarObrasFilters, ObraRetrasada } from "./queries";
+import { FECHA_DATOS } from "./config";
 
 export const COUNTRY_NAMES: Record<string, string> = {
   PE: "Perú 🇵🇪",
@@ -62,6 +63,11 @@ function hint(text: string): string {
   return `\n\n${text}`;
 }
 
+// Cited under every data response so users + journalists know when the
+// snapshot was taken and what sources back it. Bump FECHA_DATOS in
+// config.ts after each ETL refresh.
+const SOURCE_FOOTER = `\n\n_📊 Fuente: OCDS · OECE · datos al ${FECHA_DATOS}._`;
+
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
 export function fmtObras(
@@ -107,12 +113,37 @@ export function fmtObras(
   });
   lines.push(hint(HINT_OBRAS));
   lines.push(thinDataNote(country));
-  return lines.join("\n");
+  return lines.join("\n") + SOURCE_FOOTER;
+}
+
+// Map raw OCDS / DB values to citizen-readable Spanish. Keeps fmtDetalle
+// honest: the user shouldn't have to decode "direct" or
+// "sancion_inhabilitacion" to understand the obra.
+const PROCUREMENT_LABEL: Record<string, string> = {
+  direct: "adjudicación directa (sin concurso)",
+  open: "licitación abierta",
+  limited: "concurso limitado",
+};
+const RED_FLAG_LABEL: Record<string, string> = {
+  sancion_inhabilitacion: "🚫 contratista sancionado por OECE",
+  penalidad: "⚠️ obra con penalidad aplicada",
+};
+
+function humanizeProcurement(raw: string | null | undefined): string {
+  if (!raw) return "—";
+  return PROCUREMENT_LABEL[raw] ?? raw;
+}
+function humanizeFlags(flags: string[] | null | undefined): string {
+  if (!flags?.length) return "";
+  const labeled = flags.map((f) => RED_FLAG_LABEL[f] ?? f);
+  return `\n${labeled.join("\n")}`;
 }
 
 export function fmtDetalle(o: ObraResumen, country = "PE"): string {
-  const flags = o.red_flag_types?.length
-    ? `\n⚠️ *Alertas:* ${o.red_flag_types.join(", ")}`
+  // Public-share URL — surfaces only for PE-style OCID right now since
+  // transparentape.app's /obras/[ocid] page exists for the PE pipeline.
+  const shareLink = o.ocid
+    ? `\n🔗 https://transparentape.app/obras/${encodeURIComponent(o.ocid)}`
     : "";
   return (
     `📄 *${cleanTitle(o.titulo)}*\n\n` +
@@ -120,10 +151,11 @@ export function fmtDetalle(o: ObraResumen, country = "PE"): string {
     `📍 ${[o.region, o.localidad].filter(Boolean).join(" › ") || "—"}\n` +
     `🏗️ Contratista: ${o.contratista ?? "—"}\n` +
     `   RUC: ${o.ruc ?? "—"}\n` +
-    `📅 Año: ${o.source_year ?? "—"} | Método: ${o.procurement_method ?? "—"}\n` +
-    `🔖 OCID: ${o.ocid ?? "—"}` +
-    flags +
-    hint("_Escribe *ranking contratistas* o busca más obras._")
+    `📅 Año: ${o.source_year ?? "—"} · Modalidad: ${humanizeProcurement(o.procurement_method)}` +
+    humanizeFlags(o.red_flag_types) +
+    shareLink +
+    hint("_Escribe *ranking contratistas* o busca más obras._") +
+    SOURCE_FOOTER
   );
 }
 
@@ -141,7 +173,7 @@ export function fmtCercanas(obras: ObraCercana[], country = "PE"): string {
     );
   });
   lines.push(hint(HINT_OBRAS));
-  return lines.join("\n");
+  return lines.join("\n") + SOURCE_FOOTER;
 }
 
 export function fmtStats(
@@ -164,7 +196,8 @@ export function fmtStats(
     `⚠️ Con alerta: ${alertas.toLocaleString()} (${pct}%)\n` +
     `💰 Monto total: ${fmt(Number(s.monto_total), s.country)}` +
     thinDataNote(s.country) +
-    hint("_Prueba: *ranking contratistas* · *monto en riesgo* · *obras en Lima*_")
+    hint("_Prueba: *ranking contratistas* · *monto en riesgo* · *obras en Lima*_") +
+    SOURCE_FOOTER
   );
 }
 
@@ -184,7 +217,7 @@ export function fmtRankingContratistas(list: ContratistaStat[], country: string,
     );
   });
   lines.push(hint("_Escribe *investigar [empresa]* para ver sus obras._"));
-  return lines.join("\n");
+  return lines.join("\n") + SOURCE_FOOTER;
 }
 
 export function fmtInvestigacion(
@@ -211,7 +244,7 @@ export function fmtInvestigacion(
     }
   }
   lines.push(hint("_Escribe *ranking contratistas* o *inhabilitados* para más._"));
-  return lines.join("\n");
+  return lines.join("\n") + SOURCE_FOOTER;
 }
 
 export function fmtInhabilitados(
@@ -229,7 +262,7 @@ export function fmtInhabilitados(
     );
   }
   lines.push(hint("_Escribe *investigar [RUC]* para ver detalle de uno._"));
-  return lines.join("\n");
+  return lines.join("\n") + SOURCE_FOOTER;
 }
 
 export function fmtAdjudicacionDirecta(obras: ObraResumen[], country: string, scope?: string): string {
@@ -244,7 +277,7 @@ export function fmtAdjudicacionDirecta(obras: ObraResumen[], country: string, sc
     );
   });
   lines.push(hint(HINT_OBRAS));
-  return lines.join("\n");
+  return lines.join("\n") + SOURCE_FOOTER;
 }
 
 export function fmtRankingEntidades(
@@ -263,7 +296,7 @@ export function fmtRankingEntidades(
     );
   });
   lines.push(hint("_Escribe *adjudicación directa* para ver contratos sospechosos._"));
-  return lines.join("\n");
+  return lines.join("\n") + SOURCE_FOOTER;
 }
 
 // ASCII progress bar — 10 cells. Used by retrasadas + avance.
@@ -331,7 +364,7 @@ export function fmtRetrasadas(
     );
   });
   lines.push(hint(HINT_OBRAS));
-  return lines.join("\n");
+  return lines.join("\n") + SOURCE_FOOTER;
 }
 
 export function fmtMontoEnRiesgo(
@@ -345,7 +378,8 @@ export function fmtMontoEnRiesgo(
     `Obras con alerta: ${data.obras.toLocaleString()}\n` +
     `💰 Total comprometido: *${fmt(data.monto_total, data.country)}*\n\n` +
     `_Monto de contratos donde se detectaron red flags._` +
-    hint("_Escribe *adjudicación directa* o *ranking contratistas* para ver quiénes._")
+    hint("_Escribe *adjudicación directa* o *ranking contratistas* para ver quiénes._") +
+    SOURCE_FOOTER
   );
 }
 

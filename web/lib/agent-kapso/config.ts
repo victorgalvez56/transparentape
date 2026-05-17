@@ -1,3 +1,7 @@
+// Last ETL refresh — bump when running data pipeline. Surfaced in WhatsApp
+// responses so users (and journalists) can cite the snapshot date.
+export const FECHA_DATOS = "17 mayo 2026";
+
 export const AGENT = {
   models: {
     fast: "llama-3.1-8b-instant",       // router, context, synthesis

@@ -27,6 +27,7 @@ import {
   type BuscarObrasFilters,
 } from "@/lib/agent-kapso/queries";
 import { classifyQuery } from "@/lib/agent-kapso/places";
+import { lookupDefinition, fmtDefinition, listKnownTerms } from "@/lib/agent-kapso/definitions";
 import {
   fmtObras,
   fmtStats,
@@ -235,6 +236,37 @@ export const TOOLS: Tool[] = [
       const q = asString(args.q);
       const data = await montoEnRiesgo(ctx.country, q);
       return { data, formatted: fmtMontoEnRiesgo(data, q) };
+    },
+  },
+  {
+    name: "lookup_definition",
+    description:
+      "USA ESTE TOOL cuando el usuario pregunta qué es / qué significa / cómo se define / explica un término del lenguaje de contrataciones públicas. Ejemplos: 'qué es adjudicación directa', 'qué significa OCDS', 'explícame red flag', 'qué es un consorcio'. NO uses este tool para preguntas sobre obras específicas o contratistas — solo para definiciones de conceptos generales.",
+    parameters: {
+      term: "string requerido — término a definir (ej: 'adjudicación directa', 'OCDS', 'red flag')",
+    },
+    async run(args) {
+      const term = asString(args.term);
+      if (!term) {
+        return {
+          data: null,
+          formatted:
+            "Especifica el término a definir. Conozco: " +
+            listKnownTerms().slice(0, 8).join(", ") +
+            "...",
+        };
+      }
+      const def = lookupDefinition(term);
+      if (!def) {
+        const sample = listKnownTerms().slice(0, 6).join(", ");
+        return {
+          data: null,
+          formatted:
+            `No tengo definición para "${term}".\n\nConozco términos como: ${sample}...\n\n` +
+            `_Escribe "qué es <término>" para ver una definición._`,
+        };
+      }
+      return { data: def, formatted: fmtDefinition(def) };
     },
   },
   {
