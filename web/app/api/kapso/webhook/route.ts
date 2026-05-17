@@ -30,7 +30,7 @@ import {
   fmtAdjudicacionDirecta,
   fmtRankingEntidades,
   fmtMontoEnRiesgo,
-  AYUDA_MSG,
+  INTRO_MSG,
 } from "@/lib/agent-kapso/wa-format";
 
 export const runtime = "nodejs";
@@ -72,17 +72,22 @@ async function sendAyudaWithButtons(
     await kapso.messages.sendInteractiveButtons({
       phoneNumberId,
       to,
-      bodyText: "🤖 *Transparentape* — ¿Qué quieres consultar?",
+      header: { type: "text", text: "👋 Soy Transparentape" },
+      bodyText:
+        "Vigilo obras públicas de Perú, Chile, Colombia y más.\n\n" +
+        "Detecta contratos con alertas, investiga empresas contratistas " +
+        "y consulta rankings de transparencia — directo desde WhatsApp.\n\n" +
+        "¿Por dónde empezamos?",
       footerText: "Datos: OCDS · SEACE · Mercado Público",
-      header: { type: "text", text: "Obras Públicas" },
       buttons: [
         { id: "btn_buscar", title: "🔍 Buscar obras" },
         { id: "btn_stats", title: "📊 Estadísticas" },
-        { id: "btn_ranking", title: "🏆 Ranking" },
+        { id: "btn_ranking", title: "🏆 Rankings" },
       ],
     });
   } catch {
-    await kapso.messages.sendText({ phoneNumberId, to, body: AYUDA_MSG });
+    // Interactive buttons not supported on this number tier — fall back to text
+    await kapso.messages.sendText({ phoneNumberId, to, body: INTRO_MSG });
   }
 }
 

@@ -24,8 +24,9 @@ const THIN_DATA_COUNTRIES = new Set(["CL", "CO", "MX", "AR", "BR"]);
 function fmt(monto: number | null | undefined, country = "PE"): string {
   if (!monto) return "sin monto";
   const sym = CURRENCY[country] ?? "$";
-  if (monto >= 1_000_000) return `${sym} ${(monto / 1_000_000).toFixed(1)}M`;
-  if (monto >= 1_000) return `${sym} ${(monto / 1_000).toFixed(0)}K`;
+  if (monto >= 1_000_000_000) return `${sym} ${(monto / 1_000_000_000).toFixed(1)}B`;
+  if (monto >= 1_000_000)     return `${sym} ${(monto / 1_000_000).toFixed(1)}M`;
+  if (monto >= 1_000)         return `${sym} ${(monto / 1_000).toFixed(0)}K`;
   return `${sym} ${monto.toLocaleString()}`;
 }
 
@@ -237,37 +238,21 @@ export function fmtMontoEnRiesgo(data: { obras: number; monto_total: number; cou
   );
 }
 
-export const AYUDA_MSG = `🤖 *Transparentape — Agente de Obras Públicas*
+export const INTRO_MSG = `👋 Hola, soy *Transparentape* 🔍
 
-Comandos disponibles:
+Vigilo las obras públicas de Perú, Chile, Colombia y más países. Puedo mostrarte contratos, detectar señales de corrupción e investigar empresas contratistas — todo desde WhatsApp.
 
-🔍 *Buscar obras*
-  _obras en Piura 2024_
-  _licitaciones con alerta en Lima_
+*¿Qué quieres hacer?*
 
-📍 *Obras cercanas* _(comparte tu ubicación)_
-  _¿qué obras hay cerca de mí?_
+🔍 _obras en Piura este año_
+📊 _estadísticas Perú_
+🏆 _ranking contratistas_
+📍 _obras cerca de mí_ _(comparte ubicación)_
+🔎 _investigar Odebrecht_
+🚫 _inhabilitados Chile_
 
-📄 *Ver detalle*
-  _detalle #123_ · _el primero_ · _el segundo_
-
-📊 *Estadísticas*
-  _estadísticas Perú_ · _resumen Chile_
-  _monto en riesgo Perú_
-
-🏆 *Rankings*
-  _ranking contratistas Perú_
-  _ranking entidades Chile_
-  _adjudicación directa Perú_
-
-🔎 *Investigar empresa*
-  _investigar 20123456789_
-  _investigar Odebrecht_
-
-🚫 *Inhabilitados*
-  _inhabilitados Chile_
-
-🌎 *Cambiar país*
-  _Perú_ · _Chile_ · _Colombia_ · _México_
+O escribe cualquier pregunta sobre contratos públicos.
 
 _Datos: OCDS · SEACE · Mercado Público_`;
+
+export const AYUDA_MSG = INTRO_MSG;
