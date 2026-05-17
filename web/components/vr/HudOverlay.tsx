@@ -19,6 +19,8 @@ interface Props {
   years: number[];
   yearFilter: number | null;
   onSelectYear: (y: number | null) => void;
+  tourPlaying: boolean;
+  onToggleTour: () => void;
 }
 
 /**
@@ -40,6 +42,8 @@ export default function HudOverlay({
   years,
   yearFilter,
   onSelectYear,
+  tourPlaying,
+  onToggleTour,
 }: Props) {
   // Stats live calculados de las obras renderizadas
   const stats = (() => {
@@ -188,6 +192,16 @@ export default function HudOverlay({
             </button>
           );
         })}
+        <button
+          onClick={onToggleTour}
+          className={`mt-1 px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] border transition ${
+            tourPlaying
+              ? "bg-[var(--alarm)] text-black border-[var(--alarm)] animate-pulse"
+              : "text-white/70 border-white/15 hover:bg-white/5 hover:text-white"
+          }`}
+        >
+          {tourPlaying ? "■ Detener tour" : "▶ Auto-tour"}
+        </button>
       </div>
 
       {/* Panel obra hovered/selected — bottom-left */}

@@ -6,6 +6,7 @@ import { OrbitControls } from "@react-three/drei";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import ColumnaForest from "./ColumnaForest";
 import Skybox from "./Skybox";
+import SatelliteFloor from "./SatelliteFloor";
 import PeruMap from "./PeruMap";
 import RedFlagPulses from "./RedFlagPulses";
 import ContextLostListener, { ContextLostBanner } from "./ContextLostBanner";
@@ -22,6 +23,7 @@ export default function AuditRoom() {
   const [activePreset, setActivePreset] = useState<string>("lima");
   const [onlyRedFlag, setOnlyRedFlag] = useState(false);
   const [yearFilter, setYearFilter] = useState<number | null>(null);
+  const [tourPlaying, setTourPlaying] = useState(false);
   const [flyTo, setFlyTo] = useState<{
     target: [number, number, number];
     position: [number, number, number];
@@ -63,7 +65,25 @@ export default function AuditRoom() {
     return [...set].sort((a, b) => b - a);
   })();
 
-  // Hotkeys del demo — 1-6 ciudades, R alertas, Esc cerrar panel
+  // Auto-tour: recorre los presets cada 4.5s mientras tourPlaying
+  useEffect(() => {
+    if (!tourPlaying) return;
+    let idx = CITY_PRESETS.findIndex((p) => p.key === activePreset);
+    const advance = () => {
+      idx = (idx + 1) % CITY_PRESETS.length;
+      handleSelectPreset(CITY_PRESETS[idx].key);
+    };
+    // Primera advance instantanea para arrancar el flow
+    const firstTick = setTimeout(advance, 100);
+    const id = setInterval(advance, 4500);
+    return () => {
+      clearTimeout(firstTick);
+      clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tourPlaying]);
+
+  // Hotkeys del demo — 1-6 ciudades, R alertas, T tour, Esc cerrar panel
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       // No interferir si el user esta tipeando en un input/select
@@ -75,8 +95,11 @@ export default function AuditRoom() {
         if (idx < CITY_PRESETS.length) handleSelectPreset(CITY_PRESETS[idx].key);
       } else if (key === "r") {
         setOnlyRedFlag((v) => !v);
+      } else if (key === "t") {
+        setTourPlaying((v) => !v);
       } else if (key === "escape") {
         setSelected(null);
+        setTourPlaying(false);
       }
     };
     window.addEventListener("keydown", handler);
@@ -101,6 +124,8 @@ export default function AuditRoom() {
         years={availableYears}
         yearFilter={yearFilter}
         onSelectYear={(y) => setYearFilter(y)}
+        tourPlaying={tourPlaying}
+        onToggleTour={() => setTourPlaying((v) => !v)}
       />
       <ContextLostBanner visible={contextLost} />
       <Canvas
@@ -113,9 +138,9 @@ export default function AuditRoom() {
         gl={{ antialias: true }}
       >
         <Skybox />
-        <ambientLight intensity={0.35} />
-        <directionalLight position={[5, 10, 5]} intensity={0.8} />
-        <gridHelper args={[80, 40, "#1a7a18", "#0a3d0a"]} />
+        <ambientLight intensity={0.6} />
+        <directionalLight position={[5, 10, 5]} intensity={0.5} />
+        <SatelliteFloor />
         <PeruMap />
         <RedFlagPulses />
         <ColumnaForest
