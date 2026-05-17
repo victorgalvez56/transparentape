@@ -57,7 +57,7 @@ function verifySignature(body: string, header: string | null): boolean {
 }
 
 const kapso = new WhatsAppClient({
-  baseUrl: "https://app.kapso.ai/api/meta/",
+  baseUrl: "https://api.kapso.ai/meta/whatsapp",
   kapsoApiKey: process.env.KAPSO_API_KEY!,
 });
 
