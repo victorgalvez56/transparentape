@@ -13,8 +13,12 @@ interface Props {
   source?: string;
   /** Cuando true, ocupa todo el ancho (modo "Lista" del topbar) */
   fullWidth?: boolean;
-  /** Slot inferior — si hay obra seleccionada, render aqui (stacking cards) */
+  /** Si hay obra seleccionada → takeover full-height del sidebar */
   detailSlot?: React.ReactNode;
+  /** Metadata de la obra seleccionada para el back-header */
+  detailHeader?: { locality: string | null; year: number | null } | null;
+  /** Vuelve al listado preservando filtros/busqueda */
+  onBackToList?: () => void;
 }
 
 type Filtro = "todas" | "alto" | "medio" | "bajo";
@@ -33,6 +37,8 @@ export default function ObrasListPanel({
   source,
   fullWidth = false,
   detailSlot,
+  detailHeader,
+  onBackToList,
 }: Props) {
   const [q, setQ] = useState("");
   const [filtro, setFiltro] = useState<Filtro>("todas");
@@ -71,15 +77,63 @@ export default function ObrasListPanel({
 
   const isDemo = source === "mock";
 
+  // Detail mode = takeover full-height del sidebar via crossfade
+  const showDetail = Boolean(detailSlot);
+  const localityLabel = detailHeader?.locality ?? "Caso";
+  const yearLabel = detailHeader?.year ?? "—";
+
   return (
     <motion.aside
       initial={{ x: 30, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       transition={{ delay: 0.5, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-      className={`absolute top-[104px] right-0 z-10 bottom-0 flex flex-col bg-[var(--ink-1)]/85 backdrop-blur-xl border-l border-[var(--rule)] text-[var(--fg)] ${
+      className={`absolute top-[104px] right-0 z-10 bottom-0 flex flex-col bg-[var(--ink-1)]/85 backdrop-blur-xl border-l border-[var(--rule)] text-[var(--fg)] overflow-hidden ${
         fullWidth ? "left-0 w-auto" : "w-full max-w-md"
       }`}
     >
+      <AnimatePresence mode="wait" initial={false}>
+        {showDetail ? (
+          <motion.div
+            key="detail-view"
+            initial={{ x: 32, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: 32, opacity: 0 }}
+            transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+            className="absolute inset-0 flex flex-col"
+          >
+            {/* DETAIL HEADER — back arrow + breadcrumb */}
+            <div className="px-5 pt-5 pb-3 border-b border-[var(--rule)] flex items-center justify-between">
+              <button
+                onClick={onBackToList}
+                className="flex items-center gap-2 text-[10px] uppercase tracking-[0.22em] text-[var(--fg-dim)] hover:text-[var(--fg)] transition-colors"
+                style={{ fontFamily: "var(--font-mono), monospace" }}
+              >
+                <span aria-hidden>←</span>
+                Volver al Índice
+                <span className="text-[var(--fg-faint)]">·</span>
+                <span className="tabular-nums">{filtradas.length}</span>
+              </button>
+              <p
+                className="text-[9px] uppercase tracking-[0.26em] text-[var(--fg-faint)]"
+                style={{ fontFamily: "var(--font-mono), monospace" }}
+              >
+                {localityLabel} · {yearLabel}
+              </p>
+            </div>
+            {/* DETAIL BODY (slot scroleable, ObraDetailPanel embedded) */}
+            <div className="flex-1 min-h-0 overflow-hidden">
+              {detailSlot}
+            </div>
+          </motion.div>
+        ) : (
+          <motion.div
+            key="list-view"
+            initial={{ x: -32, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: -32, opacity: 0 }}
+            transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+            className="absolute inset-0 flex flex-col"
+          >
       {/* HEADER editorial */}
       <header className="px-6 pt-6 pb-4 border-b border-[var(--rule)]">
         <p
@@ -137,12 +191,10 @@ export default function ObrasListPanel({
         />
       </div>
 
-      {/* LISTA — comparte espacio con detailSlot via flex */}
+      {/* LISTA */}
       <ul
         ref={scrollContainerRef}
-        className={`overflow-y-auto divide-y divide-[var(--rule)] ${
-          detailSlot ? "flex-[0_0_40%]" : "flex-1"
-        }`}
+        className="flex-1 overflow-y-auto divide-y divide-[var(--rule)]"
       >
         {filtradas.length === 0 && (
           <li className="p-8 text-center text-sm text-[var(--fg-faint)]">
@@ -217,31 +269,16 @@ export default function ObrasListPanel({
         })}
       </ul>
 
-      {/* DETAIL SLOT — slide-up cuando hay obra seleccionada */}
-      <AnimatePresence initial={false}>
-        {detailSlot && (
-          <motion.div
-            key="detail-slot"
-            initial={{ y: 60, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 60, opacity: 0 }}
-            transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
-            className="flex-1 min-h-0 overflow-hidden"
-          >
-            {detailSlot}
+      {/* FOOTER */}
+      <footer
+        className="px-6 py-3 border-t border-[var(--rule)] text-[10px] uppercase tracking-[0.22em] text-[var(--fg-faint)] text-center"
+        style={{ fontFamily: "var(--font-mono), monospace" }}
+      >
+        Mostrando {filtradas.length} de {obras.length}
+      </footer>
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* FOOTER */}
-      {!detailSlot && (
-        <footer
-          className="px-6 py-3 border-t border-[var(--rule)] text-[10px] uppercase tracking-[0.22em] text-[var(--fg-faint)] text-center"
-          style={{ fontFamily: "var(--font-mono), monospace" }}
-        >
-          Mostrando {filtradas.length} de {obras.length}
-        </footer>
-      )}
     </motion.aside>
   );
 }

@@ -59,13 +59,15 @@ export default function ObraDetailPanel({
           >
             Caso · {obra.buyer_locality} · {obra.source_year}
           </p>
-          <button
-            onClick={onClose}
-            className="text-[var(--fg-faint)] hover:text-[var(--fg)] text-lg leading-none transition-colors"
-            aria-label="Cerrar"
-          >
-            ×
-          </button>
+          {!embedded && (
+            <button
+              onClick={onClose}
+              className="text-[var(--fg-faint)] hover:text-[var(--fg)] text-lg leading-none transition-colors"
+              aria-label="Cerrar"
+            >
+              ×
+            </button>
+          )}
         </div>
         <h2
           className="mt-2 text-[22px] leading-[1.2] text-[var(--fg)] font-medium"

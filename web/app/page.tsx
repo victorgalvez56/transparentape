@@ -80,6 +80,20 @@ export default function HomePage() {
     return () => clearTimeout(t);
   }, [mapPhase]);
 
+  // Esc keyboard: si hay obra seleccionada o forensics abierto, cerrar (navigation stack)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (showForensics) {
+        setShowForensics(false);
+      } else if (selected) {
+        setSelected(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selected, showForensics]);
+
   // Stats globales — corre rápido, alimenta cold open + HUD
   useEffect(() => {
     let cancelled = false;
@@ -220,6 +234,12 @@ export default function HomePage() {
         total={visibleObras.length}
         source={stats?.source ?? source}
         fullWidth={view === "list"}
+        detailHeader={
+          selected
+            ? { locality: selected.buyer_locality, year: selected.source_year }
+            : null
+        }
+        onBackToList={() => setSelected(null)}
         detailSlot={
           selected && !showForensics ? (
             <ObraDetailPanel
