@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { Obra, riesgoDeObra } from "@/lib/types";
 import { fmtSoles, truncar, displayTitle } from "@/lib/format";
@@ -30,6 +30,19 @@ export default function ObrasListPanel({
 }: Props) {
   const [q, setQ] = useState("");
   const [filtro, setFiltro] = useState<Filtro>("todas");
+  const itemRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
+  const scrollContainerRef = useRef<HTMLUListElement | null>(null);
+
+  // Auto-scroll: cuando se selecciona una obra desde el mapa, llevarla al top del sidebar
+  useEffect(() => {
+    if (selectedId == null) return;
+    const el = itemRefs.current.get(selectedId);
+    const container = scrollContainerRef.current;
+    if (!el || !container) return;
+    // scrollIntoView con block: "start" hace que el item quede en el top
+    const elTop = el.offsetTop - container.offsetTop;
+    container.scrollTo({ top: elTop - 4, behavior: "smooth" });
+  }, [selectedId]);
 
   const filtradas = useMemo(() => {
     const lower = q.trim().toLowerCase();
@@ -117,7 +130,10 @@ export default function ObrasListPanel({
       </div>
 
       {/* LISTA */}
-      <ul className="flex-1 overflow-y-auto divide-y divide-[var(--rule)]">
+      <ul
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto divide-y divide-[var(--rule)]"
+      >
         {filtradas.length === 0 && (
           <li className="p-8 text-center text-sm text-[var(--fg-faint)]">
             Ningún caso coincide con tu búsqueda.
@@ -129,6 +145,10 @@ export default function ObrasListPanel({
           return (
             <li key={o.id}>
               <button
+                ref={(el) => {
+                  if (el) itemRefs.current.set(o.id, el);
+                  else itemRefs.current.delete(o.id);
+                }}
                 onClick={() => onSelect(o)}
                 className={`group w-full text-left px-6 py-4 transition-all relative hover:translate-x-[2px] ${
                   isSel
