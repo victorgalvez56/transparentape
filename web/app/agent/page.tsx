@@ -11,14 +11,15 @@ export default function AgentPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([]);
 
-  const sendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || isLoading) return;
+  const sendToBackend = async (userMsg: string) => {
+    if (isLoading) return;
 
-    const userMsg = input.trim();
-    setMessages((prev) => [...prev, { role: "user", content: userMsg }]);
+    const newMessages = [...messages, { role: "user" as const, content: userMsg }];
+    setMessages(newMessages);
     setInput("");
+    setSuggestedQuestions([]);
     setIsLoading(true);
 
     try {
@@ -27,7 +28,7 @@ export default function AgentPage() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ message: userMsg }),
+        body: JSON.stringify({ messages: newMessages }),
       });
 
       const data = await res.json();
@@ -40,6 +41,10 @@ export default function AgentPage() {
         ...prev,
         { role: "bot", content: data.reply || "Sin respuesta." },
       ]);
+      
+      if (data.suggested_questions && Array.isArray(data.suggested_questions)) {
+        setSuggestedQuestions(data.suggested_questions);
+      }
     } catch (err: any) {
       setMessages((prev) => [
         ...prev,
@@ -48,6 +53,12 @@ export default function AgentPage() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const sendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim()) return;
+    await sendToBackend(input.trim());
   };
 
   return (
@@ -94,6 +105,20 @@ export default function AgentPage() {
                 <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
                 <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
               </div>
+            </div>
+          )}
+          {suggestedQuestions.length > 0 && !isLoading && (
+            <div className="flex flex-wrap gap-2 mt-2 justify-start">
+              {suggestedQuestions.map((q, i) => (
+                <button
+                  key={i}
+                  onClick={() => sendToBackend(q)}
+                  disabled={isLoading}
+                  className="text-sm bg-neutral-800 hover:bg-neutral-700 border border-neutral-600 text-neutral-300 py-2 px-4 rounded-full transition-colors text-left"
+                >
+                  {q}
+                </button>
+              ))}
             </div>
           )}
         </div>
