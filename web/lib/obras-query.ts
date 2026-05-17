@@ -122,6 +122,31 @@ export async function listObras(filters: ObraFilters): Promise<Obra[]> {
   return rows.map(rowToObra);
 }
 
+export async function listObraPoints(
+  country?: string | null
+): Promise<Obra[]> {
+  const values: unknown[] = [];
+  let where = "lat IS NOT NULL AND lng IS NOT NULL";
+  if (country) {
+    where += ` AND country = $1`;
+    values.push(country);
+  }
+  const rows = await query<Row>(
+    `SELECT id, ocid, source_year, country, buyer_name, buyer_region,
+            buyer_locality, tender_title,
+            LEFT(tender_description, 220) AS tender_description,
+            supplier_name, supplier_ruc, tender_amount, award_amount,
+            contract_amount, n_amendments, lat, lng, ai_score,
+            is_red_flag, red_flag_types
+       FROM obras
+      WHERE ${where}
+      ORDER BY is_red_flag DESC NULLS LAST, contract_amount DESC NULLS LAST
+      LIMIT 70000`,
+    values
+  );
+  return rows.map(rowToObra);
+}
+
 export async function getObraById(id: number): Promise<Obra | null> {
   const r = await queryOne<Row>(`SELECT * FROM obras WHERE id = $1`, [id]);
   return r ? rowToObra(r) : null;

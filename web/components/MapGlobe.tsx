@@ -20,6 +20,12 @@ interface Props {
   onSelect: (o: Obra) => void;
   flyToCountry?: CountryView | null;
   onViewChange?: (label: string) => void;
+  /**
+   * Override del theme cuando el caller no usa el ThemeProvider global
+   * (e.g. /end con su propio estado local "cx-theme"). Si está, manda;
+   * si no, cae al context.
+   */
+  themeOverride?: "light" | "dark";
 }
 
 /**
@@ -95,8 +101,10 @@ export default function MapGlobe({
   onSelect,
   flyToCountry,
   onViewChange,
+  themeOverride,
 }: Props) {
-  const { resolved: theme } = useTheme();
+  const { resolved: ctxTheme } = useTheme();
+  const theme = themeOverride ?? ctxTheme;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MLMap | null>(null);
   const obrasById = useRef<Map<number, Obra>>(new Map());
@@ -197,10 +205,6 @@ export default function MapGlobe({
       console.error("[MapGlobe error]", e.error?.message ?? e);
     });
 
-    map.addControl(
-      new maplibregl.NavigationControl({ showCompass: true }),
-      "bottom-right"
-    );
     map.addControl(new maplibregl.AttributionControl({ compact: true }));
 
     let rafId = 0;
@@ -690,10 +694,10 @@ export default function MapGlobe({
       <div
         ref={containerRef}
         style={{
-          position: "fixed",
+          position: "absolute",
           inset: 0,
           zIndex: 0,
-          background: "#0a0a0a",
+          background: theme === "light" ? "#f4f4f5" : "#0a0a0a",
         }}
       />
     </>

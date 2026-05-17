@@ -2,7 +2,12 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import { Obra, riesgoDeObra } from "@/lib/types";
+import { PE_CL_VIEW, CountryView, getCountryView } from "@/lib/countries";
+import CustomCursor from "@/components/CustomCursor";
+import ForensicsPanel from "@/components/ForensicsPanel";
+import CodexObraDetailInline from "@/components/codex/CodexObraDetailInline";
 import CodexHeader from "@/components/codex/CodexHeader";
 import CodexFilterBar, {
   PaisFiltro,
@@ -12,14 +17,14 @@ import CodexObraList from "@/components/codex/CodexObraList";
 import CodexObraCard from "@/components/codex/CodexObraCard";
 import CodexObraDetail from "@/components/codex/CodexObraDetail";
 
-const CodexGlobe = dynamic(() => import("@/components/codex/CodexGlobe"), {
+const MapGlobe = dynamic(() => import("@/components/MapGlobe"), {
   ssr: false,
   loading: () => (
     <div
       className="absolute inset-0 grid place-items-center text-xs"
       style={{ color: "var(--cx-faint)" }}
     >
-      Cargando globo…
+      Cargando mapa…
     </div>
   ),
 });
@@ -53,6 +58,7 @@ export default function CodexHomePage() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [view, setView] = useState<"globe" | "grid">("globe");
   const [selected, setSelected] = useState<Obra | null>(null);
+  const [showForensics, setShowForensics] = useState(false);
   const [mobileList, setMobileList] = useState(false);
 
   const [pais, setPais] = useState<PaisFiltro>("todos");
@@ -60,6 +66,20 @@ export default function CodexHomePage() {
   const [riesgo, setRiesgo] = useState<RiesgoFiltro>("todas");
   const [soloRedFlags, setSoloRedFlags] = useState(false);
   const [q, setQ] = useState("");
+
+  /**
+   * mapPhase — animacion inicial del globo (paridad con / local):
+   * "global" = vista mundo completa, pausa 1.5s
+   * "country" = flyTo PE_CL_VIEW (Peru+Chile centered)
+   */
+  const [mapPhase, setMapPhase] = useState<"global" | "country">("global");
+  const [flyTarget, setFlyTarget] = useState<CountryView | null>(null);
+
+  useEffect(() => {
+    if (mapPhase !== "global") return;
+    const t = setTimeout(() => setMapPhase("country"), 1500);
+    return () => clearTimeout(t);
+  }, [mapPhase]);
 
   // Tema persistido
   useEffect(() => {
@@ -70,7 +90,6 @@ export default function CodexHomePage() {
         : window.matchMedia?.("(prefers-color-scheme: dark)").matches
           ? "dark"
           : "light";
-    // Sync inicial desde un sistema externo (localStorage / preferencia del SO).
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setTheme(next);
   }, []);
@@ -207,19 +226,40 @@ export default function CodexHomePage() {
     setMobileList(false);
   };
 
-  const nf = (n: number) => n.toLocaleString("es-PE");
-  const statsLine = loading
-    ? `cargando ${dbStats ? nf(dbStats.geo) + " obras geo…" : "datos…"}`
-    : `${nf(filtered.length)}${
-        dbStats ? ` / ${nf(dbStats.geo)} geo` : ""
-      } · ${dbStats ? nf(dbStats.total) + " en base · " : ""}${redFlagsCount} alertas`;
+  void loading;
+  void dbStats;
+
+  const filterBarEl = (
+    <CodexFilterBar
+      pais={pais}
+      onPais={(p) => {
+        setPais(p);
+        setRegion(null);
+        if (p === "PE") setFlyTarget(getCountryView("PE"));
+        else if (p === "CL") setFlyTarget(getCountryView("CL"));
+        else setFlyTarget(PE_CL_VIEW);
+      }}
+      paisCounts={paisCounts}
+      region={region}
+      onRegion={setRegion}
+      regions={regions}
+      riesgo={riesgo}
+      onRiesgo={setRiesgo}
+      riesgoCounts={riesgoCounts}
+      soloRedFlags={soloRedFlags}
+      onRedFlags={setSoloRedFlags}
+      redFlagsCount={redFlagsCount}
+    />
+  );
 
   return (
     <main
       className={`cx-scope ${theme === "dark" ? "dark" : ""} h-dvh flex flex-col overflow-hidden`}
     >
       <CodexHeader
-        stats={statsLine}
+        obrasCount={filtered.length}
+        redFlagsCount={redFlagsCount}
+        regionLabel={region ?? (pais === "CL" ? "Chile" : "Perú")}
         view={view}
         onViewChange={setView}
         theme={theme}
@@ -230,53 +270,103 @@ export default function CodexHomePage() {
         onClearFilters={clearFilters}
       />
 
-      <CodexFilterBar
-        pais={pais}
-        onPais={(p) => {
-          setPais(p);
-          setRegion(null);
-        }}
-        paisCounts={paisCounts}
-        region={region}
-        onRegion={setRegion}
-        regions={regions}
-        riesgo={riesgo}
-        onRiesgo={setRiesgo}
-        riesgoCounts={riesgoCounts}
-        soloRedFlags={soloRedFlags}
-        onRedFlags={setSoloRedFlags}
-        redFlagsCount={redFlagsCount}
-      />
-
       {view === "globe" ? (
-        <div className="flex-1 flex min-h-0 relative">
-          <div className="flex-1 min-h-0 flex items-center justify-center">
-            <CodexGlobe
+        <div className="flex-1 min-h-0 relative">
+          {/* Globo ocupa TODO el container — encima va overlay blur de filterbar + sidebar */}
+          <div className="absolute inset-0">
+            <MapGlobe
+              key={`mg-${theme}`}
               obras={filtered}
               selectedId={selected?.id ?? null}
               onSelect={toggleSelect}
-              theme={theme}
+              themeOverride={theme}
+              flyToCountry={
+                flyTarget ?? (mapPhase === "country" ? PE_CL_VIEW : null)
+              }
             />
           </div>
 
+          {/* FilterBar overlay — full width en mobile, hasta sidebar (lg:right-80) en desktop */}
+          <div className="absolute top-0 left-0 right-0 lg:right-80 z-10">
+            {filterBarEl}
+          </div>
+
+          {/* Sidebar overlay derecho — navigation stack: lista (foto 1) ↔ detalle embedded (foto 2) */}
           <aside
-            className="w-80 border-l shrink-0 hidden lg:flex flex-col"
-            style={{ borderColor: "var(--cx-border)" }}
+            className="absolute right-0 top-0 bottom-0 w-80 z-10 border-l hidden lg:block backdrop-blur-xl overflow-hidden"
+            style={{
+              borderColor: "var(--cx-border)",
+              background: "var(--cx-bg-blur)",
+            }}
           >
-            <CodexObraList
-              obras={visible}
-              selectedId={selected?.id ?? null}
-              onSelect={toggleSelect}
-              q={q}
-              onQ={setQ}
-              totalAll={filtered.length}
-            />
+            <AnimatePresence mode="wait" initial={false}>
+              {selected && !showForensics ? (
+                <motion.div
+                  key="detail-view"
+                  initial={{ x: 32, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  exit={{ x: 32, opacity: 0 }}
+                  transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+                  className="absolute inset-0 flex flex-col"
+                >
+                  {/* Header back — formato "← VOLVER AL ÍNDICE · N | CASO · year" */}
+                  <div
+                    className="flex items-center justify-between px-4 py-3 border-b shrink-0"
+                    style={{ borderColor: "var(--cx-border)" }}
+                  >
+                    <button
+                      onClick={() => setSelected(null)}
+                      className="flex items-center gap-2 text-[10px] uppercase tracking-[0.2em] hover:opacity-80 transition"
+                      style={{
+                        color: "var(--cx-muted)",
+                        fontFamily: "var(--font-mono), monospace",
+                      }}
+                    >
+                      ← Volver al índice · {filtered.length}
+                    </button>
+                    <span
+                      className="text-[10px] uppercase tracking-[0.2em]"
+                      style={{
+                        color: "var(--cx-faint)",
+                        fontFamily: "var(--font-mono), monospace",
+                      }}
+                    >
+                      Caso · {selected.source_year ?? "—"}
+                    </span>
+                  </div>
+                  <div className="flex-1 min-h-0">
+                    <CodexObraDetailInline
+                      obra={selected}
+                      onInvestigar={() => setShowForensics(true)}
+                    />
+                  </div>
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="list-view"
+                  initial={{ x: -32, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  exit={{ x: -32, opacity: 0 }}
+                  transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+                  className="absolute inset-0 flex flex-col"
+                >
+                  <CodexObraList
+                    obras={visible}
+                    selectedId={selected?.id ?? null}
+                    onSelect={toggleSelect}
+                    q={q}
+                    onQ={setQ}
+                    totalAll={filtered.length}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
           </aside>
 
-          {selected && (
-            <CodexObraDetail
+          {selected && showForensics && (
+            <ForensicsPanel
               obra={selected}
-              onClose={() => setSelected(null)}
+              onClose={() => setShowForensics(false)}
             />
           )}
 
@@ -328,7 +418,9 @@ export default function CodexHomePage() {
           )}
         </div>
       ) : (
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 min-h-0 flex flex-col">
+          {filterBarEl}
+          <div className="flex-1 overflow-y-auto">
           <div className="max-w-6xl mx-auto p-3 sm:p-6 space-y-6">
             {grouped.length === 0 && (
               <p
@@ -384,8 +476,11 @@ export default function CodexHomePage() {
               </div>
             </div>
           )}
+          </div>
         </div>
       )}
+
+      <CustomCursor />
     </main>
   );
 }
