@@ -1,42 +1,45 @@
-import { projectToFloor } from "./projection";
+import {
+  GLOBE_RADIUS,
+  lngLatToVec3,
+  getNormal,
+} from "./sphere-projection";
 
 export interface CityPreset {
   key: string;
   label: string;
-  /** Posicion del target (lng, lat) o "peru" para vista global */
-  lng?: number;
-  lat?: number;
-  /** Tipo de vista: "city" zoom cerca, "country" top-down vista de todo */
-  view: "city" | "country";
+  /** Coords (lng, lat). Para "peru" usamos centro de Peru */
+  lng: number;
+  lat: number;
+  /** Distancia desde la superficie del globo (m) */
+  distance: number;
 }
 
 export const CITY_PRESETS: CityPreset[] = [
-  { key: "peru", label: "Perú", view: "country" },
-  { key: "lima", label: "Lima", lng: -77.05, lat: -12.05, view: "city" },
-  { key: "cusco", label: "Cusco", lng: -71.97, lat: -13.52, view: "city" },
-  { key: "arequipa", label: "Arequipa", lng: -71.54, lat: -16.4, view: "city" },
-  { key: "trujillo", label: "Trujillo", lng: -79.03, lat: -8.11, view: "city" },
-  { key: "piura", label: "Piura", lng: -80.63, lat: -5.19, view: "city" },
+  // Vista general de Peru — camara lejos
+  { key: "peru", label: "Perú", lng: -75, lat: -9.5, distance: 70 },
+  // Ciudades — camara cerca
+  { key: "lima", label: "Lima", lng: -77.05, lat: -12.05, distance: 14 },
+  { key: "cusco", label: "Cusco", lng: -71.97, lat: -13.52, distance: 14 },
+  { key: "arequipa", label: "Arequipa", lng: -71.54, lat: -16.4, distance: 14 },
+  { key: "trujillo", label: "Trujillo", lng: -79.03, lat: -8.11, distance: 14 },
+  { key: "piura", label: "Piura", lng: -80.63, lat: -5.19, distance: 14 },
 ];
 
 /**
- * Devuelve la posicion target y la posicion de camara para volar al preset.
+ * Para cada preset: target = punto en superficie del globo,
+ * camera = ese punto + normal * distance (offset radial hacia afuera).
  */
 export function cameraForPreset(preset: CityPreset): {
   target: [number, number, number];
   position: [number, number, number];
 } {
-  if (preset.view === "country") {
-    // Top-down de Peru entero: target en centro del pais, camara alta
-    return {
-      target: [0, 0, 0],
-      position: [0, 70, 5],
-    };
-  }
-  // City view: target en la ciudad, camara cerca + elevada
-  const [x, z] = projectToFloor(preset.lng!, preset.lat!);
+  const surface = lngLatToVec3(preset.lng, preset.lat, GLOBE_RADIUS);
+  const normal = getNormal(preset.lng, preset.lat);
+  const camera = surface
+    .clone()
+    .add(normal.clone().multiplyScalar(preset.distance));
   return {
-    target: [x, 0.5, z],
-    position: [x + 3, 4, z + 6],
+    target: [surface.x, surface.y, surface.z],
+    position: [camera.x, camera.y, camera.z],
   };
 }

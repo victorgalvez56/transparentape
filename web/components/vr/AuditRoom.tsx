@@ -6,21 +6,25 @@ import { OrbitControls } from "@react-three/drei";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import ColumnaForest from "./ColumnaForest";
 import Skybox from "./Skybox";
-import SatelliteFloor from "./SatelliteFloor";
-import PeruMap from "./PeruMap";
+import Globe from "./Globe";
 import RedFlagPulses from "./RedFlagPulses";
 import ContextLostListener, { ContextLostBanner } from "./ContextLostBanner";
 import HudOverlay from "./HudOverlay";
 import CameraController from "./CameraController";
 import { useObrasVR } from "@/lib/vr/obras-source";
-import { LIMA_POSITION, projectToFloor, montoToHeight } from "@/lib/vr/projection";
+import { montoToHeight } from "@/lib/vr/projection";
+import {
+  GLOBE_RADIUS,
+  lngLatToVec3,
+  getNormal,
+} from "@/lib/vr/sphere-projection";
 import { CITY_PRESETS, cameraForPreset } from "@/lib/vr/city-presets";
 
 export default function AuditRoom() {
   const [contextLost, setContextLost] = useState(false);
   const [hovered, setHovered] = useState<number | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
-  const [activePreset, setActivePreset] = useState<string>("lima");
+  const [activePreset, setActivePreset] = useState<string>("peru");
   const [onlyRedFlag, setOnlyRedFlag] = useState(false);
   const [yearFilter, setYearFilter] = useState<number | null>(null);
   const [tourPlaying, setTourPlaying] = useState(false);
@@ -31,6 +35,9 @@ export default function AuditRoom() {
   } | null>(null);
   const controlsRef = useRef<OrbitControlsImpl>(null);
   const { obras, loading } = useObrasVR();
+
+  // Camara inicial: vista global de Peru
+  const initialCam = cameraForPreset(CITY_PRESETS[0]);
 
   const handleSelectPreset = (key: string) => {
     const preset = CITY_PRESETS.find((p) => p.key === key);
@@ -44,16 +51,23 @@ export default function AuditRoom() {
     });
   };
 
-  // Click columna → seleccionar + fly camera a esa obra
+  // Click columna → seleccionar + fly camera radial cerca de esa obra
   const handleSelectObra = (id: number) => {
     setSelected(id);
     const obra = obras.find((o) => o.id === id);
     if (!obra) return;
-    const [x, z] = projectToFloor(obra.lng, obra.lat);
-    const h = montoToHeight(obra.monto);
+    const surface = lngLatToVec3(obra.lng, obra.lat, GLOBE_RADIUS);
+    const normal = getNormal(obra.lng, obra.lat);
+    const h = montoToHeight(obra.monto) * 2.5;
+    // Posicion del cilindro
+    const target = surface
+      .clone()
+      .add(normal.clone().multiplyScalar(h / 2));
+    // Camara a 6m al lado del cilindro
+    const camPos = surface.clone().add(normal.clone().multiplyScalar(h + 6));
     setFlyTo({
-      target: [x, h / 2, z],
-      position: [x + 2, h + 1.5, z + 3],
+      target: [target.x, target.y, target.z],
+      position: [camPos.x, camPos.y, camPos.z],
       seq: (flyTo?.seq ?? 0) + 1,
     });
   };
@@ -73,7 +87,6 @@ export default function AuditRoom() {
       idx = (idx + 1) % CITY_PRESETS.length;
       handleSelectPreset(CITY_PRESETS[idx].key);
     };
-    // Primera advance instantanea para arrancar el flow
     const firstTick = setTimeout(advance, 100);
     const id = setInterval(advance, 4500);
     return () => {
@@ -83,12 +96,16 @@ export default function AuditRoom() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tourPlaying]);
 
-  // Hotkeys del demo — 1-6 ciudades, R alertas, T tour, Esc cerrar panel
+  // Hotkeys: 1-6 presets, R alertas, T tour, Esc cierra
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      // No interferir si el user esta tipeando en un input/select
       const target = e.target as HTMLElement | null;
-      if (target?.tagName === "INPUT" || target?.tagName === "SELECT" || target?.tagName === "TEXTAREA") return;
+      if (
+        target?.tagName === "INPUT" ||
+        target?.tagName === "SELECT" ||
+        target?.tagName === "TEXTAREA"
+      )
+        return;
       const key = e.key.toLowerCase();
       if (key >= "1" && key <= "6") {
         const idx = Number(key) - 1;
@@ -130,18 +147,17 @@ export default function AuditRoom() {
       <ContextLostBanner visible={contextLost} />
       <Canvas
         camera={{
-          position: [LIMA_POSITION[0] + 3, 4, LIMA_POSITION[1] + 6],
-          fov: 60,
+          position: initialCam.position,
+          fov: 50,
           near: 0.1,
-          far: 300,
+          far: 1000,
         }}
         gl={{ antialias: true }}
       >
         <Skybox />
-        <ambientLight intensity={0.6} />
-        <directionalLight position={[5, 10, 5]} intensity={0.5} />
-        <SatelliteFloor />
-        <PeruMap />
+        <ambientLight intensity={0.7} />
+        <directionalLight position={[100, 100, 100]} intensity={0.6} />
+        <Globe />
         <RedFlagPulses />
         <ColumnaForest
           onlyRedFlag={onlyRedFlag}
@@ -152,10 +168,9 @@ export default function AuditRoom() {
         />
         <OrbitControls
           ref={controlsRef}
-          target={[LIMA_POSITION[0], 0.5, LIMA_POSITION[1]]}
-          minDistance={2}
-          maxDistance={150}
-          maxPolarAngle={Math.PI / 2 - 0.05}
+          target={initialCam.target}
+          minDistance={GLOBE_RADIUS + 1}
+          maxDistance={GLOBE_RADIUS * 8}
           enablePan
         />
         <CameraController flyTo={flyTo} controlsRef={controlsRef} />

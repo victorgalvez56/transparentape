@@ -4,7 +4,13 @@ import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { useObrasVR } from "@/lib/vr/obras-source";
-import { projectToFloor, montoToHeight } from "@/lib/vr/projection";
+import { montoToHeight } from "@/lib/vr/projection";
+import {
+  GLOBE_RADIUS,
+  lngLatToVec3,
+  quaternionFromNormal,
+  getNormal,
+} from "@/lib/vr/sphere-projection";
 
 // Paleta jerarquica por monto — el ojo va a las obras grandes naturalmente
 const COLOR_RED_FLAG = new THREE.Color("#ef4444"); // alerta OECE
@@ -63,7 +69,7 @@ export default function ColumnaForest({
       .slice(0, cap);
   }, [obras, yearFilter, onlyRedFlag, inXR]);
 
-  // Posicionar y colorear las instancias cuando cambia el dataset
+  // Posicionar y colorear las instancias sobre la esfera (radial outward)
   useEffect(() => {
     if (!meshRef.current || visible.length === 0) return;
     const mesh = meshRef.current;
@@ -71,11 +77,19 @@ export default function ColumnaForest({
 
     for (let i = 0; i < visible.length; i++) {
       const o = visible[i];
-      const [x, z] = projectToFloor(o.lng, o.lat);
-      const h = montoToHeight(o.monto);
-      dummy.position.set(x, h / 2, z);
+      // Escalar la altura para que sea visible relativa al globo
+      const h = montoToHeight(o.monto) * 2.5;
+      const surfacePoint = lngLatToVec3(o.lng, o.lat, GLOBE_RADIUS);
+      const normal = getNormal(o.lng, o.lat);
+      // Posicion = punto en superficie + offset radial de h/2
+      // (el cilindro tiene su origen en el centro, asi que offset hace que
+      // la base toque la superficie y la cima quede a distancia h hacia afuera)
+      const center = surfacePoint
+        .clone()
+        .add(normal.clone().multiplyScalar(h / 2));
+      dummy.position.copy(center);
+      dummy.quaternion.copy(quaternionFromNormal(normal));
       dummy.scale.set(1, h, 1);
-      dummy.rotation.set(0, 0, 0);
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
       mesh.setColorAt(i, pickColor(o.monto, o.is_red_flag));
