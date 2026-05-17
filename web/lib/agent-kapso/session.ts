@@ -1,4 +1,5 @@
 import { query, queryOne } from "../db";
+import { AGENT } from "./config";
 
 export type Country = "PE" | "CL" | string;
 
@@ -16,7 +17,7 @@ export interface Session {
   updatedAt: number;
 }
 
-const MAX_HISTORY = 6; // 3 user + 3 assistant pairs
+const MAX_HISTORY = AGENT.limits.historyPairs * 2;
 
 export async function getSession(conversationId: string): Promise<Session> {
   try {
@@ -30,7 +31,7 @@ export async function getSession(conversationId: string): Promise<Session> {
     }>(
       `SELECT country, last_query, last_result_ids, last_messages, last_location, updated_at
        FROM agent_sessions WHERE conversation_id = $1
-         AND updated_at > NOW() - INTERVAL '30 minutes'`,
+         AND updated_at > NOW() - INTERVAL '${AGENT.limits.sessionTtlMinutes} minutes'`,
       [conversationId]
     );
     if (row) {

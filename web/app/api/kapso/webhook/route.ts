@@ -5,6 +5,7 @@ import { query } from "@/lib/db";
 import { chatEngine } from "@/lib/agent-kapso/engine";
 import { parseIntent } from "@/lib/agent-kapso/intent";
 import { getSession, updateSession, appendToHistory } from "@/lib/agent-kapso/session";
+import { AGENT } from "@/lib/agent-kapso/config";
 import {
   buscarObras,
   buscarCercanas,
@@ -317,7 +318,7 @@ export async function POST(req: NextRequest) {
           await updateSession(from, { lastLocation: { lat: latitude, lng: longitude } });
           const reply = await handleMessage("obras cerca de mí", from, phoneNumberId, to);
           if (reply) {
-            const truncated = reply.length > 4096 ? reply.slice(0, 4090) + "…" : reply;
+            const truncated = reply.length > AGENT.limits.waMaxChars ? reply.slice(0, AGENT.limits.waMaxChars - 6) + "…" : reply;
             await kapso.messages.sendText({ phoneNumberId, to, body: truncated });
             saveHistory(from, "📍 ubicación compartida", truncated).catch(() => {});
           }
@@ -364,9 +365,11 @@ export async function POST(req: NextRequest) {
     try {
       const reply = await handleMessage(text!, from, phoneNumberId, to);
       if (reply !== null) {
-        const truncated = reply.length > 4096 ? reply.slice(0, 4090) + "…" : reply;
-        await kapso.messages.sendText({ phoneNumberId, to, body: truncated });
-        saveHistory(from, text!, truncated).catch(() => {});
+        const truncated = reply.length > AGENT.limits.waMaxChars ? reply.slice(0, AGENT.limits.waMaxChars - 6) + "…" : reply;
+        await Promise.all([
+          kapso.messages.sendText({ phoneNumberId, to, body: truncated }),
+          saveHistory(from, text!, truncated).catch(() => {}),
+        ]);
       }
       query(
         `INSERT INTO agent_logs(endpoint, params, n_resultados, latencia_ms) VALUES ($1, $2, $3, $4)`,

@@ -1,8 +1,45 @@
 import Groq from "groq-sdk";
 import { query } from "@/lib/db";
 import type { ChatMsg } from "./session";
+import { AGENT } from "./config";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+
+// ── Utilities ─────────────────────────────────────────────────────────────────
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`LLM timeout after ${ms}ms`)), ms)
+    ),
+  ]);
+}
+
+const DANGEROUS_SQL =
+  /\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|GRANT|REVOKE|EXEC|EXECUTE|COPY|VACUUM|ANALYZE)\b/i;
+
+function isValidSelectQuery(sql: string): boolean {
+  const trimmed = sql.trim();
+  if (!trimmed.toUpperCase().startsWith("SELECT")) return false;
+  if (trimmed.includes(";")) return false;
+  if (DANGEROUS_SQL.test(trimmed)) return false;
+  return true;
+}
+
+function toGroqHistory(
+  history: ChatMsg[]
+): Groq.Chat.Completions.ChatCompletionMessageParam[] {
+  return history.map((m) => ({ role: m.role, content: m.content }));
+}
+
+function fmtSuggestions(suggestions: string[]): string {
+  if (!suggestions.length) return "";
+  return (
+    "\n\nPuedes intentar:\n" +
+    suggestions.map((s, i) => `${i + 1}️⃣ ${s}`).join("\n")
+  );
+}
 
 // ── Prompts ───────────────────────────────────────────────────────────────────
 
@@ -16,7 +53,7 @@ Analiza el historial y el último mensaje del usuario. Responde ÚNICAMENTE con 
 Reglas:
 - ANSWER_FROM_CONTEXT: el usuario pide aclaraciones o resúmenes de lo YA dicho (ej: "explícame más", "cuál era el monto", "repite eso").
 - NEEDS_SQL: necesita datos nuevos de la BD (nueva región, año, contratista, comparación).
-- NEEDS_CLARIFICATION: saludo genérico o mensaje ambiguo sin contexto suficiente. En "suggestions" pon 3 consultas útiles de ejemplo.`;
+- NEEDS_CLARIFICATION: mensaje ambiguo sin contexto suficiente. En "suggestions" pon 3 consultas útiles de ejemplo.`;
 
 const SYSTEM_PROMPT_CONTEXT = `Eres un asistente de obras públicas en WhatsApp. Responde la última pregunta del usuario basándote ÚNICAMENTE en el historial de conversación. No inventes datos. Sé breve (máx 3 párrafos). Usa *negrita* para nombres de obras y montos importantes.`;
 
@@ -51,7 +88,7 @@ REGLAS:
 4. Seleccionar SIEMPRE: id, tender_description, buyer_region, buyer_locality, contract_amount, is_red_flag. Agregar supplier_name, red_flag_types solo si el usuario pide detalles.
 5. ORDER BY COALESCE(contract_amount, award_amount, tender_amount) DESC NULLS LAST.
 6. LIMIT 5 para listas, LIMIT 1 para búsqueda de obra específica.
-7. Solo SELECT. Prohibido INSERT/UPDATE/DELETE.
+7. Solo SELECT. Prohibido INSERT/UPDATE/DELETE y punto y coma.
 8. DEVUELVE SOLO LA QUERY SQL VÁLIDA. Sin markdown ni explicaciones.`;
 
 const SYSTEM_PROMPT_SYNTHESIS = `Sintetiza resultados de BD para el usuario de WhatsApp. Restricciones:
@@ -63,29 +100,13 @@ const SYSTEM_PROMPT_SYNTHESIS = `Sintetiza resultados de BD para el usuario de W
 6. Formato WhatsApp: *negrita* con asteriscos simples. Sin markdown extra.
 7. Respuesta máxima: 800 caracteres.`;
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function toGroqHistory(
-  history: ChatMsg[]
-): Groq.Chat.Completions.ChatCompletionMessageParam[] {
-  return history.map((m) => ({ role: m.role, content: m.content }));
-}
-
-function fmtSuggestions(suggestions: string[]): string {
-  if (!suggestions.length) return "";
-  return (
-    "\n\nPuedes intentar:\n" +
-    suggestions.map((s, i) => `${i + 1}️⃣ ${s}`).join("\n")
-  );
-}
-
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export async function chatEngine(
   message: string,
   history: ChatMsg[] = []
 ): Promise<string> {
-  if (!message || message.length > 600) {
+  if (!message || message.length > AGENT.limits.maxInputChars) {
     return "Consulta muy larga. Intenta con una pregunta más corta.";
   }
 
@@ -101,24 +122,27 @@ export async function chatEngine(
   let routerSuggestions: string[] = [];
 
   try {
-    const routerRes = await groq.chat.completions.create({
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT_ROUTER },
-        ...historyMsgs,
-        userTurn,
-      ],
-      model: "llama-3.1-8b-instant",
-      temperature: 0,
-      response_format: { type: "json_object" },
-      max_tokens: 150,
-    });
+    const routerRes = await withTimeout(
+      groq.chat.completions.create({
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT_ROUTER },
+          ...historyMsgs,
+          userTurn,
+        ],
+        model: AGENT.models.fast,
+        temperature: AGENT.temperature.router,
+        response_format: { type: "json_object" },
+        max_tokens: AGENT.maxTokens.router,
+      }),
+      AGENT.timeoutMs.router
+    );
     const parsed = JSON.parse(
       routerRes.choices[0]?.message?.content ?? "{}"
     );
     routerIntent = parsed.intent ?? "NEEDS_SQL";
     routerSuggestions = parsed.suggestions ?? [];
   } catch {
-    // router failed → default to SQL path
+    // router failed or timed out → default to SQL path
   }
 
   // ── STEP 2: Branch ──────────────────────────────────────────────────────────
@@ -139,39 +163,44 @@ export async function chatEngine(
     if (!history.length) {
       return "Aún no tenemos conversación previa. Pregunta por obras en una región o año específico.";
     }
-    const ctxRes = await groq.chat.completions.create({
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT_CONTEXT },
-        ...historyMsgs,
-        userTurn,
-      ],
-      model: "llama-3.1-8b-instant",
-      temperature: 0.2,
-      max_tokens: 400,
-    });
+    const ctxRes = await withTimeout(
+      groq.chat.completions.create({
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT_CONTEXT },
+          ...historyMsgs,
+          userTurn,
+        ],
+        model: AGENT.models.fast,
+        temperature: AGENT.temperature.context,
+        max_tokens: AGENT.maxTokens.context,
+      }),
+      AGENT.timeoutMs.context
+    );
     return ctxRes.choices[0]?.message?.content?.trim() ?? "Sin respuesta.";
   }
 
   // ── STEP 3: NEEDS_SQL — gen + exec + synthesis ──────────────────────────────
 
-  // Sliding window: last 4 msgs for SQL context
-  const slidingWindow = toGroqHistory(history.slice(-4));
+  const slidingWindow = toGroqHistory(history.slice(-AGENT.limits.sqlContextWindow));
 
-  const sqlRes = await groq.chat.completions.create({
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT_SQL },
-      ...slidingWindow,
-      userTurn,
-    ],
-    model: "llama-3.3-70b-versatile",
-    temperature: 0,
-    max_tokens: 350,
-  });
+  const sqlRes = await withTimeout(
+    groq.chat.completions.create({
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT_SQL },
+        ...slidingWindow,
+        userTurn,
+      ],
+      model: AGENT.models.powerful,
+      temperature: AGENT.temperature.sql,
+      max_tokens: AGENT.maxTokens.sql,
+    }),
+    AGENT.timeoutMs.sql
+  );
 
   let sqlQuery = sqlRes.choices[0]?.message?.content?.trim() ?? "";
   sqlQuery = sqlQuery.replace(/^```(sql)?/i, "").replace(/```$/, "").trim();
 
-  if (!sqlQuery.toUpperCase().startsWith("SELECT")) {
+  if (!isValidSelectQuery(sqlQuery)) {
     return (
       "No pude generar una consulta válida." +
       fmtSuggestions([
@@ -185,7 +214,7 @@ export async function chatEngine(
   let dbResults: unknown[];
   try {
     const rows = await query(sqlQuery);
-    dbResults = rows.slice(0, 10);
+    dbResults = rows.slice(0, AGENT.limits.maxDbResults);
   } catch {
     return "Error al consultar la base de datos. Intenta reformular la pregunta.";
   }
@@ -201,20 +230,23 @@ export async function chatEngine(
     );
   }
 
-  const synthesisRes = await groq.chat.completions.create({
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT_SYNTHESIS },
-      ...slidingWindow,
-      userTurn,
-      {
-        role: "user",
-        content: `Resultados de la BD:\n${JSON.stringify(dbResults)}`,
-      },
-    ],
-    model: "llama-3.1-8b-instant",
-    temperature: 0.3,
-    max_tokens: 500,
-  });
+  const synthesisRes = await withTimeout(
+    groq.chat.completions.create({
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT_SYNTHESIS },
+        ...slidingWindow,
+        userTurn,
+        {
+          role: "user",
+          content: `Resultados de la BD:\n${JSON.stringify(dbResults)}`,
+        },
+      ],
+      model: AGENT.models.fast,
+      temperature: AGENT.temperature.synthesis,
+      max_tokens: AGENT.maxTokens.synthesis,
+    }),
+    AGENT.timeoutMs.synthesis
+  );
 
   return synthesisRes.choices[0]?.message?.content?.trim() ?? "Sin respuesta.";
 }
