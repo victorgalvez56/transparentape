@@ -23,7 +23,9 @@ import {
   montoEnRiesgo,
   getObraResumen,
   type Country,
+  type BuscarObrasFilters,
 } from "@/lib/agent-kapso/queries";
+import { classifyQuery } from "@/lib/agent-kapso/places";
 import {
   fmtObras,
   fmtStats,

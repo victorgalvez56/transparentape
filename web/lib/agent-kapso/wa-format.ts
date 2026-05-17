@@ -79,16 +79,20 @@ export function fmtObras(
   const nation = COUNTRY_NAMES[country] ?? country;
   // Header explains *why* these N rows (criterio + filtros aplicados) so the
   // user never has to guess if it's a top-N, alerts-only, or arbitrary list.
-  const place = filters?.q ? `${filters.q}, ` : "";
+  // q_geo/q_supplier take priority over legacy q for the place/empresa tag.
+  const placeLabel = filters?.q_geo ?? filters?.q ?? "";
+  const supplierLabel = filters?.q_supplier ?? filters?.contratista ?? "";
+  const place = placeLabel ? `${placeLabel}, ` : "";
+  const supplierTag = supplierLabel ? ` · empresa: ${supplierLabel}` : "";
   const yearTag = filters?.year ? ` · año ${filters.year}` : "";
   const flagTag = filters?.red_flag === true ? " con alertas" : "";
   const directTag = filters?.procurement_method === "direct" ? " (adj. directa)" : "";
   const count = obras.length;
   const header =
-    `📋 *${count} obra${count > 1 ? "s" : ""} en ${place}${nation}${flagTag}${directTag}${yearTag}*\n` +
+    `📋 *${count} obra${count > 1 ? "s" : ""} en ${place}${nation}${flagTag}${directTag}${yearTag}${supplierTag}*\n` +
     `_Ordenadas por ⚠️ alertas y 💰 mayor monto · máx 5._\n`;
   const lines = [header];
-  const showContratista = Boolean(filters?.contratista || filters?.ruc);
+  const showContratista = Boolean(filters?.contratista || filters?.ruc || filters?.q_supplier);
   obras.forEach((o, i) => {
     const contratistaLine =
       showContratista && o.contratista ? `\n  🏗️ ${o.contratista}` : "";

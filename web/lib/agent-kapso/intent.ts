@@ -1,5 +1,6 @@
 import type { Country } from "./session";
 import type { BuscarObrasFilters } from "./queries";
+import { classifyQuery } from "./places";
 
 // Intents kept as regex fast-path are limited to high-confidence patterns
 // (greetings, gratitude, country switch, ordinal/ID detail, proximity,
@@ -261,8 +262,17 @@ export function parseIntent(text: string, sessionCountry: Country): ParsedIntent
     if (/\bdirect[ao]?\b/i.test(tn) && !/adjudicacion\s+directa/i.test(tn)) {
       filters.procurement_method = "direct";
     }
-    const q = buildSearchQuery(t, year);
-    if (q) filters.q = q;
+    const cleanedQ = buildSearchQuery(t, year);
+    if (cleanedQ) {
+      // Route the cleaned phrase into typed buckets: known place → q_geo,
+      // known company suffix or single proper noun → q_supplier, mixed
+      // ("Cosapi en Lima") → both. Noise like "grandes" returns {} so we
+      // skip q entirely and the search degrades to country-wide top
+      // instead of an ILIKE %grandes% that returns zero rows.
+      const classified = classifyQuery(cleanedQ);
+      if (classified.q_geo) filters.q_geo = classified.q_geo;
+      if (classified.q_supplier) filters.q_supplier = classified.q_supplier;
+    }
     return { intent: "BUSCAR_OBRAS", country, filters };
   }
 

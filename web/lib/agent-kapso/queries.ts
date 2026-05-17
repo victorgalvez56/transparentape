@@ -52,7 +52,12 @@ export interface BuscarObrasFilters {
   contratista?: string;
   ruc?: string;
   procurement_method?: string;
-  q?: string; // searches buyer_region, buyer_locality, supplier_name — NOT tender_description (avoids street-name false positives)
+  /** Legacy fuzzy search — ILIKE %q% on buyer_region OR buyer_locality OR supplier_name. */
+  q?: string;
+  /** Geographic-only filter — ILIKE %q_geo% on buyer_region OR buyer_locality. */
+  q_geo?: string;
+  /** Supplier-only filter — ILIKE %q_supplier% on supplier_name. */
+  q_supplier?: string;
   limit?: number;
 }
 
@@ -79,10 +84,21 @@ export async function buscarObras(f: BuscarObrasFilters): Promise<ObraResumen[]>
   if (f.contratista) { parts.push(`supplier_name ILIKE $${i++}`); vals.push(`%${f.contratista}%`); }
   if (f.ruc)         { parts.push(`supplier_ruc = $${i++}`); vals.push(f.ruc); }
   if (f.procurement_method) { parts.push(`procurement_method = $${i++}`); vals.push(f.procurement_method); }
-  if (f.q) {
-    // Geographic/name search — buyer_region and buyer_locality only to avoid
-    // false positives from tender_description (e.g. "Calle Piura" in Iquitos).
-    // supplier_name included for company-name searches ("obras de Odebrecht").
+  // Typed filters take precedence over the legacy fuzzy q, but both can
+  // coexist for queries like "Cosapi en Lima" where classifyQuery() sets
+  // q_geo="lima" + q_supplier="cosapi" (AND-ed in the WHERE clause).
+  if (f.q_geo) {
+    parts.push(`(buyer_region ILIKE $${i} OR buyer_locality ILIKE $${i})`);
+    vals.push(`%${f.q_geo}%`);
+    i++;
+  }
+  if (f.q_supplier) {
+    parts.push(`supplier_name ILIKE $${i++}`);
+    vals.push(`%${f.q_supplier}%`);
+  }
+  if (f.q && !f.q_geo && !f.q_supplier) {
+    // Legacy fallback when caller didn't classify — keeps existing callers
+    // (web UI, older WhatsApp atajos) working without code changes.
     parts.push(
       `(buyer_region ILIKE $${i} OR buyer_locality ILIKE $${i} OR supplier_name ILIKE $${i})`
     );
