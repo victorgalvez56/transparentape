@@ -51,12 +51,16 @@ function normalize(s: string): string {
 // Index-only inputs ("1", "2") are still handled by resolveIndexFromText
 // in the webhook when lastSuggestions are present.
 const ORDINAL_CTX = "(?:el|la|obra|opci[oó]n|item|n[uú]mero)";
+// Note: `\b#N\b` does NOT work in JS regex when # is at string start
+// (boundary requires word↔non-word transition; # and start are both
+// non-word). Use `#N\b` without the leading boundary instead, which
+// still matches `#5` at the start AND inside text.
 const ORDINAL_MAP: [RegExp, number][] = [
-  [new RegExp(`\\b(?:el\\s+)?primer[ao]\\b|\\b#1\\b|\\b${ORDINAL_CTX}\\s+1\\b|\\buno\\b`, "i"), 1],
-  [new RegExp(`\\b(?:el\\s+)?segund[ao]\\b|\\b#2\\b|\\b${ORDINAL_CTX}\\s+2\\b|\\bdos\\b`, "i"), 2],
-  [new RegExp(`\\b(?:el\\s+)?tercer[ao]\\b|\\b#3\\b|\\b${ORDINAL_CTX}\\s+3\\b|\\btres\\b`, "i"), 3],
-  [new RegExp(`\\b(?:el\\s+)?cuart[ao]\\b|\\b#4\\b|\\b${ORDINAL_CTX}\\s+4\\b|\\bcuatro\\b`, "i"), 4],
-  [new RegExp(`\\b(?:el\\s+)?quint[ao]\\b|\\b#5\\b|\\b${ORDINAL_CTX}\\s+5\\b|\\bcinco\\b`, "i"), 5],
+  [new RegExp(`\\b(?:el\\s+)?primer[ao]\\b|#1\\b|\\b${ORDINAL_CTX}\\s+1\\b|\\buno\\b`, "i"), 1],
+  [new RegExp(`\\b(?:el\\s+)?segund[ao]\\b|#2\\b|\\b${ORDINAL_CTX}\\s+2\\b|\\bdos\\b`, "i"), 2],
+  [new RegExp(`\\b(?:el\\s+)?tercer[ao]\\b|#3\\b|\\b${ORDINAL_CTX}\\s+3\\b|\\btres\\b`, "i"), 3],
+  [new RegExp(`\\b(?:el\\s+)?cuart[ao]\\b|#4\\b|\\b${ORDINAL_CTX}\\s+4\\b|\\bcuatro\\b`, "i"), 4],
+  [new RegExp(`\\b(?:el\\s+)?quint[ao]\\b|#5\\b|\\b${ORDINAL_CTX}\\s+5\\b|\\bcinco\\b`, "i"), 5],
   [/\b[uú]ltim[ao]\b/i, -1],
 ];
 
@@ -125,7 +129,7 @@ function extractYear(text: string): number | undefined {
 
 // Prepositions like "de/del/de la" are intentionally kept — they're part of
 // Latin American place names (Valle del Colca, San Juan de Lurigancho, etc.)
-const STOPWORDS_RE = /\b(obras?|proyectos?|licitaci[oó]nes?|concursos?|contratos?|adjudicaci[oó]nes?|construcci[oó]n|alertas?|riesgos?|sospechosos?|este\s+año|año\s+pasado|año\s+anterior|año\s+actual|en\s+curso|cu[aá]les?|qu[eé]|cu[aá]ntos?|fueron|son\s+las|hay|existen?|tienen?|muestra|dame|dime|busca|busco|quiero|mostrar|necesito|saber|ver\s+las|ver\s+los|con\s+alerta|directas?|en|con|por|para|sin|sobre)\b/gi;
+const STOPWORDS_RE = /\b(obras?|proyectos?|licitaci[oó]nes?|concursos?|contratos?|adjudicaci[oó]nes?|construcci[oó]n(?:es)?|alertas?|riesgos?|sospechosos?|este\s+año|año\s+pasado|año\s+anterior|año\s+actual|en\s+curso|cu[aá]les?|qu[eé]|cu[aá]ntos?|fueron|son\s+las|hay|existen?|tienen?|muestra|dame|dime|busca|busco|quiero|mostrar|necesito|saber|ver\s+las|ver\s+los|con\s+alerta|direct[oa]s?|en|con|por|para|sin|sobre)\b/gi;
 
 function buildSearchQuery(text: string, _year: number | undefined): string | undefined {
   // Normalize whitespace first so edge trims work correctly
@@ -262,29 +266,31 @@ export function parseIntent(text: string, sessionCountry: Country): ParsedIntent
   // history visible.
 
   // ── Buscar obras ──
-  // Trigger: explicit obra keywords (all plural forms) OR a year extracted.
+  // Trigger: explicit obra keywords (singular + plural) OR a year extracted.
   // Geography goes into q — DB searches all location columns, no hardcoded lists.
   const year = extractYear(tn);
   if (
-    /\bobras?\b|\bproyectos?\b|\bconcursos?\b|\blicitaciones?\b|\badjudicaciones?\b|\bcontratos?\b|\bconstruccion\b/i.test(tn) ||
+    /\bobras?\b|\bproyectos?\b|\bconcursos?\b|\blicitaci[oó]nes?\b|\badjudicaci[oó]nes?\b|\bcontratos?\b|\bconstrucci[oó]n(?:es)?\b/i.test(tn) ||
     year !== undefined
   ) {
     const filters: BuscarObrasFilters = { country };
     if (year) filters.year = year;
     if (/\balerta[s]?\b|\brisk\b|\bflag\b|\bsospech[oa]\b/i.test(tn)) filters.red_flag = true;
-    if (/\bdirect[ao]?\b/i.test(tn) && !/adjudicacion\s+directa/i.test(tn)) {
+    if (/\bdirect[ao]s?\b/i.test(tn) && !/adjudicaci[oó]n\s+directa/i.test(tn)) {
       filters.procurement_method = "direct";
     }
     const cleanedQ = buildSearchQuery(t, year);
     if (cleanedQ) {
       // Route the cleaned phrase into typed buckets: known place → q_geo,
-      // known company suffix or single proper noun → q_supplier, mixed
-      // ("Cosapi en Lima") → both. Noise like "grandes" returns {} so we
-      // skip q entirely and the search degrades to country-wide top
-      // instead of an ILIKE %grandes% that returns zero rows.
+      // known company suffix or single proper noun → q_supplier, known
+      // sector word → q_sector, mixed ("Cosapi en Lima") → both. Noise
+      // like "grandes" returns {} so we skip q entirely and the search
+      // degrades to country-wide top instead of an ILIKE %grandes% that
+      // returns zero rows.
       const classified = classifyQuery(cleanedQ);
       if (classified.q_geo) filters.q_geo = classified.q_geo;
       if (classified.q_supplier) filters.q_supplier = classified.q_supplier;
+      if (classified.q_sector) filters.q_sector = classified.q_sector;
     }
     return { intent: "BUSCAR_OBRAS", country, filters };
   }

@@ -353,6 +353,13 @@ function ObraInfo({
           Alerta OECE · proveedor sancionado
         </p>
       )}
+      <a
+        href={`/vr/obra/${obra.ocid}`}
+        className="mt-3 flex items-center gap-2 px-3 py-2 border border-[var(--brand)]/60 text-[var(--brand)] text-[10px] uppercase tracking-[0.2em] hover:bg-[var(--brand)] hover:text-black transition w-full justify-center"
+        style={{ fontFamily: "var(--font-mono), monospace" }}
+      >
+        Ver en 360° →
+      </a>
     </div>
   );
 }

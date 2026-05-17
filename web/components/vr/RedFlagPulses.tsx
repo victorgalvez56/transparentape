@@ -65,7 +65,7 @@ export default function RedFlagPulses() {
   useFrame((_, delta) => {
     pulseTime.current += delta;
     if (!matRef.current) return;
-    matRef.current.opacity = 0.4 + Math.sin(pulseTime.current * 1.5) * 0.25;
+    matRef.current.opacity = 0.45 + Math.sin(pulseTime.current * 2.2) * 0.35;
   });
 
   if (redFlags.length === 0) return null;
@@ -76,12 +76,12 @@ export default function RedFlagPulses() {
       args={[undefined, undefined, MAX_PULSES]}
       frustumCulled={false}
     >
-      <ringGeometry args={[0.18, 0.32, 16]} />
+      <ringGeometry args={[0.28, 0.52, 20]} />
       <meshBasicMaterial
         ref={matRef}
         color={PULSE_COLOR}
         transparent
-        opacity={0.5}
+        opacity={0.65}
         depthWrite={false}
         side={THREE.DoubleSide}
         toneMapped={false}

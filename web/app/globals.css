@@ -137,3 +137,90 @@ body::before {
     opacity: 1;
   }
 }
+
+/* ============================================================
+   CODEX UI — tema limpio (light/dark) totalmente aislado.
+   Todo vive bajo .cx-scope para no tocar la página clásica.
+   ============================================================ */
+.cx-scope {
+  /* Light (por defecto, igual al screenshot) */
+  --cx-bg: #ffffff;
+  --cx-fg: #0b0b0c;
+  --cx-card: #ffffff;
+  --cx-card-bg: #fafafa;
+  --cx-card-hover: #f4f4f5;
+  --cx-muted: #6f6f76;
+  --cx-faint: #a1a1aa;
+  --cx-border: #e7e7ea;
+  --cx-border-strong: #d4d4d8;
+  --cx-secondary: #f1f1f3;
+  --cx-accent: #f4f4f5;
+  --cx-brand: #10b981;
+  --cx-brand-strong: #059669;
+  --cx-brand-soft: rgba(16, 185, 129, 0.12);
+  --cx-brand-fg: #ffffff;
+  --cx-alarm: #ef4444;
+  --cx-alarm-soft: rgba(239, 68, 68, 0.1);
+  --cx-warn: #d97706;
+  --cx-warn-soft: rgba(217, 119, 6, 0.1);
+  --cx-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+  --cx-globe-glow: radial-gradient(
+    60% 60% at 50% 50%,
+    rgba(16, 185, 129, 0.06) 0%,
+    transparent 70%
+  );
+
+  background: var(--cx-bg);
+  color: var(--cx-fg);
+  font-family: var(--font-body), system-ui, sans-serif;
+}
+
+.cx-scope.dark {
+  --cx-bg: #000000;
+  --cx-fg: #ededed;
+  --cx-card: #0a0a0a;
+  --cx-card-bg: #0c0c0d;
+  --cx-card-hover: #161617;
+  --cx-muted: #9a9aa2;
+  --cx-faint: #5c5c63;
+  --cx-border: #1c1c1f;
+  --cx-border-strong: #2a2a2e;
+  --cx-secondary: #161617;
+  --cx-accent: #1a1a1c;
+  --cx-brand: #34d399;
+  --cx-brand-strong: #10b981;
+  --cx-brand-soft: rgba(52, 211, 153, 0.14);
+  --cx-brand-fg: #04140e;
+  --cx-alarm: #f87171;
+  --cx-alarm-soft: rgba(248, 113, 113, 0.12);
+  --cx-warn: #fbbf24;
+  --cx-warn-soft: rgba(251, 191, 36, 0.12);
+  --cx-shadow: 0 4px 28px rgba(0, 0, 0, 0.5);
+  --cx-globe-glow: radial-gradient(
+    60% 60% at 50% 50%,
+    rgba(52, 211, 153, 0.07) 0%,
+    transparent 70%
+  );
+}
+
+.cx-scope ::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+.cx-scope * {
+  scrollbar-width: none;
+}
+
+@keyframes cxFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.cx-animate-in {
+  animation: cxFadeIn 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
