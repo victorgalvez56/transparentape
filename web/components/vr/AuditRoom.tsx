@@ -12,6 +12,8 @@ import Player from "./Player";
 import ObraPanel from "./ObraPanel";
 import AmbientAudio from "./AmbientAudio";
 import TimelineYears from "./TimelineYears";
+import { useObrasVR } from "@/lib/vr/obras-source";
+import { projectToFloor } from "@/lib/vr/projection";
 
 const store = createXRStore({
   controller: true,
@@ -23,15 +25,46 @@ export default function AuditRoom() {
   const [selected, setSelected] = useState<number | null>(null);
   const [yearFilter, setYearFilter] = useState<number | null>(null);
   const playerRef = useRef<Group>(null);
+  const { obras } = useObrasVR();
 
   const handleTeleport = (point: Vector3) => {
     if (!playerRef.current) return;
     playerRef.current.position.set(point.x, point.y, point.z);
   };
 
+  const goToNearestRedFlag = () => {
+    if (!playerRef.current || obras.length === 0) return;
+    const pos = playerRef.current.position;
+    let bestId: number | null = null;
+    let bestX = 0;
+    let bestZ = 0;
+    let minD2 = Infinity;
+    for (const o of obras) {
+      if (!o.is_red_flag) continue;
+      const [x, z] = projectToFloor(o.lng, o.lat);
+      const d2 = (x - pos.x) ** 2 + (z - pos.z) ** 2;
+      if (d2 < minD2) {
+        minD2 = d2;
+        bestId = o.id;
+        bestX = x;
+        bestZ = z;
+      }
+    }
+    if (bestId == null) return;
+    // Aterrizamos a 2m al sur de la obra para que quede en frente
+    playerRef.current.position.set(bestX, 0, bestZ + 2);
+    setSelected(bestId);
+  };
+
   return (
     <>
-      <EnterVRButton store={store} hovered={hovered} selected={selected} />
+      <EnterVRButton
+        store={store}
+        hovered={hovered}
+        selected={selected}
+        onFindAlert={goToNearestRedFlag}
+        totalObras={obras.length}
+      />
       <Canvas
         camera={{ position: [0, 1.6, 6], fov: 75, near: 0.1, far: 200 }}
         gl={{ antialias: true, powerPreference: "high-performance" }}
