@@ -38,6 +38,8 @@ import {
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
+export const dynamic = "force-dynamic";
+// Build marker: 2026-05-17T18:15Z — fast-path + waitUntil + custom sig
 
 // ── signature validation ──────────────────────────────────────────────────────
 // Accepts both Meta format ("sha256=<hex>" on x-hub-signature-256) and
