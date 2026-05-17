@@ -80,8 +80,8 @@ export default function ObrasListPanel({
       {/* HEADER editorial */}
       <header className="px-6 pt-6 pb-4 border-b border-[var(--rule)]">
         <p
-          className="text-[10px] uppercase tracking-[0.28em] text-[var(--fg-faint)]"
-          style={{ fontFamily: "var(--font-mono), monospace" }}
+          className="text-[11.5px] tracking-tight text-[var(--fg-dim)] font-medium"
+          style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
         >
           Edición · {FECHA_EDICION}
         </p>
@@ -96,8 +96,8 @@ export default function ObrasListPanel({
         </p>
         {isDemo && (
           <p
-            className="mt-3 text-[10px] uppercase tracking-[0.2em] text-[var(--warn)]"
-            style={{ fontFamily: "var(--font-mono), monospace" }}
+            className="mt-3 text-[11.5px] tracking-tight text-[var(--warn)] font-medium"
+            style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
           >
             ⚠ Demo · {total} casos ficticios
           </p>
@@ -110,12 +110,12 @@ export default function ObrasListPanel({
           <button
             key={f}
             onClick={() => setFiltro(f)}
-            className={`pb-3 text-[11px] uppercase tracking-[0.18em] transition ${
+            className={`pb-3 text-[11.5px] tracking-tight font-medium transition ${
               filtro === f
                 ? "text-white border-b-2 border-[var(--brand)] -mb-[2px]"
-                : "text-[var(--fg-faint)] hover:text-[var(--fg-dim)]"
+                : "text-[var(--fg-dim)] hover:text-white"
             }`}
-            style={{ fontFamily: "var(--font-mono), monospace" }}
+            style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
           >
             {f === "todas" ? "Todas" : `Riesgo ${f}`}
           </button>
@@ -126,12 +126,12 @@ export default function ObrasListPanel({
       <div className="px-6 py-2.5 flex flex-wrap gap-2 border-b border-[var(--rule)]">
         <button
           onClick={() => setSoloRedFlags((v) => !v)}
-          className={`px-2.5 py-1 text-[9px] uppercase tracking-[0.18em] rounded border transition ${
+          className={`px-2.5 py-1 text-[11px] tracking-tight font-medium rounded border transition ${
             soloRedFlags
               ? "bg-[var(--alarm)]/20 border-[var(--alarm)] text-[var(--alarm)]"
-              : "border-[var(--rule)] text-[var(--fg-faint)] hover:text-[var(--fg-dim)]"
+              : "border-[var(--rule)] text-[var(--fg-dim)] hover:text-white"
           }`}
-          style={{ fontFamily: "var(--font-mono), monospace" }}
+          style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
         >
           ⚑ Red flags
         </button>
@@ -139,12 +139,12 @@ export default function ObrasListPanel({
           <button
             key={p}
             onClick={() => setPais(p)}
-            className={`px-2.5 py-1 text-[9px] uppercase tracking-[0.18em] rounded border transition ${
+            className={`px-2.5 py-1 text-[11px] tracking-tight font-medium rounded border transition ${
               pais === p
                 ? "bg-[var(--brand)]/20 border-[var(--brand)] text-[var(--brand)]"
-                : "border-[var(--rule)] text-[var(--fg-faint)] hover:text-[var(--fg-dim)]"
+                : "border-[var(--rule)] text-[var(--fg-dim)] hover:text-white"
             }`}
-            style={{ fontFamily: "var(--font-mono), monospace" }}
+            style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
           >
             {p === "todos" ? "Todos" : p === "PE" ? "🇵🇪 Perú" : "🇨🇱 Chile"}
           </button>
@@ -201,7 +201,7 @@ export default function ObrasListPanel({
                 <div className="flex items-baseline justify-between gap-4">
                   <div className="min-w-0 flex-1">
                     <p
-                      className="text-[9px] uppercase tracking-[0.22em] text-[var(--fg-faint)]"
+                      className="text-[11px] tracking-tight text-[var(--fg-dim)]"
                       style={{ fontFamily: "var(--font-mono), monospace" }}
                     >
                       {o.buyer_locality ?? "—"} · {o.source_year ?? "—"}
@@ -227,8 +227,8 @@ export default function ObrasListPanel({
                     </p>
                     {o.is_red_flag && (
                       <p
-                        className="text-[9px] uppercase tracking-wider text-[var(--alarm)] mt-1"
-                        style={{ fontFamily: "var(--font-mono), monospace" }}
+                        className="text-[11px] tracking-tight text-[var(--alarm)] mt-1 font-semibold"
+                        style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
                       >
                         Alerta
                       </p>
@@ -243,7 +243,7 @@ export default function ObrasListPanel({
 
       {/* FOOTER */}
       <footer
-        className="px-6 py-3 border-t border-[var(--rule)] text-[10px] uppercase tracking-[0.22em] text-[var(--fg-faint)] text-center"
+        className="px-6 py-3 border-t border-[var(--rule)] text-[11.5px] tracking-tight text-[var(--fg-dim)] text-center tabular-nums"
         style={{ fontFamily: "var(--font-mono), monospace" }}
       >
         Mostrando {filtradas.length} de {obras.length}

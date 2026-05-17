@@ -34,8 +34,8 @@ export default function AuthorityHud({
             <span className="text-[var(--brand)]">.</span>
           </span>
           <span
-            className="inline-block text-[10px] uppercase tracking-[0.22em] text-[var(--fg-faint)] truncate max-w-[480px] pointer-events-none"
-            style={{ fontFamily: "var(--font-mono), monospace" }}
+            className="inline-block text-[11.5px] tracking-tight text-[var(--fg-dim)] truncate max-w-[480px] pointer-events-none font-medium"
+            style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
           >
             <span
               key={regionLabel}
@@ -48,7 +48,7 @@ export default function AuthorityHud({
 
         {/* Autoridad + counts */}
         <div
-          className="flex items-center gap-5 text-[10px] tracking-[0.18em] uppercase text-[var(--fg-dim)] flex-wrap pointer-events-none"
+          className="flex items-center gap-5 text-[11.5px] tracking-tight text-[var(--fg-dim)] flex-wrap pointer-events-none"
           style={{ fontFamily: "var(--font-mono), monospace" }}
         >
           <span>

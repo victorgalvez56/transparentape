@@ -166,8 +166,8 @@ export default function ObraDetailPanel({
       <header className="px-5 pt-5 pb-4 border-b border-[var(--rule)]">
         <div className="flex items-baseline justify-between gap-3">
           <p
-            className="text-[9px] uppercase tracking-[0.32em] text-[var(--fg-faint)]"
-            style={{ fontFamily: "var(--font-mono), monospace" }}
+            className="text-[11.5px] tracking-tight text-[var(--fg-dim)] font-medium"
+            style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
           >
             Caso · {obra.buyer_locality} · {obra.source_year}
           </p>
@@ -187,7 +187,7 @@ export default function ObraDetailPanel({
         </h2>
         {obra.tender_title && obra.tender_title !== tituloDisplay && (
           <p
-            className="mt-1.5 text-[10px] uppercase tracking-[0.22em] text-[var(--fg-faint)]"
+            className="mt-1.5 text-[11px] tracking-tight text-[var(--fg-dim)] tabular-nums"
             style={{ fontFamily: "var(--font-mono), monospace" }}
           >
             {obra.tender_title}
@@ -204,14 +204,14 @@ export default function ObraDetailPanel({
             }`}
           />
           <span
-            className={`text-[10px] uppercase tracking-[0.26em] ${
+            className={`text-[11.5px] tracking-tight font-semibold ${
               riesgo === "alto"
                 ? "text-[var(--alarm)]"
                 : riesgo === "medio"
                 ? "text-[var(--warn)]"
                 : "text-[var(--safe)]"
             }`}
-            style={{ fontFamily: "var(--font-mono), monospace" }}
+            style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
           >
             {riesgo === "alto"
               ? "Riesgo alto"
@@ -226,8 +226,8 @@ export default function ObraDetailPanel({
         {/* RASTREO DEL BILLETE — anchoring visual */}
         <section className="px-5 py-4 border-b border-[var(--rule)] bg-[var(--ink-0)]/60">
           <p
-            className="text-[9px] uppercase tracking-[0.26em] text-[var(--fg-faint)] mb-3"
-            style={{ fontFamily: "var(--font-mono), monospace" }}
+            className="text-[11.5px] tracking-tight text-[var(--fg-dim)] mb-3 font-medium"
+            style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
           >
             Rastreo del billete
           </p>
@@ -261,8 +261,8 @@ export default function ObraDetailPanel({
             {ai.status === "loading" && (
               <div className="flex flex-col items-center justify-center h-32 gap-2 bg-[var(--ink-0)]/60">
                 <span className="text-2xl animate-spin">🛰</span>
-                <p className="text-[10px] uppercase tracking-[0.22em] text-[var(--fg-faint)] animate-pulse"
-                   style={{ fontFamily: "var(--font-mono), monospace" }}>
+                <p className="text-[11.5px] tracking-tight text-[var(--fg-dim)] animate-pulse"
+                   style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}>
                   Buscando imágenes históricas…
                 </p>
               </div>
@@ -271,8 +271,8 @@ export default function ObraDetailPanel({
             {/* No Street View coverage */}
             {(ai.status === "no_sv" || ai.status === "error") && (
               <div className="flex flex-col items-center justify-center h-20 gap-1 bg-[var(--ink-0)]/40">
-                <p className="text-[10px] uppercase tracking-[0.22em] text-[var(--fg-faint)]"
-                   style={{ fontFamily: "var(--font-mono), monospace" }}>
+                <p className="text-[11.5px] tracking-tight text-[var(--fg-dim)]"
+                   style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}>
                   Sin cobertura Street View en esta zona
                 </p>
               </div>
@@ -287,14 +287,14 @@ export default function ObraDetailPanel({
                     <div className="grid grid-cols-2 gap-0.5 bg-[var(--rule)]">
                       <div className="relative">
                         <img src={ai.sv.beforeUrl!} alt="Antes" className="w-full h-28 object-cover block" />
-                        <span className="absolute bottom-1 left-1 text-[8px] uppercase tracking-wider bg-black/70 text-white px-1.5 py-0.5"
+                        <span className="absolute bottom-1 left-1 text-[11px] tracking-tight bg-black/70 text-white px-1.5 py-0.5 tabular-nums"
                               style={{ fontFamily: "var(--font-mono), monospace" }}>
                           Antes · {ai.sv.beforeDate ?? "—"}
                         </span>
                       </div>
                       <div className="relative">
                         <img src={ai.sv.afterUrl} alt="Ahora" className="w-full h-28 object-cover block" />
-                        <span className="absolute bottom-1 right-1 text-[8px] uppercase tracking-wider bg-[var(--brand)]/80 text-black px-1.5 py-0.5"
+                        <span className="absolute bottom-1 right-1 text-[11px] tracking-tight bg-[var(--brand)]/80 text-black px-1.5 py-0.5 tabular-nums"
                               style={{ fontFamily: "var(--font-mono), monospace" }}>
                           Ahora · {ai.sv.afterDate ?? "—"}
                         </span>
@@ -311,12 +311,12 @@ export default function ObraDetailPanel({
                   /* Single image — no genuine historical comparison available */
                   <div className="relative">
                     <img src={ai.sv.afterUrl} alt="Street View" className="w-full h-40 object-cover block" />
-                    <span className="absolute bottom-1 left-1 text-[8px] uppercase tracking-wider bg-black/70 text-white px-1.5 py-0.5"
+                    <span className="absolute bottom-1 left-1 text-[11px] tracking-tight bg-black/70 text-white px-1.5 py-0.5 tabular-nums"
                           style={{ fontFamily: "var(--font-mono), monospace" }}>
                       {ai.sv.afterDate ?? "Actual"} · Sin histórico disponible
                     </span>
                     {ai.score !== null && (
-                      <span className={`absolute top-1 right-1 text-[10px] font-bold px-2 py-0.5 ${
+                      <span className={`absolute top-1 right-1 text-[11.5px] font-bold tabular-nums px-2 py-0.5 ${
                         ai.score <= 30 ? "bg-[var(--alarm)]/90 text-white" :
                         ai.score <= 60 ? "bg-[var(--warn)]/90 text-black" :
                         "bg-[var(--safe)]/90 text-black"
@@ -329,15 +329,15 @@ export default function ObraDetailPanel({
 
                 {/* Footer row */}
                 <div className="flex items-center justify-between px-3 py-1.5 border-t border-[var(--rule)]">
-                  <p className="text-[8px] uppercase tracking-[0.2em] text-[var(--fg-faint)]"
-                     style={{ fontFamily: "var(--font-mono), monospace" }}>
+                  <p className="text-[11px] tracking-tight text-[var(--fg-dim)]"
+                     style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}>
                     Google Street View
                     {ai.sv.totalPanos != null && ` · ${ai.sv.totalPanos} panoramas`}
                   </p>
                   <button
                     onClick={() => runAiAnalysis(true)}
-                    className="text-[8px] uppercase tracking-[0.18em] text-[var(--fg-faint)] hover:text-white transition"
-                    style={{ fontFamily: "var(--font-mono), monospace" }}
+                    className="text-[11px] tracking-tight text-[var(--fg-dim)] hover:text-white transition font-medium"
+                    style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
                   >
                     Actualizar ↺
                   </button>
@@ -346,10 +346,10 @@ export default function ObraDetailPanel({
                 {/* AI verdict */}
                 {ai.description && (
                   <div className="px-4 py-3 border-t border-[var(--rule)] bg-[var(--ink-0)]/60">
-                    <p className={`text-[9px] uppercase tracking-[0.26em] mb-1.5 ${
+                    <p className={`text-[11.5px] tracking-tight mb-1.5 font-medium ${
                       ai.score != null && ai.score <= 30 ? "text-[var(--alarm)]" :
                       ai.score != null && ai.score <= 60 ? "text-[var(--warn)]" : "text-[var(--safe)]"
-                    }`} style={{ fontFamily: "var(--font-mono), monospace" }}>
+                    }`} style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}>
                       Veredicto IA · Claude Vision
                       {ai.score != null && ` · ${ai.score}/100`}
                       {ai.sv.hasHistory && " · comparación antes/ahora"}
@@ -359,8 +359,8 @@ export default function ObraDetailPanel({
                       "{ai.description}"
                     </p>
                     {!ai.sv.cached && (
-                      <p className="text-[8px] text-[var(--fg-faint)] mt-1.5 text-right"
-                         style={{ fontFamily: "var(--font-mono), monospace" }}>
+                      <p className="text-[11px] text-[var(--fg-faint)] mt-1.5 text-right"
+                         style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}>
                         análisis en vivo
                       </p>
                     )}
@@ -376,16 +376,16 @@ export default function ObraDetailPanel({
         {infobras && (
           <section className="border-b border-[var(--rule)]">
             <div className="px-5 py-3 flex items-center justify-between">
-              <p className="text-[9px] uppercase tracking-[0.26em] text-[var(--fg-faint)]"
-                 style={{ fontFamily: "var(--font-mono), monospace" }}>
+              <p className="text-[11.5px] tracking-tight text-[var(--fg-dim)] font-medium"
+                 style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}>
                 INFOBRAS · Contraloría · avance real
               </p>
               <a
                 href={infobras.infobras_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-[8px] uppercase tracking-[0.18em] text-[var(--fg-faint)] hover:text-[var(--brand)] transition"
-                style={{ fontFamily: "var(--font-mono), monospace" }}
+                className="text-[11px] tracking-tight text-[var(--fg-dim)] hover:text-[var(--brand)] transition font-medium"
+                style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
               >
                 Ver en INFOBRAS ↗
               </a>
@@ -395,8 +395,8 @@ export default function ObraDetailPanel({
             {infobras.avance_fisico_pct != null && (
               <div className="px-5 pb-3">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-[9px] text-[var(--fg-faint)]"
-                        style={{ fontFamily: "var(--font-mono), monospace" }}>
+                  <span className="text-[11px] text-[var(--fg-dim)] font-medium"
+                        style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}>
                     Avance físico
                   </span>
                   <span className={`text-[11px] font-bold tabular-nums ${
@@ -417,7 +417,7 @@ export default function ObraDetailPanel({
                     style={{ width: `${Math.min(100, infobras.avance_fisico_pct)}%` }}
                   />
                 </div>
-                <div className="mt-1.5 flex gap-4 text-[8px] text-[var(--fg-faint)]"
+                <div className="mt-1.5 flex gap-4 text-[11px] text-[var(--fg-dim)] tabular-nums"
                      style={{ fontFamily: "var(--font-mono), monospace" }}>
                   <span>Estado: {infobras.estado ?? "—"}</span>
                   {infobras.n_avances_mensuales != null && (
@@ -433,8 +433,8 @@ export default function ObraDetailPanel({
             {/* Technical photos from INFOBRAS */}
             {infobras.photos.length > 0 && (
               <div className="px-5 pb-4">
-                <p className="text-[8px] uppercase tracking-[0.18em] text-[var(--fg-faint)] mb-2"
-                   style={{ fontFamily: "var(--font-mono), monospace" }}>
+                <p className="text-[11px] tracking-tight text-[var(--fg-dim)] mb-2 font-medium"
+                   style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}>
                   Fotos técnicas ({infobras.n_fotos ?? infobras.photos.length})
                 </p>
                 <div className="grid grid-cols-4 gap-0.5">
@@ -447,8 +447,8 @@ export default function ObraDetailPanel({
                         onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                       />
                       {p.label && (
-                        <span className="absolute bottom-0 left-0 right-0 text-[6px] text-center bg-black/70 text-white py-0.5 opacity-0 group-hover:opacity-100 transition truncate px-1"
-                              style={{ fontFamily: "var(--font-mono), monospace" }}>
+                        <span className="absolute bottom-0 left-0 right-0 text-[11px] text-center bg-black/70 text-white py-0.5 opacity-0 group-hover:opacity-100 transition truncate px-1"
+                              style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}>
                           {p.label}
                         </span>
                       )}
@@ -463,8 +463,8 @@ export default function ObraDetailPanel({
         {/* QUIÉN RECIBIÓ */}
         <section className="px-5 py-4 border-b border-[var(--rule)]">
           <p
-            className="text-[9px] uppercase tracking-[0.26em] text-[var(--fg-faint)] mb-2"
-            style={{ fontFamily: "var(--font-mono), monospace" }}
+            className="text-[11.5px] tracking-tight text-[var(--fg-dim)] mb-2 font-medium"
+            style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
           >
             Quién recibió el billete
           </p>
@@ -484,8 +484,8 @@ export default function ObraDetailPanel({
           {obra.is_red_flag && (
             <div className="mt-3 border-l-2 border-[var(--alarm)] pl-3 py-1">
               <p
-                className="text-[10px] uppercase tracking-[0.22em] text-[var(--alarm)]"
-                style={{ fontFamily: "var(--font-mono), monospace" }}
+                className="text-[11.5px] tracking-tight text-[var(--alarm)] font-semibold"
+                style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
               >
                 Antecedentes
               </p>
@@ -503,8 +503,8 @@ export default function ObraDetailPanel({
         {/* CONTRATO */}
         <section className="px-5 py-4 border-b border-[var(--rule)]">
           <p
-            className="text-[9px] uppercase tracking-[0.26em] text-[var(--fg-faint)] mb-2"
-            style={{ fontFamily: "var(--font-mono), monospace" }}
+            className="text-[11.5px] tracking-tight text-[var(--fg-dim)] mb-2 font-medium"
+            style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
           >
             Contrato
           </p>
@@ -530,8 +530,8 @@ export default function ObraDetailPanel({
         {/* COMPRADOR */}
         <section className="px-5 py-4 border-b border-[var(--rule)]">
           <p
-            className="text-[9px] uppercase tracking-[0.26em] text-[var(--fg-faint)] mb-2"
-            style={{ fontFamily: "var(--font-mono), monospace" }}
+            className="text-[11.5px] tracking-tight text-[var(--fg-dim)] mb-2 font-medium"
+            style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
           >
             Quién pagó
           </p>
@@ -588,8 +588,8 @@ function Money({
   return (
     <div className="px-3 first:pl-0 last:pr-0">
       <p
-        className="text-[9px] uppercase tracking-[0.22em] text-[var(--fg-faint)]"
-        style={{ fontFamily: "var(--font-mono), monospace" }}
+        className="text-[11px] tracking-tight text-[var(--fg-dim)] font-medium"
+        style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
       >
         {label}
       </p>
@@ -599,14 +599,14 @@ function Money({
         }`}
         style={{ fontFamily: "var(--font-mono), monospace" }}
       >
-        <span className="text-[10px] text-[var(--fg-faint)] mr-1">
+        <span className="text-[11.5px] text-[var(--fg-faint)] mr-1">
           {currency}
         </span>
         {fmtSolesShort(value)}
       </p>
       {delta != null && (
         <p
-          className={`mt-1 text-[10px] ${
+          className={`mt-1 text-[11.5px] tabular-nums ${
             positive ? "text-[var(--alarm)]" : "text-[var(--fg-faint)]"
           }`}
           style={{ fontFamily: "var(--font-mono), monospace" }}
@@ -630,8 +630,8 @@ function DetailRow({
   return (
     <div>
       <dt
-        className="text-[9px] uppercase tracking-[0.2em] text-[var(--fg-faint)]"
-        style={{ fontFamily: "var(--font-mono), monospace" }}
+        className="text-[11px] tracking-tight text-[var(--fg-dim)] font-medium"
+        style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
       >
         {label}
       </dt>

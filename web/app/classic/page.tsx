@@ -134,7 +134,7 @@ export default function HomePage() {
       )}
 
       {loading && (
-        <div className="absolute bottom-4 left-4 z-10 bg-[var(--ink-1)]/80 backdrop-blur-md border border-[var(--rule)] px-3 py-1.5 text-[10px] uppercase tracking-[0.2em] text-[var(--fg-dim)] font-mono">
+        <div className="absolute bottom-4 left-4 z-10 bg-[var(--ink-1)]/80 backdrop-blur-md border border-[var(--rule)] px-3 py-1.5 text-[11.5px] tracking-tight text-[var(--fg-dim)] font-medium" style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}>
           Cargando obras…
         </div>
       )}

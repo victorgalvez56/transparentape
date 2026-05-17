@@ -43,7 +43,8 @@ export default function BeforeAfterSlider({
               position: "absolute", top: 8, left: 8,
               background: "rgba(0,0,0,0.72)", color: "#fff",
               padding: "3px 8px", borderRadius: 4,
-              fontSize: 10, fontWeight: 600, letterSpacing: "0.15em", textTransform: "uppercase",
+              fontSize: 11, fontWeight: 600, letterSpacing: "-0.01em",
+              fontFamily: "var(--font-body), system-ui, sans-serif",
             }}
           >
             {beforeLabel}
@@ -60,7 +61,8 @@ export default function BeforeAfterSlider({
               position: "absolute", top: 8, right: 8,
               background: "rgba(66,220,58,0.85)", color: "#000",
               padding: "3px 8px", borderRadius: 4,
-              fontSize: 10, fontWeight: 600, letterSpacing: "0.15em", textTransform: "uppercase",
+              fontSize: 11, fontWeight: 600, letterSpacing: "-0.01em",
+              fontFamily: "var(--font-body), system-ui, sans-serif",
             }}
           >
             {afterLabel}
