@@ -47,14 +47,12 @@ export interface MontoRiesgo {
 
 export interface BuscarObrasFilters {
   country?: Country;
-  region?: string;
-  localidad?: string;
   year?: number;
   red_flag?: boolean;
   contratista?: string;
   ruc?: string;
   procurement_method?: string;
-  q?: string;
+  q?: string; // searches title, supplier, locality, and region — no hardcoded lists
   limit?: number;
 }
 
@@ -75,8 +73,6 @@ export async function buscarObras(f: BuscarObrasFilters): Promise<ObraResumen[]>
   let i = 1;
 
   if (f.country)   { parts.push(`country = $${i++}`); vals.push(f.country); }
-  if (f.region)    { parts.push(`UPPER(buyer_region) ILIKE UPPER($${i++})`); vals.push(`%${f.region}%`); }
-  if (f.localidad) { parts.push(`(UPPER(buyer_locality) ILIKE UPPER($${i}) OR UPPER(buyer_region) ILIKE UPPER($${i}))`); vals.push(`%${f.localidad}%`); i++; }
   if (f.year)      { parts.push(`source_year = $${i++}`); vals.push(f.year); }
   if (f.red_flag === true)  parts.push(`is_red_flag = TRUE`);
   if (f.red_flag === false) parts.push(`(is_red_flag IS NULL OR is_red_flag = FALSE)`);
@@ -84,7 +80,11 @@ export async function buscarObras(f: BuscarObrasFilters): Promise<ObraResumen[]>
   if (f.ruc)         { parts.push(`supplier_ruc = $${i++}`); vals.push(f.ruc); }
   if (f.procurement_method) { parts.push(`procurement_method = $${i++}`); vals.push(f.procurement_method); }
   if (f.q) {
-    parts.push(`(tender_description ILIKE $${i} OR tender_title ILIKE $${i} OR supplier_name ILIKE $${i} OR buyer_locality ILIKE $${i})`);
+    // Search across all relevant text columns including region and locality
+    parts.push(
+      `(tender_description ILIKE $${i} OR tender_title ILIKE $${i} OR ` +
+      `supplier_name ILIKE $${i} OR buyer_region ILIKE $${i} OR buyer_locality ILIKE $${i})`
+    );
     vals.push(`%${f.q}%`);
     i++;
   }
