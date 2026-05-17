@@ -284,12 +284,12 @@ async function handleMessage(
 
     case "OBRAS_RETRASADAS": {
       const filters = parsed.filters ?? { country };
-      const list = await obrasRetrasadas(country, filters.q_geo, 5);
+      const list = await obrasRetrasadas(country, filters.q_geo, 5, filters.year);
       await updateSession(conversationId, {
         lastResultIds: list.map((o) => o.id),
         lastQuery: effectiveText,
       });
-      return fmtRetrasadas(list, country, filters.q_geo);
+      return fmtRetrasadas(list, country, filters.q_geo, filters.year);
     }
 
     case "CONTEXTO_DETALLE": {

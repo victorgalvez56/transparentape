@@ -382,13 +382,25 @@ export async function montoEnRiesgo(country: Country, q?: string): Promise<Monto
 export async function obrasRetrasadas(
   country: Country,
   q?: string,
-  limit = 5
+  limit = 5,
+  year?: number
 ): Promise<ObraRetrasada[]> {
   const geo = q?.trim();
-  const geoClause = geo
-    ? ` AND (o.buyer_region ILIKE $3 OR o.buyer_locality ILIKE $3)`
-    : ``;
-  const params: unknown[] = geo ? [country, limit, `%${geo}%`] : [country, limit];
+  // Build dynamic clauses + params. $1=country, $2=limit always, then geo / year.
+  const params: unknown[] = [country, limit];
+  let pos = 3;
+  let geoClause = "";
+  if (geo) {
+    geoClause = ` AND (o.buyer_region ILIKE $${pos} OR o.buyer_locality ILIKE $${pos})`;
+    params.push(`%${geo}%`);
+    pos++;
+  }
+  let yearClause = "";
+  if (year && Number.isFinite(year)) {
+    yearClause = ` AND o.source_year = $${pos}`;
+    params.push(year);
+    pos++;
+  }
   return query<ObraRetrasada>(
     `SELECT
        o.id, o.ocid,
@@ -427,7 +439,7 @@ export async function obrasRetrasadas(
          OR (i.fecha_fin_real ~ '^\\d{4}-\\d{2}-\\d{2}'
               AND i.fecha_fin_programada ~ '^\\d{4}-\\d{2}-\\d{2}'
               AND (i.fecha_fin_real::date - i.fecha_fin_programada::date) > 365)
-       )${geoClause}
+       )${geoClause}${yearClause}
      ORDER BY dias_retraso DESC NULLS LAST,
               i.n_modificaciones_plazo DESC NULLS LAST,
               monto DESC NULLS LAST

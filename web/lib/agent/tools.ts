@@ -239,16 +239,18 @@ export const TOOLS: Tool[] = [
   {
     name: "obras_retrasadas",
     description:
-      "Obras con retraso excesivo vs cronograma. Triggers naturales: 'retrasadas', 'atrasadas', 'estancadas', 'paralizadas', 'demoradas', 'fuera de plazo', 'sin avance', 'que no avanzan', 'que no terminan', 'sobre plazo', 'fuera de cronograma', 'cuánto se atrasaron', 'cumplen con la fecha'. Define 'excesivo' como >180 días tarde, o 3+ adendas de plazo, o cierre >365 días tarde. Cobertura limitada (~165 obras con datos INFOBRAS). Acepta `q` para acotar región.",
+      "Obras con retraso excesivo vs cronograma. Triggers naturales: 'retrasadas', 'atrasadas', 'estancadas', 'paralizadas', 'demoradas', 'fuera de plazo', 'sin avance', 'que no avanzan', 'que no terminan', 'sobre plazo', 'fuera de cronograma', 'cuánto se atrasaron', 'cumplen con la fecha'. Define 'excesivo' como >180 días tarde, o 3+ adendas de plazo, o cierre >365 días tarde. Cobertura limitada (~165 obras con datos INFOBRAS). Acepta `q` para acotar región y `year` para acotar año del registro.",
     parameters: {
       q: "string opcional — región/provincia/distrito para acotar",
+      year: "número opcional — año del registro (ej: 2024)",
     },
     async run(args, ctx) {
       const q = asString(args.q);
-      const data = await obrasRetrasadas(ctx.country, q, 5);
+      const year = asNumber(args.year);
+      const data = await obrasRetrasadas(ctx.country, q, 5, year);
       return {
         data,
-        formatted: fmtRetrasadas(data, ctx.country, q),
+        formatted: fmtRetrasadas(data, ctx.country, q, year),
         obraIds: data.map((o) => o.id),
       };
     },
