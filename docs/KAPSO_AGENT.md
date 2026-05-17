@@ -15,7 +15,7 @@ y `agent_logs` de Supabase.
 - [Flujo de un mensaje](#flujo-de-un-mensaje)
 - [Sistema de intents](#sistema-de-intents)
 - [Motor LLM (3 pasos)](#motor-llm-3-pasos)
-- [Sesión y contexto](#sesión-y-contexto)
+- [Modelo de memoria y contexto](#modelo-de-memoria-y-contexto)
 - [Concurrencia y mensajes paralelos](#concurrencia-y-mensajes-paralelos)
 - [Seguridad](#seguridad)
 - [Base de datos](#base-de-datos)
@@ -81,13 +81,26 @@ conocido.
    - `image/audio/video/...` → responde "solo proceso texto" y termina.
 7. **Respuesta 200 inmediata** + procesamiento **fire-and-forget** dentro
    de un `(async () => { ... })()`. Esto evita reintentos por timeout de Kapso.
-8. **`handleMessage(text, from, phoneNumberId, to)`** llama a `parseIntent` y
-   despacha al handler correspondiente.
-9. **`kapso.messages.sendText`** envía la respuesta (truncada a
-   `AGENT.limits.waMaxChars`).
-10. **`appendHistoryAtomic`** persiste el par (user, assistant) en
+8. **Carga paralela** de sesión y perfil:
+   `const [session, profile] = await Promise.all([getSession(from), getProfile(from)])`.
+9. **`handleMessage(text, from, phoneNumberId, to, session, profile)`** llama
+   a `parseIntent` y despacha al handler correspondiente.
+   - Resolución de país: explícito en mensaje → sesión → perfil → `"PE"`.
+   - BUSCAR_OBRAS usa `effectiveSearchFilters` (filtros acumulados de turnos
+     previos).
+   - Saludo personalizado por nombre si es la primera respuesta tras un gap
+     de sesión.
+10. **`kapso.messages.sendText`** envía la respuesta (truncada a
+    `AGENT.limits.waMaxChars`).
+11. **`appendHistoryAtomic`** persiste el par (user, assistant) en
     `agent_sessions.last_messages` con un UPSERT atómico.
-11. **`agent_logs`** registra `{ from: redactPhone(...), text_len }`, latencia
+12. **`propagateContext`** (fire-and-forget, post-respuesta):
+    - Mergea filtros activos (o los limpia si fue topic break).
+    - Extrae y acumula entidades mencionadas.
+    - Bumpea contadores en `user_profile` (intent, country, region).
+    - Si `shouldResummarize(session)` → llama a Groq y guarda
+      `session_summary` nuevo.
+13. **`agent_logs`** registra `{ from: redactPhone(...), text_len }`, latencia
     y `n_resultados`.
 
 ---
@@ -205,58 +218,150 @@ los 30s de `maxDuration` de la función Vercel. Actualmente: 5 + 10 + 8 = 23s.
 
 ---
 
-## Sesión y contexto
+## Modelo de memoria y contexto
 
-`web/lib/agent-kapso/session.ts` + tabla `agent_sessions`.
+El agente opera con **cuatro capas de memoria** apiladas. Cada capa es
+ortogonal a las demás y se consulta solo si la anterior no alcanza.
 
-### Estructura
-
-| Campo             | Tipo               | Uso                                          |
-| ----------------- | ------------------ | -------------------------------------------- |
-| `conversation_id` | `TEXT PRIMARY KEY` | número de teléfono completo                  |
-| `country`         | `TEXT`             | país activo para filtros (`PE`, `CL`, ...)   |
-| `last_query`      | `TEXT`             | último texto del usuario                     |
-| `last_result_ids` | `INTEGER[]`        | IDs de obras mostradas → resuelve ordinales  |
-| `last_messages`   | `JSONB`            | últimos `historyPairs*2` pares user/asst     |
-| `last_location`   | `JSONB`            | `{ lat, lng }` para `BUSCAR_CERCANOS`        |
-| `updated_at`      | `TIMESTAMPTZ`      | usado como TTL filter                        |
-
-### TTL
-
-Configurable en `AGENT.limits.sessionTtlMinutes`. Actualmente **24 horas**.
-La expiración es lazy: el `SELECT` filtra por `updated_at > NOW() - ($N * INTERVAL '1 minute')`.
-La fila vieja queda en la tabla hasta que se sobreescriba o se limpie a mano
-(no hay `pg_cron` configurado).
-
-### Operaciones
-
-```ts
-// Lee la sesión (o devuelve default { country: "PE" })
-getSession(conversationId: string): Promise<Session>
-
-// UPSERT atómico con COALESCE por columna: campos no incluidos en el patch
-// conservan su valor existente. Sin ventana de read-modify-write.
-updateSession(conversationId: string, patch: Partial<Session>): Promise<void>
-
-// Append + slice atómico de last_messages, todo en SQL.
-appendHistoryAtomic(conversationId, userMsg, assistantMsg): Promise<void>
-
-// (Legacy, conservado por compatibilidad con tests)
-appendToHistory(existing, userMsg, assistantMsg): ChatMsg[]
+```
+┌─────────────────────────────────────────────────────────────┐
+│ 1. SESIÓN VIVA — agent_sessions, TTL 24h                    │
+│    last_messages, last_result_ids, last_location,            │
+│    active_filters (acumulativos), mentioned_entities,        │
+│    session_summary, summary_msg_count                        │
+├─────────────────────────────────────────────────────────────┤
+│ 2. PERFIL PERSISTENTE — user_profile, sin TTL                │
+│    display_name, default_country, default_region,            │
+│    language, total_queries, common_topics (counter JSONB)    │
+├─────────────────────────────────────────────────────────────┤
+│ 3. RESUMEN ROLLING — session_summary (Groq, 2-3 frases)      │
+│    Se regenera cada N pares nuevos; el resumen previo se     │
+│    realimenta para mantener la cadena.                       │
+├─────────────────────────────────────────────────────────────┤
+│ 4. (opcional) MEMORIA SEMÁNTICA — pgvector                   │
+│    No implementada todavía. Hook listo en buildUserContext.  │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### ¿Por qué el `appendHistoryAtomic`?
+### Capa 1 — Sesión viva (`agent_sessions`)
 
-El patrón anterior (read → append en JS → write) tenía dos races:
+| Campo                 | Tipo               | Uso                                                    |
+| --------------------- | ------------------ | ------------------------------------------------------ |
+| `conversation_id`     | `TEXT PK`          | número de teléfono                                     |
+| `country`             | `TEXT`             | país activo                                            |
+| `last_query`          | `TEXT`             | último texto del usuario                               |
+| `last_result_ids`     | `INTEGER[]`        | IDs de la última lista → resuelve "el primero"         |
+| `last_messages`       | `JSONB`            | últimos `historyPairs*2` pares user/asst               |
+| `last_location`       | `JSONB`            | `{ lat, lng }` compartida vía WhatsApp                 |
+| `active_filters`      | `JSONB`            | filtros acumulados de búsqueda (q, year, red_flag, …)  |
+| `mentioned_entities`  | `JSONB`            | `{ regions, rucs, companies, years }` deduped, cap 10  |
+| `session_summary`     | `TEXT`             | resumen rolling de la conversación                     |
+| `summary_msg_count`   | `INT`              | nº de mensajes ya incluidos en `session_summary`       |
+| `updated_at`          | `TIMESTAMPTZ`      | TTL filter (24h)                                       |
 
-1. **Entre campos distintos** — dos handlers concurrentes leen la misma fila,
-   uno guarda `lastLocation`, otro guarda `lastQuery`, el segundo escribe sin
-   el `lastLocation` del primero. **Resuelto** por el COALESCE-upsert.
-2. **En el mismo campo `last_messages`** — los dos handlers leen la misma
-   historia, ambos hacen append + slice, el segundo escribe y pierde el par
-   del primero. **Resuelto** por `appendHistoryAtomic`, que hace
-   `COALESCE(last_messages, '[]'::jsonb) || EXCLUDED.last_messages` dentro
-   del SQL y luego slice por ordinal.
+#### Filtros acumulados
+
+El gran cambio: cuando el usuario hace una búsqueda y luego la refina, los
+filtros se acumulan en `active_filters` en lugar de empezar de cero.
+
+```
+usuario: "obras en Lima"           → active_filters = { q: "lima" }
+usuario: "ahora 2024"              → active_filters = { q: "lima", year: 2024 }
+usuario: "con alerta"              → active_filters = { q: "lima", year: 2024, red_flag: true }
+usuario: "ahora Piura"             → active_filters = { q: "piura", year: 2024, red_flag: true }
+usuario: "estadísticas Perú" (STATS) → active_filters = NULL (topic break)
+```
+
+`mergeFilters(active, parsed, intent)` en `context.ts` codifica las reglas:
+- Intents de búsqueda (BUSCAR_OBRAS, BUSCAR_CERCANOS, VER_DETALLE,
+  CONTEXTO_DETALLE) acumulan.
+- Topic-break intents (STATS, RANKING_*, AYUDA, INVESTIGAR_*, etc.) limpian.
+
+#### Entidades mencionadas
+
+`mentioned_entities` lleva un registro running de qué regiones / RUCs /
+empresas / años se han mencionado en la sesión, deduped case-insensitive y
+cap a 10 por bucket. Se inyecta en el prompt de cada llamada al LLM bajo
+"Mencionado en este chat — regiones: …; empresas: …".
+
+### Capa 2 — Perfil persistente (`user_profile`)
+
+| Campo            | Tipo          | Uso                                              |
+| ---------------- | ------------- | ------------------------------------------------ |
+| `phone`          | `TEXT PK`     | número de teléfono (consistente con sesión)      |
+| `display_name`   | `TEXT`        | nombre de WhatsApp (si Kapso lo expone)          |
+| `default_country`| `TEXT`        | país preferido — se autorellena con el primer uso |
+| `default_region` | `TEXT`        | región habitual — derivada de `common_topics`    |
+| `language`       | `TEXT`        | `es` por default                                 |
+| `total_queries`  | `INT`         | contador para "usuario recurrente"               |
+| `common_topics`  | `JSONB`       | counter map `{ "BUSCAR_OBRAS": 12, "region:piura": 8, ... }` |
+| `first_seen`     | `TIMESTAMPTZ` | primera interacción                              |
+| `last_seen`      | `TIMESTAMPTZ` | última interacción                               |
+
+Sin TTL — sobrevive cuando la sesión expira. Un ciudadano que vuelve a las
+2 semanas conserva su nombre, país y región habitual.
+
+`bumpProfile(phone, topicDelta, opts)` mergea el counter map atómicamente
+en SQL (sin race) y autorellena `display_name` / `default_country` la
+primera vez.
+
+### Capa 3 — Resumen rolling (`session_summary`)
+
+`shouldResummarize(session)` devuelve `true` cuando hay `historyPairs`
+pares nuevos que no entraron al resumen anterior. Entonces
+`summarizeHistory(history, previousSummary)` llama a `llama-3.1-8b-instant`
+con un prompt que pide UNA frase (≤200 chars) y guarda el resultado.
+
+El resumen previo se realimenta como `(resumen previo) …` para mantener la
+cadena: el modelo no parte de cero, va comprimiendo iterativamente.
+
+Se ejecuta **después** de mandar la respuesta al usuario (fire-and-forget
+en `propagateContext`). No afecta la latencia.
+
+### Inyección en los prompts
+
+`buildUserContext(profile, session)` arma un bloque < 600 chars que se
+prepende a los **cuatro** system prompts del motor LLM (router, context,
+sql, synthesis). Ejemplo de salida:
+
+```
+CONTEXTO DEL USUARIO:
+Usuario — nombre: Victor, región habitual: Cusco, usuario recurrente (7 consultas).
+Resumen previo: Usuario consulta obras en Cusco con alertas.
+Mencionado en este chat — regiones: cusco; empresas: Odebrecht; años: 2024.
+Filtros activos: zona=cusco, año=2024, con alerta.
+```
+
+Empty string cuando no hay nada que decir (usuario nuevo, sesión vacía).
+
+### Operaciones en `session.ts`
+
+```ts
+// Sesión
+getSession(conversationId): Promise<Session>
+updateSession(conversationId, patch): Promise<void>       // COALESCE upsert atómico
+appendHistoryAtomic(conversationId, userMsg, asstMsg)     // append + slice en SQL
+clearActiveFilters(conversationId)                        // pivot de tema, NO toca entidades
+resetSessionContext(conversationId)                       // full reset
+
+// Perfil
+getProfile(phone): Promise<UserProfile | null>
+bumpProfile(phone, topicDelta, opts)                      // merge atómico de contadores
+setProfileDefaults(phone, patch)                          // setea defaultCountry/Region/language
+```
+
+### Race conditions resueltas
+
+1. **Patches concurrentes a distintos campos** — handler A escribe
+   `lastLocation`, handler B escribe `lastQuery`. **Resuelto** por
+   `updateSession` con `COALESCE($N, agent_sessions.col)` por columna.
+2. **Patches concurrentes al historial** — dos handlers leen la misma
+   `last_messages`, ambos hacen append, el segundo pierde el par del
+   primero. **Resuelto** por `appendHistoryAtomic` que hace el append +
+   slice todo en SQL contra `EXCLUDED.last_messages`.
+3. **Bumps concurrentes al counter map** — dos handlers incrementan
+   `common_topics`. **Resuelto** por `bumpProfile` que hace
+   `UNION ALL + GROUP BY + SUM` en una sola sentencia.
 
 ---
 
@@ -326,19 +431,40 @@ así que requiere el secret para invertirlo dentro de un set acotado.
 
 Tablas usadas por el agente. Todas viven en Supabase Postgres.
 
-### `agent_sessions` (migraciones 06, 07, 09)
+### `agent_sessions` (migraciones 06, 07, 09, 10)
 
 ```sql
 CREATE TABLE agent_sessions (
-  conversation_id  TEXT PRIMARY KEY,
-  country          TEXT NOT NULL DEFAULT 'PE',
-  last_query       TEXT,
-  last_result_ids  INTEGER[],
-  last_messages    JSONB,    -- migración 07
-  last_location    JSONB,    -- migración 09
-  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  conversation_id     TEXT PRIMARY KEY,
+  country             TEXT NOT NULL DEFAULT 'PE',
+  last_query          TEXT,
+  last_result_ids     INTEGER[],
+  last_messages       JSONB,    -- migración 07
+  last_location       JSONB,    -- migración 09
+  active_filters      JSONB,    -- migración 10
+  mentioned_entities  JSONB,    -- migración 10
+  session_summary     TEXT,     -- migración 10
+  summary_msg_count   INT NOT NULL DEFAULT 0,  -- migración 10
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX idx_agent_sessions_updated ON agent_sessions (updated_at);
+```
+
+### `user_profile` (migración 11)
+
+```sql
+CREATE TABLE user_profile (
+  phone            TEXT PRIMARY KEY,
+  display_name     TEXT,
+  default_country  TEXT,
+  default_region   TEXT,
+  language         TEXT NOT NULL DEFAULT 'es',
+  total_queries    INT  NOT NULL DEFAULT 0,
+  common_topics    JSONB,
+  first_seen       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_seen        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_user_profile_last_seen ON user_profile (last_seen DESC);
 ```
 
 ### `agent_logs` (migración 03)
@@ -428,12 +554,14 @@ AGENT = {
 
 ```
 supabase/migrations/03_agent_logs.sql
-supabase/migrations/04_disable_rls.sql           (intencional: demo)
+supabase/migrations/04_disable_rls.sql            (intencional: demo)
 supabase/migrations/05_agent_indexes.sql
 supabase/migrations/06_agent_sessions.sql
 supabase/migrations/07_agent_sessions_history.sql
 supabase/migrations/08_webhook_dedup.sql
 supabase/migrations/09_agent_sessions_location.sql
+supabase/migrations/10_agent_sessions_context.sql
+supabase/migrations/11_user_profile.sql
 ```
 
 ### Dependencias npm relevantes
@@ -456,15 +584,46 @@ cd web
 npx tsx --tsconfig tsconfig.json lib/agent-kapso/test-agent.ts
 ```
 
-Tres capas:
+**Cinco capas**, donde L1, L1+, L4 y L5 son puras (no requieren DB ni Groq):
 
-- **L1**: `parseIntent` puro (sin I/O) — todos los regex de intent, países,
-  filtros, `cleanTitle`.
-- **L2**: queries reales contra Supabase — `statsPorPais`, `buscarObras`,
-  `rankingContratistas`, `inhabilitadosVigentes`.
-- **L3**: `chatEngine` completo (Groq + DB) — incluye un intento de
-  SQL injection (`obras en Lima; DROP TABLE obras; --`) que debe ser
-  rechazado.
+| Capa  | Qué cubre                                                            | I/O |
+| ----- | -------------------------------------------------------------------- | --- |
+| L1    | `parseIntent` casos básicos (15 intents, países, años, filtros)      | ❌ |
+| L1+   | Edge cases (mayúsculas, acentos, signos `¿¡`, ordinales bare `#1`)  | ❌ |
+| L4    | Capa de contexto: `mergeFilters`, `extractTurnEntities`,             |     |
+|       | `mergeEntities`, `buildUserContext`, `shouldResummarize`             | ❌ |
+| L5    | Conversaciones simuladas — búsqueda cumulativa multi-turno,          |     |
+|       | acumulación de entidades, usuario que vuelve con perfil              | ❌ |
+| L2    | Queries reales contra Supabase                                       | ✅ DB |
+| L3    | `chatEngine` end-to-end con Groq + DB (incluye SQL injection test)   | ✅ DB+LLM |
+
+Sin `DATABASE_URL` ni `GROQ_API_KEY`, las capas puras (L1, L1+, L4, L5)
+corren igual y reportan **123 assertions OK**. Las L2/L3 se saltan con un
+error visible pero sin abortar la suite.
+
+### Conversaciones de ejemplo cubiertas en L5
+
+```
+# Búsqueda cumulativa
+"hola"                            → AYUDA
+"obras en Lima"                   → filtros = { q: lima }
+"ahora 2024"                      → filtros = { q: lima, year: 2024 }
+"con alerta"                      → filtros = { q: lima, year: 2024, red_flag: true }
+"el primero"                      → resuelve contra last_result_ids
+"estadísticas Perú"               → topic break, filtros = NULL
+"obras en Cusco 2023"             → filtros = { q: cusco, year: 2023 }
+
+# Acumulación de entidades
+"obras en Lima 2024"              → entities += { regions: [lima], years: [2024] }
+"ahora Piura 2023"                → entities += { regions: [piura], years: [2023] }
+"investigar Odebrecht"            → entities += { companies: [Odebrecht] }
+"y el RUC 20123456789?"           → entities += { rucs: [20123456789] }
+
+# Usuario que vuelve
+Profile { name: María, region: Arequipa, totalQueries: 12 }
+Session vacía (TTL expiró)
+→ buildUserContext muestra "María", "Arequipa", "usuario recurrente"
+```
 
 ### `load-test.ts` — prueba de concurrencia
 
@@ -481,16 +640,78 @@ local y reporta latencias p50/p95/max. Lee `KAPSO_WEBHOOK_SECRET` y
 > con el agente. No los importa nadie en runtime; Next.js no los empaca.
 > Moverlos a `web/scripts/` queda como mejora.
 
+## Cómo se ve el contexto en una conversación real
+
+Supongamos una usuaria María, que ya consultó el bot 12 veces. Tercera vez
+que entra hoy. Su perfil tiene `display_name=María`, `default_country=PE`,
+`default_region=Arequipa`. La sesión está vacía (gap > 24h).
+
+**Turno 1** — `"hola"`
+```
+parseIntent → AYUDA
+buildUserContext (que se prepende al system prompt):
+  CONTEXTO DEL USUARIO:
+  Usuario — nombre: María, región habitual: Arequipa,
+  usuario recurrente (12 consultas).
+```
+Respuesta: `"Hola María 👋\n\n[botones de ayuda]"`. propagateContext:
+bumpea `total_queries=13`, common_topics["AYUDA"]+=1.
+
+**Turno 2** — `"obras este año"`
+```
+parseIntent → BUSCAR_OBRAS, filters={year: 2026}
+effectiveSearchFilters → { country: PE, year: 2026 }   # no q aún
+buildUserContext incluye "región habitual: Arequipa"
+```
+El LLM lee el contexto y puede sugerir "¿obras en Arequipa este año?".
+propagateContext: active_filters = { year: 2026 }.
+
+**Turno 3** — `"con alerta en Arequipa"`
+```
+parseIntent → BUSCAR_OBRAS (alert modifier + obra-keyword implícito), 
+              filters={ q: "arequipa", red_flag: true }
+mergeFilters → active_filters = { q: arequipa, year: 2026, red_flag: true }
+              # year heredado del turno anterior
+```
+Búsqueda con los 3 filtros combinados.
+
+**Turno 4** — `"el primero"`
+```
+parseIntent → CONTEXTO_DETALLE, contextPosition=1
+            → resuelve session.lastResultIds[0]
+```
+No toca filtros (sigue siendo intent de búsqueda).
+
+**Turno 5** — `"investigar Odebrecht"`
+```
+parseIntent → INVESTIGAR_CONTRATISTA, contratista="Odebrecht"
+mergeFilters → topic break → active_filters = NULL
+mentioned_entities += { companies: [Odebrecht] }
+```
+
+Después del turno 5 (5 pares en historial), `shouldResummarize` dispara:
+```
+session_summary = "Usuaria María consultó obras en Arequipa 2026 con
+alertas y luego pidió investigación sobre Odebrecht."
+```
+
+En el turno 6, ese resumen aparece en `buildUserContext` y el LLM ya no
+necesita los 10 mensajes raw para entender el hilo.
+
 ---
 
 ## Pendientes / mejoras futuras
 
-| Prioridad | Tarea                                                      |
-| --------- | ---------------------------------------------------------- |
-| Media     | `pg_cron` para purgar `webhook_dedup` cada 24h             |
-| Media     | Rate-limit por `conversation_id` (ej: 10 msgs/min)         |
-| Baja      | Mover `test-agent.ts` y `load-test.ts` a `web/scripts/`    |
-| Baja      | Estrechar `type Country` para sacar `| string`             |
-| Baja      | Sumarización rolling cuando la historia llega a 5 pares    |
-| Baja      | Tabla `user_profile` con país preferido / región habitual  |
-| Futuro    | Re-habilitar RLS con policies cuando se salga de la demo   |
+| Prioridad | Tarea                                                              |
+| --------- | ------------------------------------------------------------------ |
+| Media     | `pg_cron` para purgar `webhook_dedup` cada 24h                     |
+| Media     | Rate-limit por `conversation_id` (ej: 10 msgs/min)                 |
+| Media     | Derivar `default_region` automáticamente de `common_topics`        |
+|           | cuando una región domine > 50% de las queries del usuario          |
+| Baja      | Mover `test-agent.ts` y `load-test.ts` a `web/scripts/`            |
+| Baja      | Estrechar `type Country` para sacar `\| string`                    |
+| Baja      | Comando explícito "guarda Arequipa como mi región" → setProfileDefaults |
+| Baja      | Detección de idioma (es/qu/en) y respuesta en el idioma detectado  |
+| Baja      | Suscripciones temáticas + cron de notificaciones                   |
+| Futuro    | Capa 4 — pgvector con embeddings de mensajes para recall semántico |
+| Futuro    | Re-habilitar RLS con policies cuando se salga de la demo           |
