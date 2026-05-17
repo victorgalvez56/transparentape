@@ -4,7 +4,7 @@ import { WhatsAppClient } from "@kapso/whatsapp-cloud-api";
 import { query } from "@/lib/db";
 import { chatEngine } from "@/lib/agent-kapso/engine";
 import { parseIntent } from "@/lib/agent-kapso/intent";
-import { getSession, updateSession } from "@/lib/agent-kapso/session";
+import { getSession, updateSession, appendToHistory } from "@/lib/agent-kapso/session";
 import {
   buscarObras,
   getObraResumen,
@@ -227,8 +227,20 @@ async function handleMessage(
 
     case "PREGUNTA_LIBRE":
     default:
-      return chatEngine(text);
+      return chatEngine(text, session.lastMessages ?? []);
   }
+}
+
+async function saveHistory(
+  conversationId: string,
+  userMsg: string,
+  assistantMsg: string | null
+): Promise<void> {
+  if (!assistantMsg) return;
+  const session = await getSession(conversationId);
+  await updateSession(conversationId, {
+    lastMessages: appendToHistory(session.lastMessages, userMsg, assistantMsg),
+  });
 }
 
 // ── webhook handler ───────────────────────────────────────────────────────────
@@ -266,6 +278,8 @@ export async function POST(req: NextRequest) {
       if (reply !== null) {
         const truncated = reply.length > 4096 ? reply.slice(0, 4090) + "…" : reply;
         await kapso.messages.sendText({ phoneNumberId, to, body: truncated });
+        // Persist exchange in session history for conversational context
+        saveHistory(from, text, truncated).catch(() => {});
       }
       query(
         `INSERT INTO agent_logs(endpoint, params, n_resultados, latencia_ms) VALUES ($1, $2, $3, $4)`,
