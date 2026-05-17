@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { WhatsAppClient } from "@kapso/whatsapp-cloud-api";
-import { normalizeWebhook, verifySignature as sdkVerifySignature } from "@kapso/whatsapp-cloud-api/server";
+import { normalizeWebhook } from "@kapso/whatsapp-cloud-api/server";
 import { query } from "@/lib/db";
 import { chatEngine } from "@/lib/agent-kapso/engine";
 import { parseIntent } from "@/lib/agent-kapso/intent";
@@ -37,16 +39,30 @@ export const runtime = "nodejs";
 export const maxDuration = 30;
 
 // ── signature validation ──────────────────────────────────────────────────────
+// Accepts both Meta format ("sha256=<hex>" on x-hub-signature-256) and
+// Kapso format (raw hex on x-webhook-signature).
 function checkSignature(rawBody: string, req: NextRequest): boolean {
   const secret = process.env.KAPSO_WEBHOOK_SECRET;
   if (!secret) return true;
-  // Kapso kind:meta signs with KAPSO_WEBHOOK_SECRET via x-hub-signature-256
-  const signatureHeader =
+
+  const sigHeader =
     req.headers.get("x-hub-signature-256") ??
-    req.headers.get("x-kapso-signature") ??
-    req.headers.get("x-webhook-signature");
-  if (!signatureHeader) return false;
-  return sdkVerifySignature({ appSecret: secret, rawBody, signatureHeader });
+    req.headers.get("x-webhook-signature") ??
+    req.headers.get("x-kapso-signature");
+  if (!sigHeader) return false;
+
+  const received = sigHeader.startsWith("sha256=") ? sigHeader.slice(7) : sigHeader;
+  if (!/^[a-f0-9]+$/i.test(received)) return false;
+
+  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+  try {
+    const a = Buffer.from(received, "hex");
+    const b = Buffer.from(expected, "hex");
+    if (a.length !== b.length) return false;
+    return timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
 }
 
 let _kapso: WhatsAppClient | null = null;
@@ -256,23 +272,21 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
 
-  // Collect all headers for diagnostics
-  const allHeaders: Record<string, string> = {};
-  req.headers.forEach((v, k) => { allHeaders[k] = v; });
-
-  if (!checkSignature(rawBody, req)) {
-    // Log headers to identify which signature header Kapso actually sends
+  const sigOk = checkSignature(rawBody, req);
+  if (!sigOk) {
     query(
       `INSERT INTO agent_logs(endpoint, params, n_resultados, latencia_ms) VALUES ($1, $2, $3, $4)`,
       [
         "/api/kapso/webhook/sig_fail",
-        JSON.stringify({ headers: allHeaders, body_preview: rawBody.slice(0, 500) }),
+        JSON.stringify({
+          sig_header: req.headers.get("x-hub-signature-256") ?? req.headers.get("x-webhook-signature") ?? req.headers.get("x-kapso-signature"),
+          body_preview: rawBody.slice(0, 300),
+        }),
         0,
         0,
       ]
     ).catch(() => {});
-    // Return 200 temporarily so Kapso keeps retrying while we diagnose
-    // TODO: restore 401 once signature is confirmed working end-to-end
+    // Continue processing — TODO: return 401 once signature confirmed working
   }
 
   let payload: Record<string, unknown>;
@@ -322,7 +336,7 @@ export async function POST(req: NextRequest) {
   if (msg.type === "location" && msg.location) {
     const { latitude, longitude } = msg.location as { latitude?: number; longitude?: number };
     if (latitude != null && longitude != null) {
-      (async () => {
+      waitUntil((async () => {
         try {
           await updateSession(from, { lastLocation: { lat: latitude, lng: longitude } });
           const reply = await handleMessage("obras cerca de mí", from, phoneNumberId, to);
@@ -337,8 +351,12 @@ export async function POST(req: NextRequest) {
           ).catch(() => {});
         } catch (e) {
           console.error("[kapso/webhook] location error:", e);
+          query(
+            `INSERT INTO agent_logs(endpoint, params, n_resultados, latencia_ms) VALUES ($1, $2, $3, $4)`,
+            ["/api/kapso/webhook/error", JSON.stringify({ from, step: "location", err: String(e) }), 0, Date.now() - t0]
+          ).catch(() => {});
         }
-      })();
+      })());
       return NextResponse.json({ ok: true });
     }
   }
@@ -353,7 +371,7 @@ export async function POST(req: NextRequest) {
     if (btnId) text = BUTTON_MAP[btnId] ?? btnId;
   } else if (["image", "audio", "video", "document", "sticker", "voice"].includes(msg.type ?? "")) {
     // Unsupported media type — send friendly reply and skip processing
-    (async () => {
+    waitUntil((async () => {
       try {
         await getKapso().messages.sendText({
           phoneNumberId,
@@ -363,31 +381,39 @@ export async function POST(req: NextRequest) {
       } catch (e) {
         console.error("[kapso/webhook] media reply error:", e);
       }
-    })();
+    })());
     return NextResponse.json({ ok: true });
   }
 
   if (!text) return NextResponse.json({ ok: true, skipped: true });
 
-  // fire-and-forget — return 200 immediately to avoid Kapso retry
-  (async () => {
+  // waitUntil keeps the async work alive after we return 200
+  waitUntil((async () => {
+    const steps: Record<string, number> = {};
     try {
+      steps.start = Date.now() - t0;
       const reply = await handleMessage(text!, from, phoneNumberId, to);
+      steps.handle_done = Date.now() - t0;
       if (reply !== null) {
         const truncated = reply.length > AGENT.limits.waMaxChars ? reply.slice(0, AGENT.limits.waMaxChars - 6) + "…" : reply;
-        await Promise.all([
-          getKapso().messages.sendText({ phoneNumberId, to, body: truncated }),
-          saveHistory(from, text!, truncated).catch(() => {}),
-        ]);
+        await getKapso().messages.sendText({ phoneNumberId, to, body: truncated });
+        steps.send_done = Date.now() - t0;
+        saveHistory(from, text!, truncated).catch(() => {});
+      } else {
+        steps.reply_null = Date.now() - t0;
       }
       query(
         `INSERT INTO agent_logs(endpoint, params, n_resultados, latencia_ms) VALUES ($1, $2, $3, $4)`,
-        ["/api/kapso/webhook", JSON.stringify({ from, text }), 1, Date.now() - t0]
+        ["/api/kapso/webhook", JSON.stringify({ from, text, steps }), 1, Date.now() - t0]
       ).catch(() => {});
     } catch (e) {
       console.error("[kapso/webhook] error:", e);
+      query(
+        `INSERT INTO agent_logs(endpoint, params, n_resultados, latencia_ms) VALUES ($1, $2, $3, $4)`,
+        ["/api/kapso/webhook/error", JSON.stringify({ from, text, steps, err: String(e) }), 0, Date.now() - t0]
+      ).catch(() => {});
     }
-  })();
+  })());
 
   return NextResponse.json({ ok: true });
 }
