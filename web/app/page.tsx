@@ -8,7 +8,7 @@ import ObrasListPanel from "@/components/ObrasListPanel";
 import ObraDetailPanel from "@/components/ObraDetailPanel";
 import ForensicsPanel from "@/components/ForensicsPanel";
 import ColdOpen from "@/components/ColdOpen";
-import AuthorityHud from "@/components/AuthorityHud";
+import Topbar from "@/components/Topbar";
 import CustomCursor from "@/components/CustomCursor";
 
 const MapGlobe = dynamic(() => import("@/components/MapGlobe"), {
@@ -38,6 +38,7 @@ export default function HomePage() {
   const [showColdOpen, setShowColdOpen] = useState<boolean | null>(null);
   const [userCountry, setUserCountry] = useState<CountryView | null>(null);
   const [regionLabel, setRegionLabel] = useState<string>("Perú");
+  const [view, setView] = useState<"globe" | "list">("globe");
 
   // Reset cold open con ?reset=1
   useEffect(() => {
@@ -116,20 +117,28 @@ export default function HomePage() {
         />
       )}
 
-      <MapGlobe
-        obras={obras}
-        selectedId={selected?.id ?? null}
-        onSelect={setSelected}
-        flyToCountry={showColdOpen === false ? userCountry : null}
-        onViewChange={setRegionLabel}
-      />
+      <div
+        className={`absolute inset-0 transition-opacity duration-300 ${
+          view === "globe" ? "opacity-100" : "opacity-0 pointer-events-none"
+        }`}
+      >
+        <MapGlobe
+          obras={obras}
+          selectedId={selected?.id ?? null}
+          onSelect={setSelected}
+          flyToCountry={showColdOpen === false ? userCountry : null}
+          onViewChange={setRegionLabel}
+        />
+      </div>
 
       {!showColdOpen && (
-        <AuthorityHud
+        <Topbar
           obrasCount={stats?.total_obras ?? obras.length}
           redFlagsCount={stats?.total_red_flags ?? 0}
           source={stats?.source ?? source}
           regionLabel={regionLabel}
+          view={view}
+          onToggleView={() => setView((v) => (v === "globe" ? "list" : "globe"))}
         />
       )}
 
@@ -145,6 +154,7 @@ export default function HomePage() {
         onSelect={setSelected}
         total={stats?.total_obras ?? obras.length}
         source={stats?.source ?? source}
+        fullWidth={view === "list"}
       />
 
       {selected && !showForensics && (

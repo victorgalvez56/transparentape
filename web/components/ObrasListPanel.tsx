@@ -11,6 +11,8 @@ interface Props {
   onSelect: (o: Obra) => void;
   total: number;
   source?: string;
+  /** Cuando true, ocupa todo el ancho (modo "Lista" del topbar) */
+  fullWidth?: boolean;
 }
 
 type Filtro = "todas" | "alto" | "medio" | "bajo";
@@ -27,6 +29,7 @@ export default function ObrasListPanel({
   onSelect,
   total,
   source,
+  fullWidth = false,
 }: Props) {
   const [q, setQ] = useState("");
   const [filtro, setFiltro] = useState<Filtro>("todas");
@@ -70,7 +73,9 @@ export default function ObrasListPanel({
       initial={{ x: 30, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       transition={{ delay: 0.5, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-      className="absolute top-0 right-0 z-10 h-full w-full max-w-md flex flex-col bg-[var(--ink-1)]/85 backdrop-blur-xl border-l border-[var(--rule)] text-white pt-16"
+      className={`absolute top-0 right-0 z-10 h-full flex flex-col bg-[var(--ink-1)]/85 backdrop-blur-xl border-l border-[var(--rule)] text-[var(--fg)] pt-[60px] ${
+        fullWidth ? "w-full" : "w-full max-w-md"
+      }`}
     >
       {/* HEADER editorial */}
       <header className="px-6 pt-6 pb-4 border-b border-[var(--rule)]">
