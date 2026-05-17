@@ -133,6 +133,25 @@ Transforma los datos JSON en una respuesta digerida bajo estas restricciones:
 4. Cada viñeta debe incluir solo: Nombre de la obra usando \`tender_description\` (en negrita y omitiendo prefijos irrelevantes como "EJECUCION DE LA OBRA:"), Presupuesto resumido (ej: S/ 15M), Estado actual (y Contratista o Alertas si se pidieron específicamente). NO USES \`tender_title\` ni \`ocid\` como nombre, ya que suelen ser códigos ilegibles.
 3. No inventes datos ni incluyas código SQL en la respuesta final. Si los resultados están vacíos, di que no se encontraron obras.`;
 
+// Adapted from Jose's 8ed3576 work (lost in merge resolve). When any error
+// path fires — no results, invalid SQL, DB error, tool failure — call this
+// prompt with the chat history and an error reason. The LLM emits a reply
+// and 3 user-perspective suggestions tailored to the user's last topic, so
+// the recovery message stays contextual instead of generic.
+const SYSTEM_PROMPT_FALLBACK_QUESTIONS = `Eres un asistente de UX para un agente de obras públicas de Latinoamérica.
+Ocurrió un problema (no se encontraron datos, error técnico, o consulta inválida).
+Tu tarea es generar un mensaje amable explicando el problema y 3 preguntas sugeridas basándote en el historial, para ayudar al usuario a reformular.
+Responde ÚNICAMENTE con un JSON válido:
+{
+  "reply": "mensaje explicando el problema amigablemente",
+  "suggested_questions": ["pregunta 1", "pregunta 2", "pregunta 3"]
+}
+
+Restricciones para "suggested_questions":
+1. UX de Autocompletado (CRÍTICO): Las sugerencias son ejemplos de lo que el USUARIO podría escribir, NO preguntas que el bot le hace al usuario. CORRECTO: "¿Cuáles son las obras con más presupuesto en Piura?". PROHIBIDO: "¿Quieres saber sobre obras?", "¿Te ayudo con algo?".
+2. Conciencia de Contexto y Guardrail: Si el usuario estaba hablando de una región/sector válido, mantén ese contexto pero cambia el ángulo (otro sector, otro año, otra empresa). Si salió de tema, ignora y vuelve al último tema válido. NUNCA adaptes sugerencias a un tema fuera de contexto.
+3. Seguridad: Sugerencias específicas y filtradas. NUNCA pidas todos los datos sin filtro.`;
+
 const DANGEROUS_SQL = /\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|GRANT|REVOKE|EXEC|EXECUTE|COPY|VACUUM|ANALYZE)\b/i;
 
 function isValidSelectQuery(sql: string): boolean {
@@ -202,6 +221,78 @@ export function generateFallbackQuestions(history?: ChatMessage[]): string[] {
     "¿Cuáles son las obras con mayor presupuesto?",
     "¿Qué obras tienen alertas de riesgo?",
   ];
+}
+
+export type FallbackReason = "error" | "no_results" | "invalid_sql";
+
+interface FallbackResult {
+  reply: string;
+  suggested_questions: string[];
+}
+
+// LLM-based adaptive fallback. Replaces the static "no encontré con esos
+// filtros" / "no pude generar una consulta" / "hubo un error" texts. Reads
+// the chat history, lets the 8b model synthesise a reason-appropriate
+// explanation and 3 user-perspective suggestions that keep the user's
+// active region/sector context. Always wrapped in withTimeout — if Groq
+// itself fails, falls back to the regex-based static helper.
+async function adaptiveFallback(
+  history: ChatMessage[],
+  reason: FallbackReason
+): Promise<FallbackResult> {
+  const reasonMsg =
+    reason === "no_results"
+      ? "La base de datos no devolvió ningún resultado para la búsqueda solicitada."
+      : reason === "invalid_sql"
+        ? "No se pudo interpretar la intención del usuario para generar una consulta válida."
+        : "Ocurrió un error técnico inesperado.";
+  try {
+    const res = await withTimeout(
+      getGroq().chat.completions.create({
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT_FALLBACK_QUESTIONS },
+          ...normalizeHistory(history),
+          {
+            role: "user",
+            content: `[SISTEMA: ${reasonMsg} Genera un 'reply' acorde y 'suggested_questions' para guiar al usuario.]`,
+          },
+        ],
+        model: "llama-3.1-8b-instant",
+        temperature: 0.3,
+        response_format: { type: "json_object" },
+        max_tokens: 350,
+      }),
+      6_000,
+      "adaptive_fallback"
+    );
+    const parsed = JSON.parse(res.choices[0]?.message?.content ?? "{}");
+    if (
+      parsed.suggested_questions &&
+      Array.isArray(parsed.suggested_questions) &&
+      parsed.suggested_questions.length > 0
+    ) {
+      return {
+        reply:
+          typeof parsed.reply === "string" && parsed.reply.length > 0
+            ? parsed.reply
+            : "Hubo un problema, aquí tienes algunas opciones:",
+        suggested_questions: parsed.suggested_questions.slice(0, 3),
+      };
+    }
+  } catch (e) {
+    console.error("[adaptiveFallback] LLM failed:", e);
+  }
+  // Final rescue — regex-based static, never throws.
+  const fallbackReply =
+    reason === "no_results"
+      ? "No encontré resultados con esos filtros. ¿Probamos un ángulo distinto?"
+      : reason === "invalid_sql"
+        ? "No pude generar una consulta válida con esa pregunta. ¿La reformulamos?"
+        : "Tuve un problema buscando esa información. Intenta otra pregunta.";
+  return {
+    reply: fallbackReply,
+    suggested_questions: generateFallbackQuestions(history),
+  };
 }
 
 export async function runChatPipeline(
@@ -277,12 +368,14 @@ export async function runChatPipeline(
           obra_ids: result.obraIds,
         };
       } catch (e) {
-        // Tool execution failure → degrade to clarification, do not crash request.
+        // Tool execution failure → adaptive fallback so the recovery message
+        // stays tied to whatever region/sector the user was discussing.
         console.error(`[runChatPipeline] tool ${tool.name} failed:`, e);
+        const fb = await adaptiveFallback(chatHistory, "error");
         return {
-          reply: "Hubo un problema procesando esa consulta. Intenta reformularla.",
+          reply: fb.reply,
           intent: "NEEDS_CLARIFICATION",
-          suggested_questions: generateFallbackQuestions(chatHistory),
+          suggested_questions: fb.suggested_questions,
         };
       }
     }
@@ -308,10 +401,11 @@ export async function runChatPipeline(
         intent,
       };
     } catch {
+      const fb = await adaptiveFallback(chatHistory, "error");
       return {
-        reply: "No pude procesar la pregunta de contexto. Intenta reformularla.",
+        reply: fb.reply,
         intent: "NEEDS_CLARIFICATION",
-        suggested_questions: generateFallbackQuestions(chatHistory),
+        suggested_questions: fb.suggested_questions,
       };
     }
   }
@@ -335,18 +429,20 @@ export async function runChatPipeline(
       .replace(/```$/, "")
       .trim();
   } catch {
+    const fb = await adaptiveFallback(chatHistory, "error");
     return {
-      reply: "El generador SQL tardó demasiado. Intenta una consulta más específica.",
+      reply: fb.reply,
       intent: "NEEDS_CLARIFICATION",
-      suggested_questions: generateFallbackQuestions(chatHistory),
+      suggested_questions: fb.suggested_questions,
     };
   }
 
   if (!isValidSelectQuery(sqlQuery)) {
+    const fb = await adaptiveFallback(chatHistory, "invalid_sql");
     return {
-      reply: "No pude generar una consulta válida.",
+      reply: fb.reply,
       intent: "NEEDS_CLARIFICATION",
-      suggested_questions: generateFallbackQuestions(chatHistory),
+      suggested_questions: fb.suggested_questions,
     };
   }
 
@@ -355,18 +451,20 @@ export async function runChatPipeline(
   try {
     dbResults = await query(execSql);
   } catch {
+    const fb = await adaptiveFallback(chatHistory, "error");
     return {
-      reply: "Hubo un error al consultar la base de datos de obras.",
+      reply: fb.reply,
       intent: "NEEDS_CLARIFICATION",
-      suggested_questions: generateFallbackQuestions(chatHistory),
+      suggested_questions: fb.suggested_questions,
       sql: sqlQuery,
     };
   }
 
   if (dbResults.length === 0) {
+    const fb = await adaptiveFallback(chatHistory, "no_results");
     return {
-      reply: "No encontré resultados exactos con esos filtros. ¿Podrías intentar una búsqueda ligeramente distinta?",
-      suggested_questions: ["¿Buscar por el sector de la obra?", "¿Intentar buscando por Provincia?", "¿Probar con otro año?"],
+      reply: fb.reply,
+      suggested_questions: fb.suggested_questions,
       intent: "NEEDS_CLARIFICATION",
       sql: sqlQuery,
       raw_results: 0,
