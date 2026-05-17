@@ -21,6 +21,7 @@ import {
   investigarContratista,
   inhabilitadosVigentes,
   montoEnRiesgo,
+  obrasRetrasadas,
   getObraResumen,
   type Country,
   type BuscarObrasFilters,
@@ -35,6 +36,7 @@ import {
   fmtInvestigacion,
   fmtInhabilitados,
   fmtMontoEnRiesgo,
+  fmtRetrasadas,
   fmtDetalle,
 } from "@/lib/agent-kapso/wa-format";
 
@@ -232,6 +234,23 @@ export const TOOLS: Tool[] = [
       const q = asString(args.q);
       const data = await montoEnRiesgo(ctx.country, q);
       return { data, formatted: fmtMontoEnRiesgo(data, q) };
+    },
+  },
+  {
+    name: "obras_retrasadas",
+    description:
+      "Obras con retraso excesivo vs cronograma. Triggers naturales: 'retrasadas', 'atrasadas', 'estancadas', 'paralizadas', 'demoradas', 'fuera de plazo', 'sin avance', 'que no avanzan', 'que no terminan', 'sobre plazo', 'fuera de cronograma', 'cuánto se atrasaron', 'cumplen con la fecha'. Define 'excesivo' como >180 días tarde, o 3+ adendas de plazo, o cierre >365 días tarde. Cobertura limitada (~165 obras con datos INFOBRAS). Acepta `q` para acotar región.",
+    parameters: {
+      q: "string opcional — región/provincia/distrito para acotar",
+    },
+    async run(args, ctx) {
+      const q = asString(args.q);
+      const data = await obrasRetrasadas(ctx.country, q, 5);
+      return {
+        data,
+        formatted: fmtRetrasadas(data, ctx.country, q),
+        obraIds: data.map((o) => o.id),
+      };
     },
   },
 ];

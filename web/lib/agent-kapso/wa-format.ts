@@ -1,4 +1,4 @@
-import type { ObraResumen, ObraCercana, ContratistaStat, BuscarObrasFilters } from "./queries";
+import type { ObraResumen, ObraCercana, ContratistaStat, BuscarObrasFilters, ObraRetrasada } from "./queries";
 
 export const COUNTRY_NAMES: Record<string, string> = {
   PE: "Perú 🇵🇪",
@@ -263,6 +263,72 @@ export function fmtRankingEntidades(
     );
   });
   lines.push(hint("_Escribe *adjudicación directa* para ver contratos sospechosos._"));
+  return lines.join("\n");
+}
+
+// ASCII progress bar — 10 cells. Used by retrasadas + avance.
+function progressBar(pct: number | null | undefined): string {
+  const p = Math.max(0, Math.min(100, Number(pct ?? 0)));
+  const filled = Math.round(p / 10);
+  return `${"▓".repeat(filled)}${"░".repeat(10 - filled)} ${p.toFixed(0)}%`;
+}
+
+function fmtDate(raw: string | null | undefined): string {
+  if (!raw) return "—";
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return raw;
+  // YYYY-MM-DD → "may 2024" style is overkill for WA; keep ISO short.
+  return `${m[1]}-${m[2]}-${m[3]}`;
+}
+
+export function fmtRetrasadas(
+  obras: ObraRetrasada[],
+  country: string,
+  scope?: string
+): string {
+  if (!obras.length) {
+    return (
+      "No encontré obras con retraso excesivo en ese filtro.\n\n" +
+      "_Cobertura: solo obras con datos INFOBRAS (~165 obras enriquecidas)._"
+    );
+  }
+  const nation = COUNTRY_NAMES[country] ?? country;
+  const where = scope ? `${scope}, ${nation}` : nation;
+  const count = obras.length;
+  const lines = [
+    `🐢 *${count} obra${count > 1 ? "s" : ""} con retraso excesivo · ${where}*`,
+    `_Cronograma vencido >180d, o 3+ adendas de plazo, o cierre >365d tarde._`,
+    `_Cobertura: solo obras con datos INFOBRAS._\n`,
+  ];
+  obras.forEach((o, i) => {
+    const dias = o.dias_retraso ?? 0;
+    const adendas = o.n_modificaciones_plazo ?? 0;
+    const flag = o.is_red_flag ? " ⚠️" : "";
+    const avance = o.avance_fisico_pct != null
+      ? `\n   ${progressBar(o.avance_fisico_pct)}`
+      : "";
+    const adendasLine = adendas > 0
+      ? `\n   🔁 ${adendas} adenda${adendas > 1 ? "s" : ""} de plazo`
+      : "";
+    const supLine = o.supervisor_nombre
+      ? `\n   👁️ Supervisor: ${o.supervisor_nombre}`
+      : "";
+    const finReal = o.fecha_fin_real
+      ? `\n   📅 plan ${fmtDate(o.fecha_fin_programada)} · real ${fmtDate(o.fecha_fin_real)}`
+      : `\n   📅 plan ${fmtDate(o.fecha_fin_programada)}`;
+    lines.push(
+      `${i + 1}. *${cleanTitle(o.titulo)}*${flag}\n` +
+      `   ⏰ *${dias} días tarde*` +
+      avance +
+      adendasLine +
+      `\n   💰 ${fmt(o.monto, country)} · 📍 ${o.region ?? "—"}${o.localidad ? ` · ${o.localidad}` : ""}` +
+      (o.contratista ? `\n   🏗️ ${o.contratista}` : "") +
+      supLine +
+      finReal +
+      `\n   ID: ${o.id}`
+    );
+  });
+  lines.push(hint(HINT_OBRAS));
   return lines.join("\n");
 }
 

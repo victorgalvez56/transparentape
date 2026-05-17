@@ -43,6 +43,18 @@ export interface MontoRiesgo {
   country: string;
 }
 
+// Obra row extended with INFOBRAS schedule data. Only ~165 obras (out of
+// ~70K) have a non-null infobras_code linking them, so most callers get
+// these fields back as NULL.
+export interface ObraRetrasada extends ObraResumen {
+  avance_fisico_pct: number | null;
+  fecha_fin_programada: string | null;
+  fecha_fin_real: string | null;
+  n_modificaciones_plazo: number | null;
+  dias_retraso: number | null;
+  supervisor_nombre: string | null;
+}
+
 // ─── Obras ────────────────────────────────────────────────────────────────────
 
 export interface BuscarObrasFilters {
@@ -346,6 +358,82 @@ export async function montoEnRiesgo(country: Country, q?: string): Promise<Monto
     monto_total: Number(r?.monto ?? 0),
     country,
   };
+}
+
+// ─── Obras retrasadas — JOIN obras ↔ infobras_full ────────────────────────────
+//
+// Tres componentes del retraso:
+//   A. dias_retraso  → días entre fecha_fin_programada y CURRENT_DATE (o
+//      fecha_fin_real cuando ya cerró tarde).
+//   B. n_modificaciones_plazo → adendas de plazo; proxy de "vs cronograma
+//      original" porque INFOBRAS no guarda la fecha original separada.
+//   C. avance_fisico_pct < 100  → la obra realmente quedó pendiente.
+//
+// "Excesivo" se define como CUALQUIERA de:
+//   - dias_retraso > 180 (6 meses) con avance < 100, o
+//   - n_modificaciones_plazo >= 3, o
+//   - cerró >365 días tarde (fecha_fin_real - fecha_fin_programada).
+//
+// Cobertura limitada: solo obras con obras.infobras_code IS NOT NULL
+// (~165 / 70K). El formatter explicita esta limitación al usuario.
+// Las fechas en infobras_full son TEXT; regex anti-cast-bomb antes de
+// castear evita que statement_timeout=5s (Ola 1) mate la query por una
+// fila con fecha mal-formada.
+export async function obrasRetrasadas(
+  country: Country,
+  q?: string,
+  limit = 5
+): Promise<ObraRetrasada[]> {
+  const geo = q?.trim();
+  const geoClause = geo
+    ? ` AND (o.buyer_region ILIKE $3 OR o.buyer_locality ILIKE $3)`
+    : ``;
+  const params: unknown[] = geo ? [country, limit, `%${geo}%`] : [country, limit];
+  return query<ObraRetrasada>(
+    `SELECT
+       o.id, o.ocid,
+       COALESCE(o.tender_description, o.tender_title) AS titulo,
+       o.buyer_region AS region,
+       o.buyer_locality AS localidad,
+       o.supplier_name AS contratista,
+       o.supplier_ruc AS ruc,
+       COALESCE(o.contract_amount, o.award_amount, o.tender_amount) AS monto,
+       o.is_red_flag, o.red_flag_types, o.procurement_method, o.source_year, o.country,
+       i.avance_fisico_pct,
+       i.fecha_fin_programada,
+       i.fecha_fin_real,
+       i.n_modificaciones_plazo,
+       i.supervisor_nombre,
+       CASE
+         WHEN i.fecha_fin_real ~ '^\\d{4}-\\d{2}-\\d{2}' THEN
+           GREATEST(
+             (i.fecha_fin_real::date - i.fecha_fin_programada::date),
+             0
+           )
+         WHEN i.fecha_fin_programada ~ '^\\d{4}-\\d{2}-\\d{2}'
+              AND i.fecha_fin_programada::date < CURRENT_DATE
+              AND COALESCE(i.avance_fisico_pct, 0) < 100 THEN
+           (CURRENT_DATE - i.fecha_fin_programada::date)
+         ELSE 0
+       END AS dias_retraso
+     FROM obras o
+     JOIN infobras_full i ON o.infobras_code = i.codigo_infobras
+     WHERE o.country = $1
+       AND (
+            (i.fecha_fin_programada ~ '^\\d{4}-\\d{2}-\\d{2}'
+              AND i.fecha_fin_programada::date < (CURRENT_DATE - INTERVAL '180 days')
+              AND COALESCE(i.avance_fisico_pct, 0) < 100)
+         OR COALESCE(i.n_modificaciones_plazo, 0) >= 3
+         OR (i.fecha_fin_real ~ '^\\d{4}-\\d{2}-\\d{2}'
+              AND i.fecha_fin_programada ~ '^\\d{4}-\\d{2}-\\d{2}'
+              AND (i.fecha_fin_real::date - i.fecha_fin_programada::date) > 365)
+       )${geoClause}
+     ORDER BY dias_retraso DESC NULLS LAST,
+              i.n_modificaciones_plazo DESC NULLS LAST,
+              monto DESC NULLS LAST
+     LIMIT $2`,
+    params
+  );
 }
 
 // ─── Stats por país ────────────────────────────────────────────────────────────
