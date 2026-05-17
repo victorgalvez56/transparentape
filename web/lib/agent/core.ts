@@ -32,6 +32,8 @@ export interface CoreResult {
   tool?: string;
   /** Obra IDs returned by the tool (if any) so the caller can persist them for ordinal follow-ups. */
   obra_ids?: number[];
+  /** Structured renderables (images, slider, score badge) — web client renders inline. */
+  attachments?: import("./tools").Attachment[];
 }
 
 export interface RunOptions {
@@ -152,8 +154,9 @@ Responde ÚNICAMENTE con un JSON válido:
 
 Restricciones para "suggested_questions":
 1. UX de Autocompletado (CRÍTICO): Las sugerencias son ejemplos de lo que el USUARIO podría escribir, NO preguntas que el bot le hace al usuario. CORRECTO: "¿Cuáles son las obras con más presupuesto en Piura?". PROHIBIDO: "¿Quieres saber sobre obras?", "¿Te ayudo con algo?".
-2. Conciencia de Contexto y Guardrail: Si el usuario estaba hablando de una región/sector válido, mantén ese contexto pero cambia el ángulo (otro sector, otro año, otra empresa). Si salió de tema, ignora y vuelve al último tema válido. NUNCA adaptes sugerencias a un tema fuera de contexto.
-3. Seguridad: Sugerencias específicas y filtradas. NUNCA pidas todos los datos sin filtro.`;
+2. Conciencia de Contexto y Guardrail: Si el usuario estaba hablando de una región/sector válido, mantén ese contexto pero cambia el ángulo (otro sector, otro año, otra acción). Si salió de tema, ignora y vuelve al último tema válido. NUNCA adaptes sugerencias a un tema fuera de contexto.
+3. Seguridad: Sugerencias específicas y filtradas. NUNCA pidas todos los datos sin filtro.
+4. PROHIBIDO MENCIONAR EMPRESAS: NUNCA inventes ni menciones nombres de empresas, contratistas o RUCs específicos (ej: NO digas "investigar Odebrecht", "Cosapi", "Graña y Montero", etc.). Solo el usuario sabe qué empresas le importan; si el usuario no nombró una empresa explícitamente en mensajes previos, no la sugieras. Las sugerencias deben usar acciones genéricas: "ranking de contratistas", "obras con alertas", "obras retrasadas en [región]", "qué obras tienen más presupuesto en [región]".`;
 
 const DANGEROUS_SQL = /\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|GRANT|REVOKE|EXEC|EXECUTE|COPY|VACUUM|ANALYZE)\b/i;
 
@@ -396,6 +399,7 @@ export async function runChatPipeline(
             intent: "TOOL_CALL",
             tool: tool.name,
             obra_ids: result.obraIds,
+            attachments: result.attachments,
           };
         } catch (e) {
           console.error(
@@ -465,6 +469,7 @@ export async function runChatPipeline(
           intent: "TOOL_CALL",
           tool: tool.name,
           obra_ids: result.obraIds,
+          attachments: result.attachments,
         };
       } catch (e) {
         // Tool execution failure → adaptive fallback so the recovery message

@@ -1,4 +1,43 @@
 import { query, queryOne } from "../db";
+import { expandPeDepartment } from "./places";
+
+// Builds a Postgres WHERE fragment that matches an obra's geo against
+// either a single ILIKE pattern OR — when the input is a PE department —
+// an `IN (...)` over its provinces. `obras.buyer_region` stores
+// PROVINCES, so "Áncash" must fan out to HUARI/SANTA/HUARAZ/etc; falling
+// back to ILIKE %ancash% returns zero rows. Returns the fragment plus
+// the parameter values to push and the count of new placeholders used.
+//
+// Always emits at least one placeholder; callers should append the
+// fragment with no leading `AND`. The bound parameters use ::text
+// casts on Postgres array literals where IN (...) is used.
+function buildGeoFilter(
+  geo: string,
+  country: string,
+  startPos: number,
+  colPrefix = ""
+): { sql: string; values: unknown[]; consumed: number } {
+  const reg = `${colPrefix}buyer_region`;
+  const loc = `${colPrefix}buyer_locality`;
+  // Department fan-out only for PE — other countries don't have the
+  // same locality-vs-region quirk in this DB right now.
+  const provs = country === "PE" ? expandPeDepartment(geo) : null;
+  if (provs && provs.length) {
+    // Use IN with an ANY-array for explicit equality on province names,
+    // plus ILIKE on locality so user-typed text like "huarmey" still
+    // catches obras outside their canonical province grouping.
+    return {
+      sql: `(${reg} = ANY($${startPos}::text[]) OR ${loc} ILIKE $${startPos + 1})`,
+      values: [provs, `%${geo}%`],
+      consumed: 2,
+    };
+  }
+  return {
+    sql: `(${reg} ILIKE $${startPos} OR ${loc} ILIKE $${startPos})`,
+    values: [`%${geo}%`],
+    consumed: 1,
+  };
+}
 
 export type Country = "PE" | "CL" | string;
 
@@ -127,9 +166,10 @@ export async function buscarObras(f: BuscarObrasFilters): Promise<ObraResumen[]>
   // can coexist ("Cosapi en Lima"), q_sector also stacks ("saneamiento en
   // Piura" → q_geo=piura + q_sector=saneamiento → AND-ed).
   if (f.q_geo) {
-    parts.push(`(buyer_region ILIKE $${i} OR buyer_locality ILIKE $${i})`);
-    vals.push(`%${f.q_geo}%`);
-    i++;
+    const g = buildGeoFilter(f.q_geo, f.country ?? "PE", i);
+    parts.push(g.sql);
+    vals.push(...g.values);
+    i += g.consumed;
   }
   if (f.q_supplier) {
     parts.push(`supplier_name ILIKE $${i++}`);
@@ -268,10 +308,13 @@ export async function rankingContratistas(
   q?: string
 ): Promise<ContratistaStat[]> {
   const geo = q?.trim();
-  const geoClause = geo
-    ? ` AND (buyer_region ILIKE $3 OR buyer_locality ILIKE $3)`
-    : ``;
-  const params: unknown[] = geo ? [country, limit, `%${geo}%`] : [country, limit];
+  const params: unknown[] = [country, limit];
+  let geoClause = "";
+  if (geo) {
+    const g = buildGeoFilter(geo, country, 3);
+    geoClause = ` AND ${g.sql}`;
+    params.push(...g.values);
+  }
 
   if (por === "alertas") {
     return query<ContratistaStat>(
@@ -367,10 +410,13 @@ export async function investigarContratista(
 
 export async function inhabilitadosVigentes(country: Country, limit = 8, q?: string) {
   const geo = q?.trim();
-  const geoClause = geo
-    ? ` AND (o.buyer_region ILIKE $3 OR o.buyer_locality ILIKE $3)`
-    : ``;
-  const params: unknown[] = geo ? [country, limit, `%${geo}%`] : [country, limit];
+  const params: unknown[] = [country, limit];
+  let geoClause = "";
+  if (geo) {
+    const g = buildGeoFilter(geo, country, 3, "o.");
+    geoClause = ` AND ${g.sql}`;
+    params.push(...g.values);
+  }
   return query<{
     supplier_name: string;
     supplier_ruc: string;
@@ -394,10 +440,13 @@ export async function inhabilitadosVigentes(country: Country, limit = 8, q?: str
 
 export async function adjudicacionDirectaAlertas(country: Country, limit = 5, q?: string) {
   const geo = q?.trim();
-  const geoClause = geo
-    ? ` AND (buyer_region ILIKE $3 OR buyer_locality ILIKE $3)`
-    : ``;
-  const params: unknown[] = geo ? [country, limit, `%${geo}%`] : [country, limit];
+  const params: unknown[] = [country, limit];
+  let geoClause = "";
+  if (geo) {
+    const g = buildGeoFilter(geo, country, 3);
+    geoClause = ` AND ${g.sql}`;
+    params.push(...g.values);
+  }
   return query<ObraResumen>(
     `SELECT ${OBRA_COLS}
      FROM obras
@@ -412,10 +461,13 @@ export async function adjudicacionDirectaAlertas(country: Country, limit = 5, q?
 
 export async function rankingEntidades(country: Country, limit = 5, q?: string): Promise<EntidadStat[]> {
   const geo = q?.trim();
-  const geoClause = geo
-    ? ` AND (buyer_region ILIKE $3 OR buyer_locality ILIKE $3)`
-    : ``;
-  const params: unknown[] = geo ? [country, limit, `%${geo}%`] : [country, limit];
+  const params: unknown[] = [country, limit];
+  let geoClause = "";
+  if (geo) {
+    const g = buildGeoFilter(geo, country, 3);
+    geoClause = ` AND ${g.sql}`;
+    params.push(...g.values);
+  }
   return query<EntidadStat>(
     `SELECT buyer_name,
             COUNT(*) AS obras,
@@ -434,10 +486,13 @@ export async function rankingEntidades(country: Country, limit = 5, q?: string):
 
 export async function montoEnRiesgo(country: Country, q?: string): Promise<MontoRiesgo> {
   const geo = q?.trim();
-  const geoClause = geo
-    ? ` AND (buyer_region ILIKE $2 OR buyer_locality ILIKE $2)`
-    : ``;
-  const params: unknown[] = geo ? [country, `%${geo}%`] : [country];
+  const params: unknown[] = [country];
+  let geoClause = "";
+  if (geo) {
+    const g = buildGeoFilter(geo, country, 2);
+    geoClause = ` AND ${g.sql}`;
+    params.push(...g.values);
+  }
   const r = await queryOne<{ obras: string; monto: string }>(
     `SELECT COUNT(*) AS obras,
             ROUND(COALESCE(SUM(COALESCE(contract_amount, award_amount, tender_amount)), 0)) AS monto
@@ -482,9 +537,10 @@ export async function obrasRetrasadas(
   let pos = 3;
   let geoClause = "";
   if (geo) {
-    geoClause = ` AND (o.buyer_region ILIKE $${pos} OR o.buyer_locality ILIKE $${pos})`;
-    params.push(`%${geo}%`);
-    pos++;
+    const g = buildGeoFilter(geo, country, pos, "o.");
+    geoClause = ` AND ${g.sql}`;
+    params.push(...g.values);
+    pos += g.consumed;
   }
   let yearClause = "";
   if (year && Number.isFinite(year)) {
@@ -594,10 +650,13 @@ export async function obrasRetrasadas(
 
 export async function statsPorPais(country: Country, q?: string) {
   const geo = q?.trim();
-  const geoClause = geo
-    ? ` AND (buyer_region ILIKE $2 OR buyer_locality ILIKE $2)`
-    : ``;
-  const params: unknown[] = geo ? [country, `%${geo}%`] : [country];
+  const params: unknown[] = [country];
+  let geoClause = "";
+  if (geo) {
+    const g = buildGeoFilter(geo, country, 2);
+    geoClause = ` AND ${g.sql}`;
+    params.push(...g.values);
+  }
   return queryOne<{
     total: string;
     alertas: string;

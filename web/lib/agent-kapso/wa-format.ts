@@ -31,6 +31,27 @@ function fmt(monto: number | null | undefined, country = "PE"): string {
   return `${sym} ${monto.toLocaleString()}`;
 }
 
+// Title-case helper for places stored ALLCAPS in DB ("AREQUIPA" → "Arequipa",
+// "ALTO SELVA ALEGRE" → "Alto Selva Alegre"). Used by retrasada/obra lists
+// so the WhatsApp message reads naturally instead of shouting.
+function capitalize(raw: string): string {
+  return raw
+    .split(/\s+/)
+    .map((w) => (w.length <= 2 ? w.toLowerCase() : w[0].toUpperCase() + w.slice(1).toLowerCase()))
+    .join(" ");
+}
+
+// Contractor names from OCDS can run 100+ chars ("CONSORCIO: 1) FOO S.R.L. 2)
+// BAR S.A.C. Y 3) BAZ"). Trim around the first separator so the WA card
+// stays readable; the full name still lives in the detail view.
+function shortContratista(raw: string): string {
+  if (raw.length <= 60) return raw;
+  // Cut on first colon, " - " or " Y " sequence common in consorcio names.
+  const cut = raw.search(/[:\-—]|\s+Y\s+/);
+  const head = cut > 10 ? raw.slice(0, cut) : raw.slice(0, 60);
+  return head.trim().replace(/[,;:]\s*$/, "") + "…";
+}
+
 // Convert ALLCAPS tender descriptions to Title Case, strip surrounding quotes
 export function cleanTitle(raw: string | null | undefined): string {
   if (!raw) return "Sin título";
@@ -345,9 +366,37 @@ function progressBar(pct: number | null | undefined): string {
 function fmtDate(raw: string | null | undefined): string {
   if (!raw) return "—";
   const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!m) return raw;
-  // YYYY-MM-DD → "may 2024" style is overkill for WA; keep ISO short.
-  return `${m[1]}-${m[2]}-${m[3]}`;
+  if (m) {
+    const months = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+    const mi = Number(m[2]) - 1;
+    return `${months[mi] ?? m[2]} ${m[1]}`;
+  }
+  // DD/MM/YYYY (peruvian INFOBRAS)
+  const p = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  if (p) {
+    const months = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+    const mi = Number(p[2]) - 1;
+    return `${months[mi] ?? p[2]} ${p[3]}`;
+  }
+  return raw;
+}
+
+// Citizen-friendly retraso duration. Pure day counts ("4465 días tarde")
+// are hard to parse at a glance for a non-technical audience; convert to
+// years+months for anything past one year, keep raw days for shorter
+// delays so journalists can still cite a precise figure.
+function fmtRetrasoDuracion(dias: number): string {
+  if (dias < 30) return `${dias} día${dias === 1 ? "" : "s"} tarde`;
+  if (dias < 365) {
+    const meses = Math.round(dias / 30);
+    return `~${meses} ${meses === 1 ? "mes" : "meses"} tarde (${dias} días)`;
+  }
+  let anios = Math.floor(dias / 365);
+  let mesesResto = Math.round((dias % 365) / 30);
+  // Rounding can push mesesResto to 12 ("11 años 12 meses" → "12 años")
+  if (mesesResto >= 12) { anios += 1; mesesResto = 0; }
+  if (mesesResto === 0) return `~${anios} año${anios > 1 ? "s" : ""} tarde (${dias} días)`;
+  return `~${anios} año${anios > 1 ? "s" : ""} ${mesesResto} ${mesesResto === 1 ? "mes" : "meses"} tarde (${dias} días)`;
 }
 
 export function fmtRetrasadas(
@@ -358,18 +407,18 @@ export function fmtRetrasadas(
 ): string {
   if (!obras.length) {
     return (
-      "No encontré obras con retraso excesivo en ese filtro.\n\n" +
-      "_Criterio: contrato activo vencido >180d, o 3+ modificaciones de plazo, " +
-      "o cierre >365d tarde._"
+      "🔍 No encontré obras retrasadas en ese filtro.\n\n" +
+      "_Defino *retrasada* como: contrato activo vencido +180 días, " +
+      "3 o más extensiones de plazo, o cierre +365 días tarde._"
     );
   }
   const nation = COUNTRY_NAMES[country] ?? country;
-  const where = scope ? `${scope}, ${nation}` : nation;
+  const where = scope ? `${capitalize(scope)}, ${nation}` : nation;
   const yearTag = year ? ` · año ${year}` : "";
   const count = obras.length;
   const lines = [
-    `🐢 *${count} obra${count > 1 ? "s" : ""} con retraso excesivo · ${where}${yearTag}*`,
-    `_Cronograma vencido >180d con contrato activo, o 3+ adendas de plazo, o cierre >365d tarde._\n`,
+    `🐢 *${count} obra${count > 1 ? "s" : ""} retrasada${count > 1 ? "s" : ""} en ${where}${yearTag}*`,
+    `_Mostrando las ${count > 1 ? "más demoradas" : "más demorada"} por orden de antigüedad._\n`,
   ];
   obras.forEach((o, i) => {
     const dias = o.dias_retraso ?? 0;
@@ -379,35 +428,35 @@ export function fmtRetrasadas(
       ? `\n   ${progressBar(o.avance_fisico_pct)}`
       : "";
     const adendasLine = adendas > 0
-      ? `\n   🔁 ${adendas} adenda${adendas > 1 ? "s" : ""} de plazo`
+      ? `\n   🔁 ${adendas} extensión${adendas > 1 ? "es" : ""} de plazo registrada${adendas > 1 ? "s" : ""}`
       : "";
     const supLine = o.supervisor_nombre
       ? `\n   👁️ Supervisor: ${o.supervisor_nombre}`
       : "";
-    // Plan date prefers INFOBRAS fecha_fin_programada (most precise — the
-    // contractual milestone the contractor signed up for). When INFOBRAS
-    // has no row for this obra (Path A OCDS coverage), fall back to the
-    // OCDS contract_end so the user still sees *some* deadline.
+    // Plan date prefers INFOBRAS fecha_fin_programada when available;
+    // falls back to OCDS contract_end. Suppress the line entirely when
+    // neither source has a date so we don't show "📅 plan —".
     const planSource = o.fecha_fin_programada || o.contract_end_date;
-    const statusTag = !o.fecha_fin_programada && o.contract_status
-      ? ` (${o.contract_status})`
-      : "";
-    const finReal = o.fecha_fin_real
-      ? `\n   📅 plan ${fmtDate(o.fecha_fin_programada)} · real ${fmtDate(o.fecha_fin_real)}`
-      : `\n   📅 plan ${fmtDate(planSource)}${statusTag}`;
+    let finReal = "";
+    if (o.fecha_fin_real) {
+      finReal = `\n   📅 Debía terminar ${fmtDate(o.fecha_fin_programada)} · cerró ${fmtDate(o.fecha_fin_real)}`;
+    } else if (planSource) {
+      finReal = `\n   📅 Debía terminar: ${fmtDate(planSource)}`;
+    }
+    const lugar = [o.localidad, o.region].filter(Boolean).map(s => capitalize(s as string)).join(", ") || "—";
     lines.push(
       `${i + 1}. *${cleanTitle(o.titulo)}*${flag}\n` +
-      `   ⏰ *${dias} días tarde*` +
+      `   ⏰ ${fmtRetrasoDuracion(dias)}` +
       avance +
       adendasLine +
-      `\n   💰 ${fmt(o.monto, country)} · 📍 ${o.region ?? "—"}${o.localidad ? ` · ${o.localidad}` : ""}` +
-      (o.contratista ? `\n   🏗️ ${o.contratista}` : "") +
+      `\n   💰 ${fmt(o.monto, country)} · 📍 ${lugar}` +
+      (o.contratista ? `\n   🏗️ ${shortContratista(o.contratista)}` : "") +
       supLine +
       finReal +
-      `\n   ID: ${o.id}`
+      `\n   _Más info: escribe *detalle ${o.id}*_`
     );
   });
-  lines.push(hint(HINT_OBRAS));
+  lines.push(hint("_Responde *el primero*, *el segundo*... para ver una en detalle._"));
   return lines.join("\n") + SOURCE_FOOTER;
 }
 

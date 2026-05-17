@@ -45,6 +45,46 @@ const PLACES_PE = [
   "san juan de lurigancho", "comas", "ate", "villa el salvador",
 ];
 
+// Peruvian DB stores buyer_region at PROVINCE level, not department. A user
+// who asks "obras en Áncash" expects to see Huaraz/Santa/Huari/etc — every
+// province inside that department. Without this map the ILIKE %ancash%
+// matches zero rows even though 8K+ obras sit in those provinces. Keys
+// are ASCII-normalised lowercase; values are the canonical UPPERCASE
+// province names as they appear in `buyer_region`.
+export const PE_DEPT_PROVINCES: Record<string, string[]> = {
+  ancash: ["HUARI", "SANTA", "HUARAZ", "YUNGAY", "CASMA", "SIHUAS", "CARHUAZ", "MARISCAL LUZURIAGA", "HUAYLAS", "POMABAMBA", "BOLOGNESI", "RECUAY", "AIJA", "ANTONIO RAYMONDI", "OCROS", "ASUNCION"],
+  cusco: ["CUSCO", "LA CONVENCION", "CALCA", "CANCHIS", "QUISPICANCHI", "ANTA", "ESPINAR", "URUBAMBA", "CHUMBIVILCAS", "PAUCARTAMBO", "PARURO", "ACOMAYO", "CANAS"],
+  cajamarca: ["CAJAMARCA", "JAEN", "CHOTA", "SAN MARCOS", "CUTERVO", "HUALGAYOC", "CELENDIN", "SAN IGNACIO", "CONTUMAZA", "SAN MIGUEL", "SANTA CRUZ", "SAN PABLO", "CAJABAMBA"],
+  junin: ["HUANCAYO", "JAUJA", "TARMA", "CHANCHAMAYO", "SATIPO", "CONCEPCION", "CHUPACA", "YAULI", "JUNIN"],
+  ayacucho: ["HUAMANGA", "CANGALLO", "HUANCA SANCOS", "HUANTA", "LA MAR", "LUCANAS", "PARINACOCHAS", "PAUCAR DEL SARA SARA", "SUCRE", "VICTOR FAJARDO", "VILCAS HUAMAN"],
+  apurimac: ["ABANCAY", "ANDAHUAYLAS", "ANTABAMBA", "AYMARAES", "COTABAMBAS", "CHINCHEROS", "GRAU"],
+  huanuco: ["HUANUCO", "AMBO", "DOS DE MAYO", "HUACAYBAMBA", "HUAMALIES", "LEONCIO PRADO", "MARAÑON", "PACHITEA", "PUERTO INCA", "LAURICOCHA", "YAROWILCA"],
+  huancavelica: ["HUANCAVELICA", "ACOBAMBA", "ANGARAES", "CASTROVIRREYNA", "CHURCAMPA", "HUAYTARA", "TAYACAJA"],
+  "la libertad": ["TRUJILLO", "ASCOPE", "BOLIVAR", "CHEPEN", "JULCAN", "OTUZCO", "PACASMAYO", "PATAZ", "SANCHEZ CARRION", "SANTIAGO DE CHUCO", "GRAN CHIMU", "VIRU"],
+  lambayeque: ["CHICLAYO", "FERREÑAFE", "LAMBAYEQUE"],
+  loreto: ["MAYNAS", "ALTO AMAZONAS", "LORETO", "MARISCAL RAMON CASTILLA", "REQUENA", "UCAYALI", "DATEM DEL MARAÑON", "PUTUMAYO"],
+  "madre de dios": ["TAMBOPATA", "MANU", "TAHUAMANU"],
+  moquegua: ["MARISCAL NIETO", "GENERAL SANCHEZ CERRO", "ILO"],
+  pasco: ["PASCO", "DANIEL ALCIDES CARRION", "OXAPAMPA"],
+  piura: ["PIURA", "AYABACA", "HUANCABAMBA", "MORROPON", "PAITA", "SECHURA", "SULLANA", "TALARA"],
+  puno: ["PUNO", "AZANGARO", "CARABAYA", "CHUCUITO", "EL COLLAO", "HUANCANE", "LAMPA", "MELGAR", "MOHO", "SAN ANTONIO DE PUTINA", "SAN ROMAN", "SANDIA", "YUNGUYO"],
+  "san martin": ["MOYOBAMBA", "BELLAVISTA", "EL DORADO", "HUALLAGA", "LAMAS", "MARISCAL CACERES", "PICOTA", "RIOJA", "SAN MARTIN", "TOCACHE"],
+  tacna: ["TACNA", "CANDARAVE", "JORGE BASADRE", "TARATA"],
+  tumbes: ["TUMBES", "CONTRALMIRANTE VILLAR", "ZARUMILLA"],
+  ucayali: ["CORONEL PORTILLO", "ATALAYA", "PADRE ABAD", "PURUS"],
+  amazonas: ["CHACHAPOYAS", "BAGUA", "BONGARA", "CONDORCANQUI", "LUYA", "RODRIGUEZ DE MENDOZA", "UTCUBAMBA"],
+  arequipa: ["AREQUIPA", "CAMANA", "CARAVELI", "CASTILLA", "CAYLLOMA", "CONDESUYOS", "ISLAY", "LA UNION"],
+  ica: ["ICA", "CHINCHA", "NAZCA", "PALPA", "PISCO"],
+};
+
+// Returns the array of province names for a department query, or null if
+// the input is not a recognised PE department. Caller decides whether to
+// fan out the SQL filter or fall back to single-ILIKE behaviour.
+export function expandPeDepartment(q: string): string[] | null {
+  const key = q.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+  return PE_DEPT_PROVINCES[key] ?? null;
+}
+
 const PLACES_CL = [
   "santiago", "valparaiso", "vina del mar", "concepcion", "antofagasta",
   "temuco", "la serena", "rancagua", "iquique", "arica", "puerto montt",
