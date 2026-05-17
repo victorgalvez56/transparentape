@@ -13,6 +13,7 @@
     "@googlemaps/js-api-loader": "^2.0.2",
     "@kapso/whatsapp-cloud-api": "^0.2.1",
     "groq-sdk": "^1.2.0",
+    "img-comparison-slider": "^8.0.7",
     "maplibre-gl": "^5.24.0",
     "motion": "^12.38.0",
     "next": "16.2.6",

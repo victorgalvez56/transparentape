@@ -14,6 +14,7 @@ interface Props {
 }
 
 type Filtro = "todas" | "alto" | "medio" | "bajo";
+type PaisFiltro = "todos" | "PE" | "CL";
 
 const FECHA_EDICION = new Intl.DateTimeFormat("es-PE", {
   day: "numeric",
@@ -30,6 +31,8 @@ export default function ObrasListPanel({
 }: Props) {
   const [q, setQ] = useState("");
   const [filtro, setFiltro] = useState<Filtro>("todas");
+  const [soloRedFlags, setSoloRedFlags] = useState(false);
+  const [pais, setPais] = useState<PaisFiltro>("todos");
   const itemRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
   const scrollContainerRef = useRef<HTMLUListElement | null>(null);
 
@@ -48,6 +51,8 @@ export default function ObrasListPanel({
     const lower = q.trim().toLowerCase();
     return obras.filter((o) => {
       if (filtro !== "todas" && riesgoDeObra(o) !== filtro) return false;
+      if (soloRedFlags && !o.is_red_flag) return false;
+      if (pais !== "todos" && o.country !== pais) return false;
       if (!lower) return true;
       const haystack = [
         o.tender_title,
@@ -61,7 +66,7 @@ export default function ObrasListPanel({
         .toLowerCase();
       return haystack.includes(lower);
     });
-  }, [obras, q, filtro]);
+  }, [obras, q, filtro, soloRedFlags, pais]);
 
   const isDemo = source === "mock";
 
@@ -116,6 +121,35 @@ export default function ObrasListPanel({
           </button>
         ))}
       </nav>
+
+      {/* Filtros rápidos */}
+      <div className="px-6 py-2.5 flex flex-wrap gap-2 border-b border-[var(--rule)]">
+        <button
+          onClick={() => setSoloRedFlags((v) => !v)}
+          className={`px-2.5 py-1 text-[9px] uppercase tracking-[0.18em] rounded border transition ${
+            soloRedFlags
+              ? "bg-[var(--alarm)]/20 border-[var(--alarm)] text-[var(--alarm)]"
+              : "border-[var(--rule)] text-[var(--fg-faint)] hover:text-[var(--fg-dim)]"
+          }`}
+          style={{ fontFamily: "var(--font-mono), monospace" }}
+        >
+          ⚑ Red flags
+        </button>
+        {(["todos", "PE", "CL"] as PaisFiltro[]).map((p) => (
+          <button
+            key={p}
+            onClick={() => setPais(p)}
+            className={`px-2.5 py-1 text-[9px] uppercase tracking-[0.18em] rounded border transition ${
+              pais === p
+                ? "bg-[var(--brand)]/20 border-[var(--brand)] text-[var(--brand)]"
+                : "border-[var(--rule)] text-[var(--fg-faint)] hover:text-[var(--fg-dim)]"
+            }`}
+            style={{ fontFamily: "var(--font-mono), monospace" }}
+          >
+            {p === "todos" ? "Todos" : p === "PE" ? "🇵🇪 Perú" : "🇨🇱 Chile"}
+          </button>
+        ))}
+      </div>
 
       {/* Buscador minimal — línea inferior única */}
       <div className="px-6 py-3 border-b border-[var(--rule)]">
