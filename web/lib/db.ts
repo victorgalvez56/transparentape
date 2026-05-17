@@ -24,14 +24,6 @@ export function getPool(): Pool {
     connectionTimeoutMillis: 8_000,
     ssl: { rejectUnauthorized: false },
   });
-  // Hard cap on per-statement runtime. LLM-generated SQL with missing WHERE
-  // clauses or pathological joins can otherwise saturate the small (max 5)
-  // pool and cause request timeouts elsewhere. 5s is plenty for the
-  // pre-aggregated obras table; statement_timeout raises a clean error that
-  // bubbles up as a CLARIFY in runChatPipeline.
-  pool.on("connect", (client) => {
-    client.query("SET statement_timeout = 5000").catch(() => {});
-  });
   if (process.env.NODE_ENV !== "production") {
     global.__pgPool = pool;
   }

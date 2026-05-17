@@ -9,6 +9,7 @@ import CustomCursor from "@/components/CustomCursor";
 import ColdOpen from "@/components/ColdOpen";
 import ForensicsPanel from "@/components/ForensicsPanel";
 import CodexObraDetailInline from "@/components/codex/CodexObraDetailInline";
+import AgentWidget from "@/components/AgentWidget";
 import CodexHeader from "@/components/codex/CodexHeader";
 import CodexFilterBar, {
   PaisFiltro,
@@ -527,6 +528,7 @@ export default function CodexHomePage() {
         </div>
       )}
 
+      <AgentWidget />
       <CustomCursor />
     </main>
   );
