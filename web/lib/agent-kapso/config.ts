@@ -27,9 +27,9 @@ export const AGENT = {
   limits: {
     maxInputChars: 600,      // reject messages longer than this
     maxDbResults: 10,        // cap rows returned to LLM synthesis
-    sqlContextWindow: 4,     // last N messages passed to SQL gen
-    historyPairs: 3,         // user+assistant pairs kept in session (6 msgs total)
-    sessionTtlMinutes: 30,   // session expiry
+    sqlContextWindow: 4,     // last N messages passed to SQL gen (kept tight)
+    historyPairs: 5,         // user+assistant pairs kept in session (10 msgs total)
+    sessionTtlMinutes: 1440, // 24h — citizen returning the next day still has context
     waMaxChars: 4096,        // WhatsApp message length hard cap
   },
 } as const;

@@ -5,7 +5,7 @@ import { normalizeWebhook, verifySignature as sdkVerifySignature } from "@kapso/
 import { query } from "@/lib/db";
 import { chatEngine } from "@/lib/agent-kapso/engine";
 import { parseIntent } from "@/lib/agent-kapso/intent";
-import { getSession, updateSession, appendToHistory } from "@/lib/agent-kapso/session";
+import { getSession, updateSession, appendHistoryAtomic } from "@/lib/agent-kapso/session";
 import { AGENT } from "@/lib/agent-kapso/config";
 import {
   buscarObras,
@@ -238,10 +238,7 @@ async function saveHistory(
   assistantMsg: string | null
 ): Promise<void> {
   if (!assistantMsg) return;
-  const session = await getSession(conversationId);
-  await updateSession(conversationId, {
-    lastMessages: appendToHistory(session.lastMessages, userMsg, assistantMsg),
-  });
+  await appendHistoryAtomic(conversationId, userMsg, assistantMsg);
 }
 
 // ── Meta webhook verification (GET) ──────────────────────────────────────────

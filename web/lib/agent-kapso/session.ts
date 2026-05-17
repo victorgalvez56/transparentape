@@ -95,3 +95,41 @@ export function appendToHistory(
   ];
   return next.slice(-MAX_HISTORY);
 }
+
+// Atomic alternative to read-modify-write via appendToHistory + updateSession.
+// Two concurrent webhooks for the same user can otherwise both read the same
+// last_messages, both append their pair, and the second write loses the first.
+// This does the append + slice entirely in SQL so the existing row is the
+// only source of truth.
+export async function appendHistoryAtomic(
+  conversationId: string,
+  userMsg: string,
+  assistantMsg: string
+): Promise<void> {
+  const pair = JSON.stringify([
+    { role: "user", content: userMsg },
+    { role: "assistant", content: assistantMsg },
+  ]);
+  try {
+    await query(
+      `INSERT INTO agent_sessions (conversation_id, country, last_messages, updated_at)
+       VALUES ($1, 'PE', $2::jsonb, NOW())
+       ON CONFLICT (conversation_id) DO UPDATE SET
+         last_messages = (
+           WITH combined AS (
+             SELECT value, ord
+             FROM jsonb_array_elements(
+               COALESCE(agent_sessions.last_messages, '[]'::jsonb) || EXCLUDED.last_messages
+             ) WITH ORDINALITY AS t(value, ord)
+           )
+           SELECT COALESCE(jsonb_agg(value ORDER BY ord), '[]'::jsonb)
+           FROM combined
+           WHERE ord > (SELECT COUNT(*) FROM combined) - $3
+         ),
+         updated_at = NOW()`,
+      [conversationId, pair, MAX_HISTORY]
+    );
+  } catch (e) {
+    console.error("[session] appendHistoryAtomic error:", e);
+  }
+}
