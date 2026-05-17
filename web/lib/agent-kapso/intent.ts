@@ -69,17 +69,18 @@ function extractContextPosition(text: string): number | null {
 
 // Plural ordinal: "los primeros 3", "primeras 3 obras", "3 primeros",
 // "los últimos 5", "ultimas 2". Returns the head/tail direction (1 / -1)
-// plus how many to slice. Range capped at 10 — anything larger is
-// probably not an ordinal reference at all.
+// plus how many to slice. Count is clamped to [2, 10] — anything larger
+// silently caps at 10 ("los primeros 100" still resolves rather than
+// being misrouted to BUSCAR_OBRAS).
 function extractPluralOrdinal(text: string): { pos: 1 | -1; count: number } | null {
   const m = text.match(
-    /\b(?:los\s+|las\s+)?(?:(primer|ultim)[oa]s\s+(\d{1,2})|(\d{1,2})\s+(primer|ultim)[oa]s)\b/i
+    /\b(?:los\s+|las\s+)?(?:(primer|ultim)[oa]s\s+(\d{1,3})|(\d{1,3})\s+(primer|ultim)[oa]s)\b/i
   );
   if (!m) return null;
   const direction = (m[1] || m[4]).toLowerCase();
-  const count = parseInt(m[2] || m[3], 10);
-  if (!Number.isFinite(count) || count < 2 || count > 10) return null;
-  return { pos: direction.startsWith("primer") ? 1 : -1, count };
+  const raw = parseInt(m[2] || m[3], 10);
+  if (!Number.isFinite(raw) || raw < 2) return null;
+  return { pos: direction.startsWith("primer") ? 1 : -1, count: Math.min(raw, 10) };
 }
 
 // ── Country detection ─────────────────────────────────────────────────────────
@@ -160,7 +161,19 @@ export function parseIntent(text: string, sessionCountry: Country): ParsedIntent
     return { intent: "CAMBIAR_PAIS", country: newCountry };
   }
   const ACTION_KEYWORDS = /\bestadisticas?\b|\bresumen\b|\branking\b|\bobras?\b|\binhabilitados?\b|\badjudicaci[oó]n\b|\bmonto\b|\binvestigar?\b|\bcontratistas?\b|\bentidades?\b|\balertas?\b/i;
-  if (newCountry && tn.split(/\s+/).length <= 3 && !ACTION_KEYWORDS.test(tn)) {
+  // Question / fetch verbs — if any of these appear together with a country
+  // mention ("qué hay en Brasil", "muéstrame Chile"), the user is asking
+  // about that country, not asking to switch session. Let it fall through
+  // to BUSCAR_OBRAS / PREGUNTA_LIBRE → tool-call where the country still
+  // gets adopted via `parsed.country` but the verb is honored.
+  const QUESTION_KEYWORDS =
+    /\b(que|qu[eé]|cuales?|cu[aá]les?|cuantos?|cu[aá]ntos?|cuanto|cu[aá]nto|hay|tienen?|tiene|muestra|muestrame|mu[eé]strame|dame|dime|busca|busco|ver|veamos|necesito|saber|consultar|consulta|como|c[oó]mo)\b/i;
+  if (
+    newCountry &&
+    tn.split(/\s+/).length <= 3 &&
+    !ACTION_KEYWORDS.test(tn) &&
+    !QUESTION_KEYWORDS.test(tn)
+  ) {
     return { intent: "CAMBIAR_PAIS", country: newCountry };
   }
 

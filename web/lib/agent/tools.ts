@@ -138,21 +138,26 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "stats_pais",
-    description: "Resumen estadístico de obras del país en curso: total, alertas, monto total.",
-    parameters: {},
-    async run(_args, ctx) {
-      const stats = await statsPorPais(ctx.country);
+    description: "Resumen estadístico: total obras, alertas, monto total. Acepta `q` para limitar a una región y `country_override` para consultar otro país sin cambiar la sesión.",
+    parameters: {
+      q: "string opcional — región/provincia/distrito para acotar (ej: 'Piura')",
+      country_override: "string opcional — código ISO 2 letras si el usuario pide stats de otro país (ej: 'CL' para 'stats de Chile')",
+    },
+    async run(args, ctx) {
+      const country = pickCountry(args.country_override, ctx.country);
+      const q = asString(args.q);
+      const stats = await statsPorPais(country, q);
       if (!stats) return { data: null, formatted: "No hay datos disponibles para ese país." };
-      return { data: stats, formatted: fmtStats({ ...stats, country: ctx.country }) };
+      return { data: stats, formatted: fmtStats({ ...stats, country }, q) };
     },
   },
   {
     name: "ranking_contratistas",
     description:
-      "Top contratistas por monto total adjudicado o por número de alertas de riesgo. Si el usuario pidió una región/provincia previamente, pasa `q` para filtrar el ranking geográficamente.",
+      "Top contratistas. Usa `por='alertas'` cuando el usuario menciona riesgo, corrupción, sanciones, 'que más roban', 'sospechosos', 'castigados'. Usa `por='monto'` (default) cuando habla de tamaño económico, 'los más grandes', 'mayor adjudicación'. Si la conversación ya tenía una región, pasa `q` para filtrar geográficamente.",
     parameters: {
-      por: "string opcional — 'monto' (default) o 'alertas'",
-      q: "string opcional — región/provincia/distrito para limitar el ranking (ej: 'Piura')",
+      por: "string opcional — 'monto' (default, por tamaño económico) o 'alertas' (por número de red flags)",
+      q: "string opcional — región/provincia/distrito para limitar el ranking",
     },
     async run(args, ctx) {
       const por = (asString(args.por) === "alertas" ? "alertas" : "monto") as "monto" | "alertas";
@@ -163,20 +168,26 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "ranking_entidades",
-    description: "Top entidades compradoras (ministerios, gobiernos regionales) con mayor número de obras.",
-    parameters: {},
-    async run(_args, ctx) {
-      const data = await rankingEntidades(ctx.country, 5);
-      return { data, formatted: fmtRankingEntidades(data, ctx.country) };
+    description: "Top entidades compradoras (ministerios, gobiernos regionales) con mayor número de obras. Acepta `q` para filtrar región.",
+    parameters: {
+      q: "string opcional — región/provincia/distrito",
+    },
+    async run(args, ctx) {
+      const q = asString(args.q);
+      const data = await rankingEntidades(ctx.country, 5, q);
+      return { data, formatted: fmtRankingEntidades(data, ctx.country, q) };
     },
   },
   {
     name: "adjudicacion_directa",
-    description: "Obras adjudicadas directamente (sin licitación competitiva) que además tienen alerta de riesgo.",
-    parameters: {},
-    async run(_args, ctx) {
-      const data = await adjudicacionDirectaAlertas(ctx.country, 5);
-      return { data, formatted: fmtAdjudicacionDirecta(data, ctx.country), obraIds: data.map((o) => o.id) };
+    description: "Obras adjudicadas directamente (sin licitación competitiva) que además tienen alerta. Acepta `q` para filtrar región.",
+    parameters: {
+      q: "string opcional — región/provincia/distrito",
+    },
+    async run(args, ctx) {
+      const q = asString(args.q);
+      const data = await adjudicacionDirectaAlertas(ctx.country, 5, q);
+      return { data, formatted: fmtAdjudicacionDirecta(data, ctx.country, q), obraIds: data.map((o) => o.id) };
     },
   },
   {
@@ -196,20 +207,26 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "inhabilitados",
-    description: "Lista de contratistas con sanción vigente que aún operan o tienen contratos activos.",
-    parameters: {},
-    async run(_args, ctx) {
-      const data = await inhabilitadosVigentes(ctx.country, 8);
-      return { data, formatted: fmtInhabilitados(data, ctx.country) };
+    description: "Lista de contratistas con sanción vigente que aún tienen contratos activos. Acepta `q` para filtrar región.",
+    parameters: {
+      q: "string opcional — región/provincia/distrito",
+    },
+    async run(args, ctx) {
+      const q = asString(args.q);
+      const data = await inhabilitadosVigentes(ctx.country, 8, q);
+      return { data, formatted: fmtInhabilitados(data, ctx.country, q) };
     },
   },
   {
     name: "monto_en_riesgo",
-    description: "Monto total acumulado de contratos marcados con alerta de riesgo en el país.",
-    parameters: {},
-    async run(_args, ctx) {
-      const data = await montoEnRiesgo(ctx.country);
-      return { data, formatted: fmtMontoEnRiesgo(data) };
+    description: "Monto total acumulado de contratos marcados con alerta de riesgo. Acepta `q` para limitar a una región.",
+    parameters: {
+      q: "string opcional — región/provincia/distrito",
+    },
+    async run(args, ctx) {
+      const q = asString(args.q);
+      const data = await montoEnRiesgo(ctx.country, q);
+      return { data, formatted: fmtMontoEnRiesgo(data, q) };
     },
   },
 ];

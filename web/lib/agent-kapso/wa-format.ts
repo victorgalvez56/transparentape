@@ -142,18 +142,22 @@ export function fmtCercanas(obras: ObraCercana[], country = "PE"): string {
   return lines.join("\n");
 }
 
-export function fmtStats(s: {
-  total: string;
-  alertas: string;
-  monto_total: string;
-  country: string;
-}): string {
+export function fmtStats(
+  s: {
+    total: string;
+    alertas: string;
+    monto_total: string;
+    country: string;
+  },
+  scope?: string
+): string {
   const nation = COUNTRY_NAMES[s.country] ?? s.country;
   const total = Number(s.total);
   const alertas = Number(s.alertas);
   const pct = total > 0 ? ((alertas / total) * 100).toFixed(1) : "0";
+  const where = scope ? `${scope}, ${nation}` : nation;
   return (
-    `📊 *Estadísticas ${nation}*\n\n` +
+    `📊 *Estadísticas ${where}*\n\n` +
     `Total obras: ${total.toLocaleString()}\n` +
     `⚠️ Con alerta: ${alertas.toLocaleString()} (${pct}%)\n` +
     `💰 Monto total: ${fmt(Number(s.monto_total), s.country)}` +
@@ -210,11 +214,13 @@ export function fmtInvestigacion(
 
 export function fmtInhabilitados(
   list: { supplier_name: string; supplier_ruc: string; obras: number; monto_total: number | null }[],
-  country: string
+  country: string,
+  scope?: string
 ): string {
   if (!list.length) return "No se encontraron proveedores inhabilitados con contratos activos.";
   const nation = COUNTRY_NAMES[country] ?? country;
-  const lines = [`🚫 *Inhabilitados con contratos en ${nation}:*\n`];
+  const where = scope ? `${scope}, ${nation}` : nation;
+  const lines = [`🚫 *Inhabilitados con contratos en ${where}:*\n`];
   for (const r of list) {
     lines.push(
       `• *${r.supplier_name}* (${r.supplier_ruc})\n  ${r.obras} obras | ${fmt(r.monto_total, country)}`
@@ -224,10 +230,11 @@ export function fmtInhabilitados(
   return lines.join("\n");
 }
 
-export function fmtAdjudicacionDirecta(obras: ObraResumen[], country: string): string {
+export function fmtAdjudicacionDirecta(obras: ObraResumen[], country: string, scope?: string): string {
   if (!obras.length) return "No se encontraron adjudicaciones directas con alertas.";
   const nation = COUNTRY_NAMES[country] ?? country;
-  const lines = [`⚡ *Adjudicaciones directas con alerta en ${nation}:*\n`];
+  const where = scope ? `${scope}, ${nation}` : nation;
+  const lines = [`⚡ *Adjudicaciones directas con alerta en ${where}:*\n`];
   obras.forEach((o, i) => {
     lines.push(
       `${i + 1}. *${cleanTitle(o.titulo)}* ⚠️\n` +
@@ -240,11 +247,13 @@ export function fmtAdjudicacionDirecta(obras: ObraResumen[], country: string): s
 
 export function fmtRankingEntidades(
   list: { buyer_name: string; obras: number; obras_alertadas: number; monto_total: number | null }[],
-  country: string
+  country: string,
+  scope?: string
 ): string {
   if (!list.length) return "No hay entidades con datos suficientes.";
   const nation = COUNTRY_NAMES[country] ?? country;
-  const lines = [`🏛️ *Top entidades compradoras en ${nation}:*\n`];
+  const where = scope ? `${scope}, ${nation}` : nation;
+  const lines = [`🏛️ *Top entidades compradoras en ${where}:*\n`];
   list.forEach((e, i) => {
     lines.push(
       `${i + 1}. *${e.buyer_name ?? "—"}*\n` +
@@ -255,10 +264,14 @@ export function fmtRankingEntidades(
   return lines.join("\n");
 }
 
-export function fmtMontoEnRiesgo(data: { obras: number; monto_total: number; country: string }): string {
+export function fmtMontoEnRiesgo(
+  data: { obras: number; monto_total: number; country: string },
+  scope?: string
+): string {
   const nation = COUNTRY_NAMES[data.country] ?? data.country;
+  const where = scope ? `${scope}, ${nation}` : nation;
   return (
-    `🚨 *Monto en riesgo — ${nation}*\n\n` +
+    `🚨 *Monto en riesgo — ${where}*\n\n` +
     `Obras con alerta: ${data.obras.toLocaleString()}\n` +
     `💰 Total comprometido: *${fmt(data.monto_total, data.country)}*\n\n` +
     `_Monto de contratos donde se detectaron red flags._` +

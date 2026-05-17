@@ -249,9 +249,19 @@ export async function investigarContratista(
   };
 }
 
+// All aggregate queries below accept an optional `q` that ILIKE-matches
+// buyer_region OR buyer_locality. This is what makes carry-forward work
+// after a region scoping turn: "obras en Piura" → "y el ranking?" can now
+// re-filter on Piura at the SQL level instead of returning national data.
+
 // ─── Inhabilitados vigentes ────────────────────────────────────────────────────
 
-export async function inhabilitadosVigentes(country: Country, limit = 8) {
+export async function inhabilitadosVigentes(country: Country, limit = 8, q?: string) {
+  const geo = q?.trim();
+  const geoClause = geo
+    ? ` AND (o.buyer_region ILIKE $3 OR o.buyer_locality ILIKE $3)`
+    : ``;
+  const params: unknown[] = geo ? [country, limit, `%${geo}%`] : [country, limit];
   return query<{
     supplier_name: string;
     supplier_ruc: string;
@@ -263,52 +273,67 @@ export async function inhabilitadosVigentes(country: Country, limit = 8) {
             ROUND(SUM(COALESCE(o.contract_amount, o.award_amount, o.tender_amount))) AS monto_total
      FROM obras o
      JOIN red_flags rf ON o.supplier_ruc = rf.ruc AND rf.vigente = TRUE
-     WHERE o.country = $1 AND o.supplier_name IS NOT NULL
+     WHERE o.country = $1 AND o.supplier_name IS NOT NULL${geoClause}
      GROUP BY o.supplier_name, o.supplier_ruc
      ORDER BY obras DESC
      LIMIT $2`,
-    [country, limit]
+    params
   );
 }
 
 // ─── Adjudicación directa con alertas ─────────────────────────────────────────
 
-export async function adjudicacionDirectaAlertas(country: Country, limit = 5) {
+export async function adjudicacionDirectaAlertas(country: Country, limit = 5, q?: string) {
+  const geo = q?.trim();
+  const geoClause = geo
+    ? ` AND (buyer_region ILIKE $3 OR buyer_locality ILIKE $3)`
+    : ``;
+  const params: unknown[] = geo ? [country, limit, `%${geo}%`] : [country, limit];
   return query<ObraResumen>(
     `SELECT ${OBRA_COLS}
      FROM obras
-     WHERE country = $1 AND procurement_method = 'direct' AND is_red_flag = TRUE
+     WHERE country = $1 AND procurement_method = 'direct' AND is_red_flag = TRUE${geoClause}
      ORDER BY COALESCE(contract_amount, award_amount, tender_amount) DESC NULLS LAST
      LIMIT $2`,
-    [country, limit]
+    params
   );
 }
 
 // ─── Entidades compradoras ────────────────────────────────────────────────────
 
-export async function rankingEntidades(country: Country, limit = 5): Promise<EntidadStat[]> {
+export async function rankingEntidades(country: Country, limit = 5, q?: string): Promise<EntidadStat[]> {
+  const geo = q?.trim();
+  const geoClause = geo
+    ? ` AND (buyer_region ILIKE $3 OR buyer_locality ILIKE $3)`
+    : ``;
+  const params: unknown[] = geo ? [country, limit, `%${geo}%`] : [country, limit];
   return query<EntidadStat>(
     `SELECT buyer_name,
             COUNT(*) AS obras,
             COUNT(*) FILTER (WHERE is_red_flag = TRUE) AS obras_alertadas,
             ROUND(SUM(COALESCE(contract_amount, award_amount, tender_amount))) AS monto_total
      FROM obras
-     WHERE country = $1 AND buyer_name IS NOT NULL
+     WHERE country = $1 AND buyer_name IS NOT NULL${geoClause}
      GROUP BY buyer_name
      ORDER BY obras DESC
      LIMIT $2`,
-    [country, limit]
+    params
   );
 }
 
 // ─── Riesgo global ────────────────────────────────────────────────────────────
 
-export async function montoEnRiesgo(country: Country): Promise<MontoRiesgo> {
+export async function montoEnRiesgo(country: Country, q?: string): Promise<MontoRiesgo> {
+  const geo = q?.trim();
+  const geoClause = geo
+    ? ` AND (buyer_region ILIKE $2 OR buyer_locality ILIKE $2)`
+    : ``;
+  const params: unknown[] = geo ? [country, `%${geo}%`] : [country];
   const r = await queryOne<{ obras: string; monto: string }>(
     `SELECT COUNT(*) AS obras,
             ROUND(COALESCE(SUM(COALESCE(contract_amount, award_amount, tender_amount)), 0)) AS monto
-     FROM obras WHERE country = $1 AND is_red_flag = TRUE`,
-    [country]
+     FROM obras WHERE country = $1 AND is_red_flag = TRUE${geoClause}`,
+    params
   );
   return {
     obras: Number(r?.obras ?? 0),
@@ -319,7 +344,12 @@ export async function montoEnRiesgo(country: Country): Promise<MontoRiesgo> {
 
 // ─── Stats por país ────────────────────────────────────────────────────────────
 
-export async function statsPorPais(country: Country) {
+export async function statsPorPais(country: Country, q?: string) {
+  const geo = q?.trim();
+  const geoClause = geo
+    ? ` AND (buyer_region ILIKE $2 OR buyer_locality ILIKE $2)`
+    : ``;
+  const params: unknown[] = geo ? [country, `%${geo}%`] : [country];
   return queryOne<{
     total: string;
     alertas: string;
@@ -330,7 +360,7 @@ export async function statsPorPais(country: Country) {
             COUNT(*) FILTER (WHERE is_red_flag = TRUE) AS alertas,
             COUNT(*) FILTER (WHERE COALESCE(contract_amount, award_amount, tender_amount) IS NOT NULL) AS con_monto,
             ROUND(COALESCE(SUM(COALESCE(contract_amount, award_amount, tender_amount)), 0)) AS monto_total
-     FROM obras WHERE country = $1`,
-    [country]
+     FROM obras WHERE country = $1${geoClause}`,
+    params
   );
 }
