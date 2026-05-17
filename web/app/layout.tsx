@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Fraunces, IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -24,15 +24,35 @@ const plexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Transparentape · Obras públicas Perú",
+  metadataBase: new URL("https://transparentape.app"),
+  title: {
+    default: "Transparentape · Obras públicas Perú",
+    template: "%s · Transparentape",
+  },
   description:
     "Mapa abierto de obras públicas en Perú con detección automática de irregularidades. Datos OCDS + OECE.",
+  applicationName: "Transparentape",
   openGraph: {
     title: "Transparentape",
     description: "El billete deja huella. Lo grabamos.",
     type: "website",
     locale: "es_PE",
+    siteName: "Transparentape",
+    url: "/",
   },
+  twitter: {
+    card: "summary_large_image",
+    title: "Transparentape",
+    description: "El billete deja huella. Lo grabamos.",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#050505" },
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+  ],
+  colorScheme: "dark light",
 };
 
 export default function RootLayout({
