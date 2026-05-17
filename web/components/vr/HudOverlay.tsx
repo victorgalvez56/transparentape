@@ -199,16 +199,55 @@ export default function HudOverlay({
         />
       )}
 
-      {/* Hint inferior */}
-      <div className="mt-auto pb-6 flex flex-col items-center gap-2">
-        <p
-          className="text-[10px] uppercase tracking-[0.28em] text-white/40 max-w-md text-center"
+      {/* Color legend bottom-right */}
+      {!loading && (
+        <div
+          className="absolute bottom-20 right-6 bg-black/70 border border-white/10 backdrop-blur px-4 py-3"
           style={{ fontFamily: "var(--font-mono), monospace" }}
         >
-          Drag para rotar · Scroll para zoom · Click columna para detalle ·{" "}
-          <span className="text-[var(--alarm)]">rojo = alerta OECE</span>
+          <p className="text-[9px] uppercase tracking-[0.28em] text-white/45 mb-2">
+            Color · monto
+          </p>
+          <LegendDot color="#ef4444" label="alerta OECE" />
+          <LegendDot color="#fbbf24" label="> S/ 100M" />
+          <LegendDot color="#42dc3a" label="10-100M" />
+          <LegendDot color="#1f7a1c" label="1-10M" />
+          <LegendDot color="#3a4d3a" label="< 1M" />
+          <p className="text-[9px] uppercase tracking-[0.22em] text-white/35 mt-2 pt-2 border-t border-white/10">
+            altura = log(monto)
+          </p>
+        </div>
+      )}
+
+      {/* Hint inferior + hotkeys */}
+      <div className="mt-auto pb-6 flex flex-col items-center gap-2">
+        <p
+          className="text-[10px] uppercase tracking-[0.28em] text-white/40 max-w-2xl text-center"
+          style={{ fontFamily: "var(--font-mono), monospace" }}
+        >
+          Drag rotar · Scroll zoom · Click columna detalle ·{" "}
+          <kbd className="px-1.5 py-0.5 bg-white/10 text-white/70 text-[9px]">1-6</kbd>{" "}
+          ciudades ·{" "}
+          <kbd className="px-1.5 py-0.5 bg-white/10 text-white/70 text-[9px]">R</kbd>{" "}
+          alertas ·{" "}
+          <kbd className="px-1.5 py-0.5 bg-white/10 text-white/70 text-[9px]">Esc</kbd>{" "}
+          cerrar
         </p>
       </div>
+    </div>
+  );
+}
+
+function LegendDot({ color, label }: { color: string; label: string }) {
+  return (
+    <div className="flex items-center gap-2 py-0.5">
+      <span
+        className="inline-block w-2.5 h-2.5 rounded-sm"
+        style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}88` }}
+      />
+      <span className="text-[10px] uppercase tracking-[0.16em] text-white/65">
+        {label}
+      </span>
     </div>
   );
 }

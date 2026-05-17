@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
@@ -62,6 +62,27 @@ export default function AuditRoom() {
     for (const o of obras) if (o.source_year != null) set.add(o.source_year);
     return [...set].sort((a, b) => b - a);
   })();
+
+  // Hotkeys del demo — 1-6 ciudades, R alertas, Esc cerrar panel
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // No interferir si el user esta tipeando en un input/select
+      const target = e.target as HTMLElement | null;
+      if (target?.tagName === "INPUT" || target?.tagName === "SELECT" || target?.tagName === "TEXTAREA") return;
+      const key = e.key.toLowerCase();
+      if (key >= "1" && key <= "6") {
+        const idx = Number(key) - 1;
+        if (idx < CITY_PRESETS.length) handleSelectPreset(CITY_PRESETS[idx].key);
+      } else if (key === "r") {
+        setOnlyRedFlag((v) => !v);
+      } else if (key === "escape") {
+        setSelected(null);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [obras]);
 
   return (
     <>
