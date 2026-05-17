@@ -8,6 +8,8 @@ interface Props {
   obra: Obra;
   onClose: () => void;
   onInvestigar: () => void;
+  /** Si true, se renderiza embebido dentro de un container (no floating). */
+  embedded?: boolean;
 }
 
 function calcDelta(base: number | null, comp: number | null) {
@@ -19,6 +21,7 @@ export default function ObraDetailPanel({
   obra,
   onClose,
   onInvestigar,
+  embedded = false,
 }: Props) {
   const riesgo = riesgoDeObra(obra);
   const monto = obra.contract_amount ?? obra.award_amount ?? obra.tender_amount;
@@ -41,7 +44,11 @@ export default function ObraDetailPanel({
       animate={{ y: 0, opacity: 1 }}
       exit={{ y: 40, opacity: 0 }}
       transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-      className="absolute bottom-6 left-6 z-30 w-[min(560px,calc(100vw-3rem))] bg-[var(--ink-1)]/95 backdrop-blur-2xl border border-[var(--rule)] rounded-sm shadow-[0_30px_80px_-20px_rgba(0,0,0,0.8),0_0_0_1px_rgba(66,220,58,0.06)] overflow-hidden flex flex-col max-h-[78vh]"
+      className={
+        embedded
+          ? "relative w-full h-full bg-[var(--ink-2)]/40 border-t-2 border-[var(--brand)]/30 overflow-hidden flex flex-col"
+          : "absolute bottom-6 left-6 z-30 w-[min(560px,calc(100vw-3rem))] bg-[var(--ink-1)]/95 backdrop-blur-2xl border border-[var(--rule)] rounded-sm shadow-[0_30px_80px_-20px_rgba(0,0,0,0.8),0_0_0_1px_rgba(66,220,58,0.06)] overflow-hidden flex flex-col max-h-[78vh]"
+      }
     >
       {/* HEADER editorial */}
       <header className="px-5 pt-5 pb-4 border-b border-[var(--rule)]">
@@ -54,14 +61,14 @@ export default function ObraDetailPanel({
           </p>
           <button
             onClick={onClose}
-            className="text-[var(--fg-faint)] hover:text-white text-lg leading-none transition-colors"
+            className="text-[var(--fg-faint)] hover:text-[var(--fg)] text-lg leading-none transition-colors"
             aria-label="Cerrar"
           >
             ×
           </button>
         </div>
         <h2
-          className="mt-2 text-[22px] leading-[1.2] text-white font-medium"
+          className="mt-2 text-[22px] leading-[1.2] text-[var(--fg)] font-medium"
           style={{ fontFamily: "var(--font-display), serif" }}
         >
           {truncar(tituloDisplay, 180)}
@@ -161,7 +168,7 @@ export default function ObraDetailPanel({
             Quién recibió el billete
           </p>
           <h3
-            className="text-[18px] leading-[1.2] text-white"
+            className="text-[18px] leading-[1.2] text-[var(--fg)]"
             style={{ fontFamily: "var(--font-display), serif" }}
           >
             {obra.supplier_name ?? "—"}
@@ -170,7 +177,7 @@ export default function ObraDetailPanel({
             className="text-[11px] text-[var(--fg-dim)] mt-1"
             style={{ fontFamily: "var(--font-mono), monospace" }}
           >
-            RUC <span className="text-white">{obra.supplier_ruc ?? "—"}</span>
+            RUC <span className="text-[var(--fg)]">{obra.supplier_ruc ?? "—"}</span>
           </p>
 
           {obra.is_red_flag && (
@@ -181,7 +188,7 @@ export default function ObraDetailPanel({
               >
                 Antecedentes
               </p>
-              <p className="text-sm text-white/90 mt-0.5">
+              <p className="text-sm text-[var(--fg)]/90 mt-0.5">
                 Figura en{" "}
                 {(obra.red_flag_types ?? [])
                   .join(" · ")
@@ -227,7 +234,7 @@ export default function ObraDetailPanel({
           >
             Quién pagó
           </p>
-          <p className="text-sm text-white">{obra.buyer_name ?? "—"}</p>
+          <p className="text-sm text-[var(--fg)]">{obra.buyer_name ?? "—"}</p>
         </section>
 
         {/* AI */}
@@ -246,7 +253,7 @@ export default function ObraDetailPanel({
               )}
             </p>
             <p
-              className="text-sm text-white/80 italic leading-relaxed"
+              className="text-sm text-[var(--fg)]/80 italic leading-relaxed"
               style={{ fontFamily: "var(--font-display), serif" }}
             >
               "{obra.ai_description}"
@@ -267,7 +274,7 @@ export default function ObraDetailPanel({
           href={twitterHref}
           target="_blank"
           rel="noopener noreferrer"
-          className="px-4 py-3 border border-[var(--rule)] text-white text-sm hover:border-[var(--brand)] transition"
+          className="px-4 py-3 border border-[var(--rule)] text-[var(--fg)] text-sm hover:border-[var(--brand)] transition"
           aria-label="Compartir en X / Twitter"
         >
           Compartir
@@ -276,7 +283,7 @@ export default function ObraDetailPanel({
           href={`/obras/${obra.ocid}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="px-4 py-3 border border-[var(--rule)] text-white text-sm hover:border-[var(--brand)] transition"
+          className="px-4 py-3 border border-[var(--rule)] text-[var(--fg)] text-sm hover:border-[var(--brand)] transition"
           aria-label="Abrir página pública"
         >
           ↗
@@ -308,7 +315,7 @@ function Money({
       </p>
       <p
         className={`mt-2 text-[20px] tabular-nums leading-none ${
-          accent ? "text-[var(--brand)]" : "text-white"
+          accent ? "text-[var(--brand)]" : "text-[var(--fg)]"
         }`}
         style={{ fontFamily: "var(--font-mono), monospace" }}
       >
@@ -347,7 +354,7 @@ function DetailRow({
         {label}
       </dt>
       <dd
-        className={`text-sm mt-0.5 ${alert ? "text-[var(--warn)]" : "text-white"}`}
+        className={`text-sm mt-0.5 ${alert ? "text-[var(--warn)]" : "text-[var(--fg)]"}`}
       >
         {value}
       </dd>

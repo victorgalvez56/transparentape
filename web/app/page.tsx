@@ -193,15 +193,17 @@ export default function HomePage() {
         total={visibleObras.length}
         source={stats?.source ?? source}
         fullWidth={view === "list"}
+        detailSlot={
+          selected && !showForensics ? (
+            <ObraDetailPanel
+              obra={selected}
+              onClose={() => setSelected(null)}
+              onInvestigar={() => setShowForensics(true)}
+              embedded
+            />
+          ) : null
+        }
       />
-
-      {selected && !showForensics && (
-        <ObraDetailPanel
-          obra={selected}
-          onClose={() => setSelected(null)}
-          onInvestigar={() => setShowForensics(true)}
-        />
-      )}
 
       {selected && showForensics && (
         <ForensicsPanel

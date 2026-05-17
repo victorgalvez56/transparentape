@@ -35,27 +35,28 @@
 }
 
 [data-theme="light"] {
-  /* Neutros forenses — invertidos para light */
-  --ink-0: #f7f5ee;        /* paper-like background */
-  --ink-1: #ffffff;
-  --ink-2: #f0ede4;
-  --ink-3: #e6e2d8;
+  /* Codex-globe palette — shadcn-style zinc neutrals */
+  --ink-0: #ffffff;          /* background pure white */
+  --ink-1: #fafafa;          /* surface elevada / glass */
+  --ink-2: #f4f4f5;          /* muted bg (chip inactive) */
+  --ink-3: #e4e4e7;          /* hover bg */
 
-  /* Texto */
-  --fg: #111111;
-  --fg-dim: #525252;
-  --fg-faint: #a3a3a3;
-  --rule: rgba(0, 0, 0, 0.1);
+  /* Texto — zinc scale */
+  --fg: #09090b;             /* near black (foreground) */
+  --fg-dim: #52525b;         /* muted-foreground */
+  --fg-faint: #a1a1aa;       /* placeholder / disabled */
+  --rule: rgba(0, 0, 0, 0.08);  /* hairline borders */
 
-  /* Brand y semaforización mantienen identidad — son colores de bandera */
-  --brand: #1f7a1c;        /* verde más oscuro para contraste en fondo claro */
-  --brand-deep: #c7e7c5;
-  --brand-glow: rgba(31, 122, 28, 0.25);
+  /* Brand — verde más profundo para contraste WCAG en fondo claro */
+  --brand: #15803d;          /* green-700 */
+  --brand-deep: #dcfce7;     /* green-100 (chip active bg en light) */
+  --brand-glow: rgba(21, 128, 61, 0.2);
 
-  --alarm: #b91c1c;
+  /* Semáforos — versiones desaturadas para light */
+  --alarm: #b91c1c;          /* red-700 */
   --alarm-soft: rgba(185, 28, 28, 0.1);
-  --warn: #b45309;
-  --safe: #047857;
+  --warn: #b45309;           /* amber-700 */
+  --safe: #047857;           /* emerald-700 */
 }
 
 @theme inline {
@@ -79,7 +80,7 @@ body {
   font-feature-settings: "ss01", "cv01", "cv11";
 }
 
-/* MapLibre overrides — tema forense */
+/* MapLibre overrides — theme-aware */
 .maplibregl-ctrl-attrib,
 .maplibregl-ctrl-attrib a {
   background-color: rgba(0, 0, 0, 0.7) !important;
@@ -103,6 +104,24 @@ body {
 }
 .maplibregl-ctrl-icon {
   filter: invert(1) brightness(0.85);
+}
+
+[data-theme="light"] .maplibregl-ctrl-attrib,
+[data-theme="light"] .maplibregl-ctrl-attrib a {
+  background-color: rgba(255, 255, 255, 0.8) !important;
+  color: rgba(0, 0, 0, 0.45) !important;
+}
+[data-theme="light"] .maplibregl-ctrl-attrib a {
+  color: rgba(0, 0, 0, 0.85) !important;
+}
+[data-theme="light"] .maplibregl-ctrl-group {
+  background-color: rgba(255, 255, 255, 0.9) !important;
+}
+[data-theme="light"] .maplibregl-ctrl-group button:hover {
+  background-color: rgba(21, 128, 61, 0.1) !important;
+}
+[data-theme="light"] .maplibregl-ctrl-icon {
+  filter: none;
 }
 
 /* Atmosphere — grain procedural */

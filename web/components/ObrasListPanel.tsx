@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { motion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import { Obra, riesgoDeObra } from "@/lib/types";
 import { fmtSoles, truncar, displayTitle } from "@/lib/format";
 
@@ -13,6 +13,8 @@ interface Props {
   source?: string;
   /** Cuando true, ocupa todo el ancho (modo "Lista" del topbar) */
   fullWidth?: boolean;
+  /** Slot inferior — si hay obra seleccionada, render aqui (stacking cards) */
+  detailSlot?: React.ReactNode;
 }
 
 type Filtro = "todas" | "alto" | "medio" | "bajo";
@@ -30,6 +32,7 @@ export default function ObrasListPanel({
   total,
   source,
   fullWidth = false,
+  detailSlot,
 }: Props) {
   const [q, setQ] = useState("");
   const [filtro, setFiltro] = useState<Filtro>("todas");
@@ -86,7 +89,7 @@ export default function ObrasListPanel({
           Edición · {FECHA_EDICION}
         </p>
         <h2
-          className="mt-2 text-[28px] leading-none text-white italic"
+          className="mt-2 text-[28px] leading-none text-[var(--fg)] italic"
           style={{ fontFamily: "var(--font-display), serif" }}
         >
           Índice
@@ -112,7 +115,7 @@ export default function ObrasListPanel({
             onClick={() => setFiltro(f)}
             className={`pb-3 text-[11px] uppercase tracking-[0.18em] transition ${
               filtro === f
-                ? "text-white border-b-2 border-[var(--brand)] -mb-[2px]"
+                ? "text-[var(--fg)] border-b-2 border-[var(--brand)] -mb-[2px]"
                 : "text-[var(--fg-faint)] hover:text-[var(--fg-dim)]"
             }`}
             style={{ fontFamily: "var(--font-mono), monospace" }}
@@ -134,10 +137,12 @@ export default function ObrasListPanel({
         />
       </div>
 
-      {/* LISTA */}
+      {/* LISTA — comparte espacio con detailSlot via flex */}
       <ul
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto divide-y divide-[var(--rule)]"
+        className={`overflow-y-auto divide-y divide-[var(--rule)] ${
+          detailSlot ? "flex-[0_0_40%]" : "flex-1"
+        }`}
       >
         {filtradas.length === 0 && (
           <li className="p-8 text-center text-sm text-[var(--fg-faint)]">
@@ -178,7 +183,7 @@ export default function ObrasListPanel({
                       {o.buyer_locality ?? "—"} · {o.source_year ?? "—"}
                     </p>
                     <h3
-                      className="mt-1 text-[16px] leading-[1.2] text-white font-medium"
+                      className="mt-1 text-[16px] leading-[1.2] text-[var(--fg)] font-medium"
                       style={{ fontFamily: "var(--font-display), serif" }}
                     >
                       {truncar(displayTitle(o), 90)}
@@ -191,7 +196,7 @@ export default function ObrasListPanel({
                   </div>
                   <div className="shrink-0 text-right">
                     <p
-                      className="text-[13px] tabular-nums text-white"
+                      className="text-[13px] tabular-nums text-[var(--fg)]"
                       style={{ fontFamily: "var(--font-mono), monospace" }}
                     >
                       {fmtSoles(o.contract_amount ?? o.award_amount)}
@@ -212,13 +217,31 @@ export default function ObrasListPanel({
         })}
       </ul>
 
+      {/* DETAIL SLOT — slide-up cuando hay obra seleccionada */}
+      <AnimatePresence initial={false}>
+        {detailSlot && (
+          <motion.div
+            key="detail-slot"
+            initial={{ y: 60, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 60, opacity: 0 }}
+            transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+            className="flex-1 min-h-0 overflow-hidden"
+          >
+            {detailSlot}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* FOOTER */}
-      <footer
-        className="px-6 py-3 border-t border-[var(--rule)] text-[10px] uppercase tracking-[0.22em] text-[var(--fg-faint)] text-center"
-        style={{ fontFamily: "var(--font-mono), monospace" }}
-      >
-        Mostrando {filtradas.length} de {obras.length}
-      </footer>
+      {!detailSlot && (
+        <footer
+          className="px-6 py-3 border-t border-[var(--rule)] text-[10px] uppercase tracking-[0.22em] text-[var(--fg-faint)] text-center"
+          style={{ fontFamily: "var(--font-mono), monospace" }}
+        >
+          Mostrando {filtradas.length} de {obras.length}
+        </footer>
+      )}
     </motion.aside>
   );
 }
