@@ -25,7 +25,8 @@ function summarize(o: Obra) {
     region: o.buyer_region,
     monto: o.contract_amount ?? o.award_amount ?? o.tender_amount,
     monto_fmt: fmtSolesLong(
-      o.contract_amount ?? o.award_amount ?? o.tender_amount
+      o.contract_amount ?? o.award_amount ?? o.tender_amount,
+      o.country
     ),
     contratista: o.supplier_name,
     ruc: o.supplier_ruc,

@@ -74,7 +74,7 @@ export default function CodexObraCard({
           >
             {loc}
             {obra.source_year ? ` · ${obra.source_year}` : ""} ·{" "}
-            {fmtSoles(amount)}
+            {fmtSoles(amount, obra.country)}
             {obra.country === "CL" ? " · CL" : ""}
           </p>
           {obra.supplier_name && !compact && (

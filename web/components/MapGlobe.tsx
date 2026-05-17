@@ -6,7 +6,6 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { Obra, riesgoDeObra } from "@/lib/types";
 import { CountryView } from "@/lib/countries";
 import { detectLocation } from "@/lib/regions";
-import { useTheme } from "./ThemeProvider";
 import {
   preloadGeoJSON,
   getPeruDepts,
@@ -21,9 +20,8 @@ interface Props {
   flyToCountry?: CountryView | null;
   onViewChange?: (label: string) => void;
   /**
-   * Override del theme cuando el caller no usa el ThemeProvider global
-   * (e.g. /end con su propio estado local "cx-theme"). Si está, manda;
-   * si no, cae al context.
+   * Theme del caller (e.g. /end con su propio estado local "cx-theme").
+   * Si no se pasa, default a "dark".
    */
   themeOverride?: "light" | "dark";
 }
@@ -103,8 +101,7 @@ export default function MapGlobe({
   onViewChange,
   themeOverride,
 }: Props) {
-  const { resolved: ctxTheme } = useTheme();
-  const theme = themeOverride ?? ctxTheme;
+  const theme = themeOverride ?? "dark";
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MLMap | null>(null);
   const obrasById = useRef<Map<number, Obra>>(new Map());

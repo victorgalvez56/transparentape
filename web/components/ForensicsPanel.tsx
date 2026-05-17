@@ -36,13 +36,13 @@ function analizar(o: Obra): Hallazgo[] {
       hallazgos.push({
         nivel: "alto",
         titulo: `Adjudicación ${(ratio * 100 - 100).toFixed(1)}% sobre el valor referencial`,
-        detalle: `El Estado dijo que esta obra costaría ${fmtSolesLong(tender)}. Terminó adjudicándose por ${fmtSolesLong(award)}.`,
+        detalle: `El Estado dijo que esta obra costaría ${fmtSolesLong(tender, o.country)}. Terminó adjudicándose por ${fmtSolesLong(award, o.country)}.`,
       });
     } else if (ratio < 0.7) {
       hallazgos.push({
         nivel: "medio",
         titulo: "Adjudicación muy por debajo del referencial",
-        detalle: `Posible oferta temeraria. ${fmtSolesLong(award)} sobre un referencial de ${fmtSolesLong(tender)}.`,
+        detalle: `Posible oferta temeraria. ${fmtSolesLong(award, o.country)} sobre un referencial de ${fmtSolesLong(tender, o.country)}.`,
       });
     }
   }
@@ -52,7 +52,7 @@ function analizar(o: Obra): Hallazgo[] {
     hallazgos.push({
       nivel: "alto",
       titulo: `El contrato infló ${pct.toFixed(1)}% sobre lo adjudicado`,
-      detalle: `Adjudicado ${fmtSolesLong(award)} → contrato firmado por ${fmtSolesLong(o.contract_amount)}.`,
+      detalle: `Adjudicado ${fmtSolesLong(award, o.country)} → contrato firmado por ${fmtSolesLong(o.contract_amount, o.country)}.`,
     });
   }
 
@@ -118,7 +118,8 @@ export default function ForensicsPanel({ obra, onClose }: Props) {
     typeof window !== "undefined"
       ? `https://twitter.com/intent/tweet?text=${encodeURIComponent(
           `Caso ${truncar(tituloDisplay, 100)} · ${fmtSolesLong(
-            monto
+            monto,
+            obra.country
           )} · ${altas} alertas. Transparentape.`
         )}&url=${encodeURIComponent(
           `${window.location.origin}/obras/${obra.ocid}`
@@ -213,7 +214,7 @@ export default function ForensicsPanel({ obra, onClose }: Props) {
             className="text-[var(--brand)] tabular-nums whitespace-nowrap font-medium"
             style={{ fontFamily: "var(--font-mono), monospace" }}
           >
-            {fmtSolesLong(monto)}
+            {fmtSolesLong(monto, obra.country)}
           </span>
           .{" "}
           <em

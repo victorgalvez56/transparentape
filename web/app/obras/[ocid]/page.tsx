@@ -5,6 +5,7 @@ import { getObraByOcid } from "@/lib/obras-query";
 import {
   fmtSolesLong,
   fmtSolesShort,
+  montoSymbol,
   fmtFecha,
   displayTitle,
   truncar,
@@ -24,7 +25,10 @@ export async function generateMetadata({
   const monto =
     obra.contract_amount ?? obra.award_amount ?? obra.tender_amount;
   const titulo = displayTitle(obra);
-  const desc = `${obra.buyer_locality ?? "—"} · ${fmtSolesLong(monto)} · ${
+  const desc = `${obra.buyer_locality ?? "—"} · ${fmtSolesLong(
+    monto,
+    obra.country
+  )} · ${
     obra.supplier_name ?? "—"
   }`;
   const ogUrl = `/api/og?ocid=${encodeURIComponent(ocid)}`;
@@ -187,7 +191,7 @@ export default async function ObraPage({
             className="text-[var(--brand)] tabular-nums whitespace-nowrap font-medium"
             style={{ fontFamily: "var(--font-mono), monospace" }}
           >
-            {fmtSolesLong(monto)}
+            {fmtSolesLong(monto, obra.country)}
           </span>{" "}
           a{" "}
           <span className="text-[var(--fg)] font-medium">
@@ -302,17 +306,23 @@ export default async function ObraPage({
           </p>
         </header>
         <div className="grid grid-cols-3 divide-x divide-[var(--rule)]">
-          <Money label="Lo que dijeron" value={obra.tender_amount} />
+          <Money
+            label="Lo que dijeron"
+            value={obra.tender_amount}
+            currency={montoSymbol(obra.country)}
+          />
           <Money
             label="Lo que firmaron"
             value={obra.award_amount}
             delta={deltaAdj}
+            currency={montoSymbol(obra.country)}
           />
           <Money
             label="Lo que costó"
             value={obra.contract_amount}
             accent
             delta={deltaCon}
+            currency={montoSymbol(obra.country)}
           />
         </div>
       </section>
@@ -488,11 +498,13 @@ function Money({
   value,
   delta,
   accent = false,
+  currency = "S/",
 }: {
   label: string;
   value: number | null;
   delta?: number | null;
   accent?: boolean;
+  currency?: string;
 }) {
   const positive = (delta ?? 0) > 0.005;
   return (
@@ -510,7 +522,7 @@ function Money({
         style={{ fontFamily: "var(--font-mono), monospace" }}
       >
         <span className="text-[11.5px] text-[var(--fg-faint)] mr-1.5">
-          S/
+          {currency}
         </span>
         {fmtSolesShort(value)}
       </p>

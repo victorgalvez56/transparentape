@@ -1,7 +1,13 @@
 "use client";
 
 import { Obra, riesgoDeObra } from "@/lib/types";
-import { fmtSolesShort, fmtFecha, displayTitle, truncar } from "@/lib/format";
+import {
+  fmtSolesShort,
+  montoSymbol,
+  fmtFecha,
+  displayTitle,
+  truncar,
+} from "@/lib/format";
 
 interface Props {
   obra: Obra;
@@ -29,7 +35,7 @@ export default function CodexObraDetailInline({ obra, onInvestigar }: Props) {
     obra.contract_amount ?? obra.award_amount ?? obra.tender_amount;
   const tweetText = `${truncar(tituloDisplay, 120)} · ${
     obra.buyer_locality ?? ""
-  } · S/ ${fmtSolesShort(monto)} · Transparentape`;
+  } · ${montoSymbol(obra.country)} ${fmtSolesShort(monto)} · Transparentape`;
   const tweetUrl = `${
     typeof window !== "undefined" ? window.location.origin : ""
   }/obras/${obra.ocid}`;
@@ -130,11 +136,13 @@ export default function CodexObraDetailInline({ obra, onInvestigar }: Props) {
               label="Lo que dijeron"
               value={obra.tender_amount}
               isFirst
+              currency={montoSymbol(obra.country)}
             />
             <MoneyCell
               label="Lo que firmaron"
               value={obra.award_amount}
               delta={deltaAdj}
+              currency={montoSymbol(obra.country)}
             />
             <MoneyCell
               label="Lo que costó"
@@ -142,6 +150,7 @@ export default function CodexObraDetailInline({ obra, onInvestigar }: Props) {
               delta={deltaCon}
               accent
               isLast
+              currency={montoSymbol(obra.country)}
             />
           </div>
         </section>
@@ -408,6 +417,7 @@ function MoneyCell({
   accent = false,
   isFirst = false,
   isLast = false,
+  currency = "S/",
 }: {
   label: string;
   value: number | null;
@@ -415,6 +425,7 @@ function MoneyCell({
   accent?: boolean;
   isFirst?: boolean;
   isLast?: boolean;
+  currency?: string;
 }) {
   const hasDelta = delta != null;
   const positive = (delta ?? 0) > 0.005;
@@ -445,7 +456,7 @@ function MoneyCell({
           className="text-[9px] mr-0.5"
           style={{ color: "var(--cx-faint)" }}
         >
-          S/
+          {currency}
         </span>
         {fmtSolesShort(value)}
       </p>
