@@ -270,8 +270,11 @@ export function parseIntent(text: string, sessionCountry: Country): ParsedIntent
   // High-confidence trigger checked BEFORE BUSCAR_OBRAS because "obras
   // retrasadas" would otherwise match the generic obras keyword and
   // return a top-5 by alertas+monto with no delay filter.
+  // Triggers both ADJECTIVE forms (retrasada/atrasada/etc.) and NOUN
+  // forms (retraso/atraso/demora) — common in questions like "qué
+  // retrasos hay" or "cuánto atraso tiene".
   if (
-    /\b(retrasad[oa]s?|atrasad[oa]s?|estancad[oa]s?|paralizad[oa]s?|demorad[oa]s?|fuera\s+de\s+plazo|sin\s+avance|excesivos?\s+retrasos?|retrasos?\s+excesivos?|que\s+(no\s+)?(avanzan|terminan)|sobre\s+plazo|fuera\s+de\s+cronograma)\b/i.test(
+    /\b(retrasad[oa]s?|atrasad[oa]s?|estancad[oa]s?|paralizad[oa]s?|demorad[oa]s?|retrasos?|atrasos?|demoras?|fuera\s+de\s+plazo|sin\s+avance|excesivos?\s+retrasos?|retrasos?\s+excesivos?|que\s+(no\s+)?(avanzan|terminan)|sobre\s+plazo|fuera\s+de\s+cronograma|cumplen\s+(con\s+)?(el\s+)?(plazo|cronograma|fecha)|incumplimiento\s+de\s+plazo)\b/i.test(
       tn
     )
   ) {

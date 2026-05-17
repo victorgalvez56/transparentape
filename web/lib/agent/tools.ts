@@ -239,7 +239,7 @@ export const TOOLS: Tool[] = [
   {
     name: "obras_retrasadas",
     description:
-      "Obras con retraso excesivo vs cronograma. Triggers naturales: 'retrasadas', 'atrasadas', 'estancadas', 'paralizadas', 'demoradas', 'fuera de plazo', 'sin avance', 'que no avanzan', 'que no terminan', 'sobre plazo', 'fuera de cronograma', 'cuánto se atrasaron', 'cumplen con la fecha'. Define 'excesivo' como >180 días tarde, o 3+ adendas de plazo, o cierre >365 días tarde. Cobertura limitada (~165 obras con datos INFOBRAS). Acepta `q` para acotar región y `year` para acotar año del registro.",
+      "USA ESTE TOOL cuando el usuario pregunta sobre retrasos, atrasos, demoras, paralizaciones, estancamientos o incumplimientos de plazo en obras públicas. Acepta tanto formas adjetivas ('obras retrasadas', 'obras atrasadas', 'obras paralizadas', 'obras estancadas', 'obras demoradas') como SUSTANTIVAS ('qué retrasos hay', 'cuánto atraso tiene', 'qué demoras', 'cuántas obras incumplen plazo'). También cuando pregunten 'que obras no cumplen el cronograma', 'cuánto se atrasaron', 'fuera de plazo', 'sobre plazo', 'sin avance', 'qué no avanza', 'qué no termina'. Define 'excesivo' como >180 días tarde vs cronograma, o 3+ adendas de plazo, o cierre >365 días después de la fecha programada. IMPORTANTE: Cobertura limitada (~165 obras con datos INFOBRAS, no las 70K totales). Acepta `q` para acotar región/ciudad y `year` para acotar año.",
     parameters: {
       q: "string opcional — región/provincia/distrito para acotar",
       year: "número opcional — año del registro (ej: 2024)",
