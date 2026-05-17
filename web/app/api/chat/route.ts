@@ -3,16 +3,19 @@ import { runChatPipeline, type ChatMessage } from "@/lib/agent/core";
 import { TOOLS } from "@/lib/agent/tools";
 import type { Country } from "@/lib/agent-kapso/queries";
 import { warmPlaceCache } from "@/lib/agent-kapso/places";
+import { warmCompanyCache } from "@/lib/agent-kapso/companies";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
-// Kick off the DB-backed place index warm before the first request lands.
-// Module evaluation happens once per cold-start; the warm itself is
-// fire-and-forget so it doesn't block the route handler. Subsequent
-// requests find the cache populated and classifyQuery resolves localities
-// across every country present in `obras` without any allowlist.
+// Kick off the DB-backed caches before the first request lands. Module
+// evaluation happens once per cold-start; both warms are fire-and-forget
+// so they don't block the route handler. Place index resolves localities
+// across every country in `obras`; company cache gates the empresa
+// allowlist used by adaptive fallback so the LLM stops hallucinating
+// contractors that aren't in the DB.
 void warmPlaceCache();
+void warmCompanyCache();
 
 function pickCountry(v: unknown): Country {
   if (typeof v === "string" && /^[A-Za-z]{2}$/.test(v.trim())) {

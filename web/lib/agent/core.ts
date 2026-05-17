@@ -3,6 +3,11 @@ import { query } from "@/lib/db";
 import type { Tool, ToolContext } from "./tools";
 import { parseIntent, type ParsedIntent } from "@/lib/agent-kapso/intent";
 import { findPlaceInIndex } from "@/lib/agent-kapso/places";
+import {
+  allowlistEmpresas,
+  allowlistEntidades,
+  topInhabilitadosVigentes,
+} from "@/lib/agent-kapso/companies";
 
 let _groq: Groq | null = null;
 function getGroq() {
@@ -143,7 +148,7 @@ Transforma los datos JSON en una respuesta digerida bajo estas restricciones:
 // prompt with the chat history and an error reason. The LLM emits a reply
 // and 3 user-perspective suggestions tailored to the user's last topic, so
 // the recovery message stays contextual instead of generic.
-const SYSTEM_PROMPT_FALLBACK_QUESTIONS = `Eres un asistente de UX para un agente de obras públicas de Latinoamérica.
+const SYSTEM_PROMPT_FALLBACK_QUESTIONS_BASE = `Eres un asistente de UX para un agente de obras públicas de Latinoamérica.
 Ocurrió un problema (no se encontraron datos, error técnico, o consulta inválida).
 Tu tarea es generar un mensaje amable explicando el problema y 3 preguntas sugeridas basándote en el historial, para ayudar al usuario a reformular.
 Responde ÚNICAMENTE con un JSON válido:
@@ -154,9 +159,33 @@ Responde ÚNICAMENTE con un JSON válido:
 
 Restricciones para "suggested_questions":
 1. UX de Autocompletado (CRÍTICO): Las sugerencias son ejemplos de lo que el USUARIO podría escribir, NO preguntas que el bot le hace al usuario. CORRECTO: "¿Cuáles son las obras con más presupuesto en Piura?". PROHIBIDO: "¿Quieres saber sobre obras?", "¿Te ayudo con algo?".
-2. Conciencia de Contexto y Guardrail: Si el usuario estaba hablando de una región/sector válido, mantén ese contexto pero cambia el ángulo (otro sector, otro año, otra acción). Si salió de tema, ignora y vuelve al último tema válido. NUNCA adaptes sugerencias a un tema fuera de contexto.
+2. Conciencia de Contexto y Guardrail: Si el usuario estaba hablando de una región/sector válido, mantén ese contexto pero cambia el ángulo (otra acción, otro año, otra empresa de la lista permitida). Si salió de tema, ignora y vuelve al último tema válido. NUNCA adaptes sugerencias a un tema fuera de contexto.
 3. Seguridad: Sugerencias específicas y filtradas. NUNCA pidas todos los datos sin filtro.
-4. PROHIBIDO MENCIONAR EMPRESAS: NUNCA inventes ni menciones nombres de empresas, contratistas o RUCs específicos (ej: NO digas "investigar Odebrecht", "Cosapi", "Graña y Montero", etc.). Solo el usuario sabe qué empresas le importan; si el usuario no nombró una empresa explícitamente en mensajes previos, no la sugieras. Las sugerencias deben usar acciones genéricas: "ranking de contratistas", "obras con alertas", "obras retrasadas en [región]", "qué obras tienen más presupuesto en [región]".`;
+4. ALLOWLIST DE EMPRESAS/ENTIDADES (CRÍTICO): Si quieres sugerir investigar/buscar una empresa o entidad específica, USA SOLO nombres de la lista provista al final del prompt. NUNCA inventes nombres ni uses empresas famosas que no aparezcan en la lista (ej: NO Odebrecht, NO Cosapi, NO Graña y Montero si no están listadas). Si la lista está vacía, usa acciones genéricas: "ranking de contratistas", "obras con alertas", "inhabilitados con contratos vigentes".`;
+
+// Build the per-request prompt: append the country-specific empresa
+// allowlist so the LLM can name only real DB entries. When the cache is
+// cold the lists arrive empty, and the prompt explicitly tells the model
+// to fall back to generic actions.
+function fallbackPromptFor(country: string): string {
+  const empresas = allowlistEmpresas(country).slice(0, 10);
+  const entidades = allowlistEntidades(country).slice(0, 6);
+  const inhab = topInhabilitadosVigentes(country, 4).map((c) => c.name);
+  const lines: string[] = [];
+  if (empresas.length) {
+    lines.push(`\nCONTRATISTAS REALES (puedes nombrar SOLO estos): ${empresas.join(" · ")}`);
+  }
+  if (inhab.length) {
+    lines.push(`CONTRATISTAS SANCIONADOS CON CONTRATOS ACTIVOS (puedes nombrar): ${inhab.join(" · ")}`);
+  }
+  if (entidades.length) {
+    lines.push(`ENTIDADES COMPRADORAS REALES: ${entidades.join(" · ")}`);
+  }
+  if (!lines.length) {
+    return SYSTEM_PROMPT_FALLBACK_QUESTIONS_BASE + `\n\nLISTA DE EMPRESAS: (vacía — usa solo acciones genéricas, no inventes nombres)`;
+  }
+  return SYSTEM_PROMPT_FALLBACK_QUESTIONS_BASE + "\n" + lines.join("\n");
+}
 
 const DANGEROUS_SQL = /\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|GRANT|REVOKE|EXEC|EXECUTE|COPY|VACUUM|ANALYZE)\b/i;
 
@@ -218,20 +247,27 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   ]);
 }
 
-export function generateFallbackQuestions(history?: ChatMessage[]): string[] {
+export function generateFallbackQuestions(history?: ChatMessage[], country = "PE"): string[] {
   const region = history ? extractRegionHint(history) : undefined;
+  // Pull a real, currently-active sanctioned contractor from the cache
+  // when we can — turns the generic "¿Ranking de contratistas?" into a
+  // specific click ("¿Investigar ESCALANTE GRANDA RICHARD?") that the
+  // agent can actually answer because the row is in the DB.
+  const inhab = topInhabilitadosVigentes(country, 1)[0]?.name;
   if (region) {
     const cap = region.charAt(0).toUpperCase() + region.slice(1);
     return [
-      `¿Qué obras hay en ${cap}?`,
-      `¿Ranking de contratistas en ${cap}?`,
-      `¿Obras con alertas en ${cap}?`,
+      `Obras con alertas en ${cap}`,
+      inhab
+        ? `Investigar ${inhab}`
+        : `Ranking de contratistas en ${cap}`,
+      `Obras retrasadas en ${cap}`,
     ];
   }
   return [
-    "¿Qué obras hay en Lima?",
-    "¿Cuáles son las obras con mayor presupuesto?",
-    "¿Qué obras tienen alertas de riesgo?",
+    "Obras retrasadas en Lima",
+    inhab ? `Investigar ${inhab}` : "Inhabilitados con contratos vigentes",
+    "Ranking de contratistas",
   ];
 }
 
@@ -250,7 +286,8 @@ interface FallbackResult {
 // itself fails, falls back to the regex-based static helper.
 async function adaptiveFallback(
   history: ChatMessage[],
-  reason: FallbackReason
+  reason: FallbackReason,
+  country = "PE"
 ): Promise<FallbackResult> {
   const reasonMsg =
     reason === "no_results"
@@ -262,7 +299,7 @@ async function adaptiveFallback(
     const res = await withTimeout(
       getGroq().chat.completions.create({
         messages: [
-          { role: "system", content: SYSTEM_PROMPT_FALLBACK_QUESTIONS },
+          { role: "system", content: fallbackPromptFor(country) },
           ...normalizeHistory(history),
           {
             role: "user",
@@ -345,6 +382,18 @@ function intentToTool(
       if (!q) return null;
       return { tool: "investigar_contratista", args: { q } };
     }
+    case "STREETVIEW_OBRA": {
+      // On web there's no session memory of lastResultIds yet, so the
+      // fast-path is only useful when the user spelled out an explicit id.
+      // Anything else falls through to PREGUNTA_LIBRE → LLM router, which
+      // can read chat history and pick the right id from prior tool output.
+      if (!p.obraId) return null;
+      return { tool: "streetview_obra", args: { id: p.obraId } };
+    }
+    case "ANALIZAR_OBRA": {
+      if (!p.obraId) return null;
+      return { tool: "analizar_obra", args: { id: p.obraId } };
+    }
     default:
       return null;
   }
@@ -359,7 +408,7 @@ export async function runChatPipeline(
     return {
       reply: "Mensaje vacío. Pregunta por obras en una región o año.",
       intent: "NEEDS_CLARIFICATION",
-      suggested_questions: generateFallbackQuestions(chatHistory),
+      suggested_questions: generateFallbackQuestions(chatHistory, options.toolContext?.country ?? "PE"),
     };
   }
 
@@ -452,7 +501,7 @@ export async function runChatPipeline(
   if (intent === "NEEDS_CLARIFICATION") {
     return {
       reply: replyFromRouter || "Por favor sé un poco más específico para poder ayudarte. Aquí tienes algunas opciones sugeridas:",
-      suggested_questions: suggested?.length ? suggested : generateFallbackQuestions(),
+      suggested_questions: suggested?.length ? suggested : generateFallbackQuestions(chatHistory, options.toolContext?.country ?? "PE"),
       intent,
     };
   }
@@ -480,7 +529,7 @@ export async function runChatPipeline(
           "args:",
           JSON.stringify(toolArgs)
         );
-        const fb = await adaptiveFallback(chatHistory, "error");
+        const fb = await adaptiveFallback(chatHistory, "error", options.toolContext?.country ?? "PE");
         return {
           reply: fb.reply,
           intent: "NEEDS_CLARIFICATION",
@@ -502,7 +551,7 @@ export async function runChatPipeline(
       (m) => m.role === "assistant" || m.role === "bot"
     );
     if (!hasAssistantHistory) {
-      const fb = await adaptiveFallback(chatHistory, "invalid_sql");
+      const fb = await adaptiveFallback(chatHistory, "invalid_sql", options.toolContext?.country ?? "PE");
       return {
         reply: fb.reply,
         intent: "NEEDS_CLARIFICATION",
@@ -525,7 +574,7 @@ export async function runChatPipeline(
         intent,
       };
     } catch {
-      const fb = await adaptiveFallback(chatHistory, "error");
+      const fb = await adaptiveFallback(chatHistory, "error", options.toolContext?.country ?? "PE");
       return {
         reply: fb.reply,
         intent: "NEEDS_CLARIFICATION",
@@ -553,7 +602,7 @@ export async function runChatPipeline(
       .replace(/```$/, "")
       .trim();
   } catch {
-    const fb = await adaptiveFallback(chatHistory, "error");
+    const fb = await adaptiveFallback(chatHistory, "error", options.toolContext?.country ?? "PE");
     return {
       reply: fb.reply,
       intent: "NEEDS_CLARIFICATION",
@@ -562,7 +611,7 @@ export async function runChatPipeline(
   }
 
   if (!isValidSelectQuery(sqlQuery)) {
-    const fb = await adaptiveFallback(chatHistory, "invalid_sql");
+    const fb = await adaptiveFallback(chatHistory, "invalid_sql", options.toolContext?.country ?? "PE");
     return {
       reply: fb.reply,
       intent: "NEEDS_CLARIFICATION",
@@ -575,7 +624,7 @@ export async function runChatPipeline(
   try {
     dbResults = await query(execSql);
   } catch {
-    const fb = await adaptiveFallback(chatHistory, "error");
+    const fb = await adaptiveFallback(chatHistory, "error", options.toolContext?.country ?? "PE");
     return {
       reply: fb.reply,
       intent: "NEEDS_CLARIFICATION",
@@ -585,7 +634,7 @@ export async function runChatPipeline(
   }
 
   if (dbResults.length === 0) {
-    const fb = await adaptiveFallback(chatHistory, "no_results");
+    const fb = await adaptiveFallback(chatHistory, "no_results", options.toolContext?.country ?? "PE");
     return {
       reply: fb.reply,
       suggested_questions: fb.suggested_questions,
@@ -614,7 +663,7 @@ export async function runChatPipeline(
     );
     synthesis = synthesisRes.choices[0]?.message?.content?.trim() ?? "Sin respuesta.";
   } catch {
-    const fb = await adaptiveFallback(chatHistory, "error");
+    const fb = await adaptiveFallback(chatHistory, "error", options.toolContext?.country ?? "PE");
     return {
       reply: fb.reply,
       suggested_questions: fb.suggested_questions,
