@@ -5,6 +5,8 @@ import { Canvas } from "@react-three/fiber";
 import * as THREE from "three";
 import { OrbitControls } from "@react-three/drei";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
+import { XR, createXRStore, useXR, XROrigin } from "@react-three/xr";
+import VRSessionButton from "./VRSessionButton";
 import ColumnaForest from "./ColumnaForest";
 import Skybox from "./Skybox";
 import Globe from "./Globe";
@@ -20,6 +22,33 @@ import {
   getNormal,
 } from "@/lib/vr/sphere-projection";
 import { CITY_PRESETS, cameraForPreset } from "@/lib/vr/city-presets";
+
+// WebXR store — creado una vez. /vr ahora abre sesión inmersiva real,
+// detectable por headsets (Quest, Vision Pro, …), no sólo una página web.
+const xrStore = createXRStore();
+
+/** OrbitControls de desktop — se desactiva al entrar en sesión XR. */
+function OrbitGate({
+  controlsRef,
+  target,
+}: {
+  controlsRef: React.RefObject<OrbitControlsImpl | null>;
+  target: [number, number, number];
+}) {
+  const inXR = useXR((s) => Boolean(s.session));
+  return (
+    <OrbitControls
+      ref={controlsRef}
+      target={target}
+      enabled={!inXR}
+      minDistance={GLOBE_RADIUS + 1.5}
+      maxDistance={GLOBE_RADIUS * 6}
+      enablePan={false}
+      enableDamping
+      dampingFactor={0.06}
+    />
+  );
+}
 
 export default function AuditRoom() {
   const [contextLost, setContextLost] = useState(false);
@@ -146,6 +175,7 @@ export default function AuditRoom() {
         onToggleTour={() => setTourPlaying((v) => !v)}
       />
       <ContextLostBanner visible={contextLost} />
+      <VRSessionButton store={xrStore} />
       <Canvas
         camera={{
           position: initialCam.position,
@@ -155,30 +185,26 @@ export default function AuditRoom() {
         }}
         gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.2 }}
       >
-        <Skybox />
-        <ambientLight intensity={0.5} />
-        <directionalLight position={[80, 60, 40]} intensity={1.4} />
-        <directionalLight position={[-40, -20, -60]} intensity={0.15} color="#1a3a6e" />
-        <Globe />
-        <RedFlagPulses />
-        <ColumnaForest
-          onlyRedFlag={onlyRedFlag}
-          yearFilter={yearFilter}
-          onPointerOver={(id) => setHovered(id)}
-          onPointerOut={() => setHovered(null)}
-          onSelect={handleSelectObra}
-        />
-        <OrbitControls
-          ref={controlsRef}
-          target={initialCam.target}
-          minDistance={GLOBE_RADIUS + 1.5}
-          maxDistance={GLOBE_RADIUS * 6}
-          enablePan={false}
-          enableDamping
-          dampingFactor={0.06}
-        />
-        <CameraController flyTo={flyTo} controlsRef={controlsRef} />
-        <ContextLostListener onLost={() => setContextLost(true)} />
+        <XR store={xrStore}>
+          <Skybox />
+          <ambientLight intensity={0.5} />
+          <directionalLight position={[80, 60, 40]} intensity={1.4} />
+          <directionalLight position={[-40, -20, -60]} intensity={0.15} color="#1a3a6e" />
+          <Globe />
+          <RedFlagPulses />
+          <ColumnaForest
+            onlyRedFlag={onlyRedFlag}
+            yearFilter={yearFilter}
+            onPointerOver={(id) => setHovered(id)}
+            onPointerOut={() => setHovered(null)}
+            onSelect={handleSelectObra}
+          />
+          {/* Posición del jugador en sesión inmersiva — frente al globo */}
+          <XROrigin position={initialCam.position} />
+          <OrbitGate controlsRef={controlsRef} target={initialCam.target} />
+          <CameraController flyTo={flyTo} controlsRef={controlsRef} />
+          <ContextLostListener onLost={() => setContextLost(true)} />
+        </XR>
       </Canvas>
     </>
   );
