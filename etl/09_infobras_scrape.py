@@ -413,8 +413,14 @@ def discover_ids_from_db(probe_limit: int | None = None) -> list[int]:
         print("Tip: save results to a CSV with --save-ids and use --batch next time",
               file=sys.stderr)
 
+    # Persist probe state inside the repo (etl/data/) so a session/machine
+    # restart resumes instead of losing hours of probing (was /tmp, which
+    # gets wiped on restart).
+    _STATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+    os.makedirs(_STATE_DIR, exist_ok=True)
+
     # Load already-found IDs to resume from a partial run
-    save_ids_path = "/tmp/infobras_ids_partial.csv"
+    save_ids_path = os.path.join(_STATE_DIR, "infobras_ids_partial.csv")
     ids: list[int] = []
     already_done: set[int] = set()
     if os.path.exists(save_ids_path):
@@ -427,7 +433,8 @@ def discover_ids_from_db(probe_limit: int | None = None) -> list[int]:
         # Also load already-probed IDs range so we can skip them
         pass  # We'll skip based on a checkpoint file
 
-    checkpoint_path = "/tmp/infobras_probe_checkpoint.txt"
+    checkpoint_path = os.path.join(_STATE_DIR, "infobras_probe_checkpoint.txt")
+    log_path = os.path.join(_STATE_DIR, "infobras_probe.log")
     resume_from = PROBE_START
     if os.path.exists(checkpoint_path):
         try:
@@ -471,7 +478,7 @@ def discover_ids_from_db(probe_limit: int | None = None) -> list[int]:
                 try:
                     with open(checkpoint_path, "w") as _cf:
                         _cf.write(str(PROBE_START + done))
-                    with open("/tmp/infobras_probe.log", "a") as _lf:
+                    with open(log_path, "a") as _lf:
                         _lf.write(line + "\n")
                         _lf.flush()
                 except Exception:
