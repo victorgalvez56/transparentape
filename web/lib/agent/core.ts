@@ -102,7 +102,8 @@ Reglas de Consulta:
 4. Ordena SIEMPRE por relevancia económica (ORDER BY contract_amount DESC NULLS LAST) y limita estrictamente usando LIMIT 3 o LIMIT 5, a menos que busquen una obra específica.
 5. Genera consultas SQL de SOLO LECTURA (SELECT).
 6. DEVUELVE ÚNICAMENTE LA CONSULTA SQL VÁLIDA. No incluyas markdown (\`\`\`), saludos ni explicaciones.
-7. CRÍTICO: Cuando el usuario use posiciones ordinales ("el primero", "la segunda", "del tercero"), busca en el mensaje anterior del asistente, extrae el nombre exacto de esa obra, y usa palabras clave con un filtro holgado usando ILIKE (ej: WHERE tender_description ILIKE '%CONECCIONES%'). Usa siempre % alrededor de cada palabra clave para tolerar errores tipográficos de la BD.`;
+7. CRÍTICO: Cuando el usuario use posiciones ordinales ("el primero", "la segunda", "del tercero"), busca en el mensaje anterior del asistente, extrae el nombre exacto de esa obra, y usa palabras clave con un filtro holgado usando ILIKE (ej: WHERE tender_description ILIKE '%CONECCIONES%'). Usa siempre % alrededor de cada palabra clave para tolerar errores tipográficos de la BD.
+8. CARRY-FORWARD: Si el turno anterior del usuario filtró por región/provincia/distrito o año y el mensaje actual NO menciona una geografía o año distintos, MANTÉN ese filtro en la nueva consulta (ej: turno previo "obras en Piura" → "ranking de contratistas" debe filtrar buyer_region ILIKE '%piura%'). Solo descártalo si el usuario dice explícitamente "en todo el país", "nacional", "en general", o nombra otra región.`;
 
 const SYSTEM_PROMPT_SYNTHESIS = `[PASO 2: SÍNTESIS ULTRA CORTA]
 Transforma los datos JSON en una respuesta digerida bajo estas restricciones:
@@ -113,11 +114,29 @@ Transforma los datos JSON en una respuesta digerida bajo estas restricciones:
 const DANGEROUS_SQL = /\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|GRANT|REVOKE|EXEC|EXECUTE|COPY|VACUUM|ANALYZE)\b/i;
 
 function isValidSelectQuery(sql: string): boolean {
-  const trimmed = sql.trim();
+  let trimmed = sql.trim();
+  if (trimmed.endsWith(";")) trimmed = trimmed.slice(0, -1).trim();
   if (!trimmed.toUpperCase().startsWith("SELECT")) return false;
   if (trimmed.includes(";")) return false;
   if (DANGEROUS_SQL.test(trimmed)) return false;
   return true;
+}
+
+function stripTrailingSemicolon(sql: string): string {
+  const t = sql.trim();
+  return t.endsWith(";") ? t.slice(0, -1).trim() : t;
+}
+
+const REGION_HINT_RE = /\b(piura|lima|cusco|arequipa|trujillo|chiclayo|iquitos|ica|tacna|puno|huancayo|callao|ayacucho|cajamarca|huánuco|huanuco|junín|junin|loreto|madre de dios|moquegua|pasco|san martín|san martin|tumbes|ucayali|amazonas|apurímac|apurimac|áncash|ancash|huancavelica|lambayeque|la libertad|santiago|valparaíso|valparaiso|antofagasta|concepción|concepcion|bogotá|bogota|medellín|medellin|cali|barranquilla)\b/i;
+
+function extractRegionHint(history: ChatMessage[]): string | undefined {
+  for (let i = history.length - 1; i >= 0; i--) {
+    const m = history[i];
+    if (m.role !== "user") continue;
+    const hit = m.content.match(REGION_HINT_RE);
+    if (hit) return hit[1];
+  }
+  return undefined;
 }
 
 function normalizeHistory(history: ChatMessage[]): Array<{ role: "user" | "assistant" | "system"; content: string }> {
@@ -136,7 +155,16 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   ]);
 }
 
-export function generateFallbackQuestions(): string[] {
+export function generateFallbackQuestions(history?: ChatMessage[]): string[] {
+  const region = history ? extractRegionHint(history) : undefined;
+  if (region) {
+    const cap = region.charAt(0).toUpperCase() + region.slice(1);
+    return [
+      `¿Qué obras hay en ${cap}?`,
+      `¿Ranking de contratistas en ${cap}?`,
+      `¿Obras con alertas en ${cap}?`,
+    ];
+  }
   return [
     "¿Qué obras hay en Lima?",
     "¿Cuáles son las obras con mayor presupuesto?",
@@ -153,7 +181,7 @@ export async function runChatPipeline(
     return {
       reply: "Mensaje vacío. Pregunta por obras en una región o año.",
       intent: "NEEDS_CLARIFICATION",
-      suggested_questions: generateFallbackQuestions(),
+      suggested_questions: generateFallbackQuestions(chatHistory),
     };
   }
 
@@ -220,7 +248,7 @@ export async function runChatPipeline(
         return {
           reply: "Hubo un problema procesando esa consulta. Intenta reformularla.",
           intent: "NEEDS_CLARIFICATION",
-          suggested_questions: generateFallbackQuestions(),
+          suggested_questions: generateFallbackQuestions(chatHistory),
         };
       }
     }
@@ -249,7 +277,7 @@ export async function runChatPipeline(
       return {
         reply: "No pude procesar la pregunta de contexto. Intenta reformularla.",
         intent: "NEEDS_CLARIFICATION",
-        suggested_questions: generateFallbackQuestions(),
+        suggested_questions: generateFallbackQuestions(chatHistory),
       };
     }
   }
@@ -276,7 +304,7 @@ export async function runChatPipeline(
     return {
       reply: "El generador SQL tardó demasiado. Intenta una consulta más específica.",
       intent: "NEEDS_CLARIFICATION",
-      suggested_questions: generateFallbackQuestions(),
+      suggested_questions: generateFallbackQuestions(chatHistory),
     };
   }
 
@@ -284,18 +312,19 @@ export async function runChatPipeline(
     return {
       reply: "No pude generar una consulta válida.",
       intent: "NEEDS_CLARIFICATION",
-      suggested_questions: generateFallbackQuestions(),
+      suggested_questions: generateFallbackQuestions(chatHistory),
     };
   }
 
+  const execSql = stripTrailingSemicolon(sqlQuery);
   let dbResults: unknown[] = [];
   try {
-    dbResults = await query(sqlQuery);
+    dbResults = await query(execSql);
   } catch {
     return {
       reply: "Hubo un error al consultar la base de datos de obras.",
       intent: "NEEDS_CLARIFICATION",
-      suggested_questions: generateFallbackQuestions(),
+      suggested_questions: generateFallbackQuestions(chatHistory),
       sql: sqlQuery,
     };
   }

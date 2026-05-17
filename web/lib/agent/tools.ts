@@ -127,14 +127,17 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "ranking_contratistas",
-    description: "Top contratistas por monto total adjudicado o por número de alertas de riesgo.",
+    description:
+      "Top contratistas por monto total adjudicado o por número de alertas de riesgo. Si el usuario pidió una región/provincia previamente, pasa `q` para filtrar el ranking geográficamente.",
     parameters: {
       por: "string opcional — 'monto' (default) o 'alertas'",
+      q: "string opcional — región/provincia/distrito para limitar el ranking (ej: 'Piura')",
     },
     async run(args, ctx) {
       const por = (asString(args.por) === "alertas" ? "alertas" : "monto") as "monto" | "alertas";
-      const data = await rankingContratistas(ctx.country, por, 5);
-      return { data, formatted: fmtRankingContratistas(data, ctx.country) };
+      const q = asString(args.q);
+      const data = await rankingContratistas(ctx.country, por, 5, q);
+      return { data, formatted: fmtRankingContratistas(data, ctx.country, q) };
     },
   },
   {

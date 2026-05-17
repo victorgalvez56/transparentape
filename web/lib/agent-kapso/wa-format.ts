@@ -158,10 +158,15 @@ export function fmtStats(s: {
   );
 }
 
-export function fmtRankingContratistas(list: ContratistaStat[], country: string): string {
-  if (!list.length) return "No hay contratistas con datos suficientes.";
+export function fmtRankingContratistas(list: ContratistaStat[], country: string, q?: string): string {
+  if (!list.length) {
+    return q
+      ? `No hay contratistas con datos suficientes en ${q}.`
+      : "No hay contratistas con datos suficientes.";
+  }
   const nation = COUNTRY_NAMES[country] ?? country;
-  const lines = [`🏆 *Top contratistas en ${nation}:*\n`];
+  const scope = q?.trim() ? `${q} (${nation})` : nation;
+  const lines = [`🏆 *Top contratistas en ${scope}:*\n`];
   list.forEach((c, i) => {
     lines.push(
       `${i + 1}. *${c.supplier_name ?? "—"}*${c.tiene_alerta ? " ⚠️" : ""}\n` +

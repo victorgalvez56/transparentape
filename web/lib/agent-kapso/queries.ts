@@ -139,8 +139,15 @@ export async function yearsDisponibles(country: Country): Promise<number[]> {
 export async function rankingContratistas(
   country: Country,
   por: "monto" | "alertas",
-  limit = 5
+  limit = 5,
+  q?: string
 ): Promise<ContratistaStat[]> {
+  const geo = q?.trim();
+  const geoClause = geo
+    ? ` AND (buyer_region ILIKE $3 OR buyer_locality ILIKE $3)`
+    : ``;
+  const params: unknown[] = geo ? [country, limit, `%${geo}%`] : [country, limit];
+
   if (por === "alertas") {
     return query<ContratistaStat>(
       `SELECT supplier_name, supplier_ruc,
@@ -148,11 +155,11 @@ export async function rankingContratistas(
               ROUND(SUM(COALESCE(contract_amount, award_amount, tender_amount))) AS monto_total,
               TRUE AS tiene_alerta
        FROM obras
-       WHERE country = $1 AND is_red_flag = TRUE AND supplier_name IS NOT NULL
+       WHERE country = $1 AND is_red_flag = TRUE AND supplier_name IS NOT NULL${geoClause}
        GROUP BY supplier_name, supplier_ruc
        ORDER BY obras DESC
        LIMIT $2`,
-      [country, limit]
+      params
     );
   }
   return query<ContratistaStat>(
@@ -162,11 +169,11 @@ export async function rankingContratistas(
             BOOL_OR(is_red_flag) AS tiene_alerta
      FROM obras
      WHERE country = $1 AND supplier_name IS NOT NULL AND
-           COALESCE(contract_amount, award_amount, tender_amount) IS NOT NULL
+           COALESCE(contract_amount, award_amount, tender_amount) IS NOT NULL${geoClause}
      GROUP BY supplier_name, supplier_ruc
      ORDER BY monto_total DESC NULLS LAST
      LIMIT $2`,
-    [country, limit]
+    params
   );
 }
 
