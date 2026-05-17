@@ -6,6 +6,7 @@ import { Obra } from "@/lib/types";
 import {
   CountryView,
   DEFAULT_COUNTRY,
+  PE_CL_VIEW,
   availableCountriesWithCount,
   getCountryView,
 } from "@/lib/countries";
@@ -179,9 +180,18 @@ export default function HomePage() {
         />
       )}
 
+      {/*
+       * Globe centered block estilo codex-globe:
+       * - Top 104px = bajo topbar + country chips
+       * - Right 28rem (max-w-md sidebar) cuando view=globe, 0 cuando view=list
+       * - Bottom 0
+       * El globo respira con margen en lugar de ser full-bleed.
+       */}
       <div
-        className={`absolute inset-0 transition-opacity duration-300 ${
-          view === "globe" ? "opacity-100" : "opacity-0 pointer-events-none"
+        className={`absolute top-[104px] bottom-0 left-0 transition-opacity duration-300 ${
+          view === "globe"
+            ? "opacity-100 md:right-[28rem] right-0"
+            : "opacity-0 right-0 pointer-events-none"
         }`}
       >
         <MapGlobe
@@ -190,10 +200,9 @@ export default function HomePage() {
           selectedId={selected?.id ?? null}
           onSelect={setSelected}
           flyToCountry={
-            // Solo volar al pais del user cuando entramos a fase "country".
-            // Durante "global" la camara se queda en vista mundial (1.5s pausa).
+            // Vista inicial: Perú-Chile combinada (codex-style regional view).
             // Si el user clickea un chip (flyTarget), siempre prevalece.
-            flyTarget ?? (mapPhase === "country" ? userCountry : null)
+            flyTarget ?? (mapPhase === "country" ? PE_CL_VIEW : null)
           }
           onViewChange={setRegionLabel}
         />

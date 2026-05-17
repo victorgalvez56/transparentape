@@ -37,6 +37,18 @@ const COUNTRIES: Record<string, CountryView> = {
 
 export const DEFAULT_COUNTRY: CountryView = COUNTRIES.PE;
 
+/**
+ * Vista regional Perú-Chile combinada — los dos países con presencia
+ * fuerte de datos OCDS. Sirve como vista inicial estilo codex-globe
+ * antes de que el usuario seleccione un país específico.
+ */
+export const PE_CL_VIEW: CountryView = {
+  code: "PE_CL",
+  name: "Perú · Chile",
+  center: [-74, -22],
+  zoom: 3.2,
+};
+
 export const ALL_COUNTRIES: CountryView[] = Object.values(COUNTRIES);
 
 export function getCountryView(code: string | null | undefined): CountryView {

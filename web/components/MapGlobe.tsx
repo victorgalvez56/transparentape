@@ -37,15 +37,16 @@ function getMapStyle(theme: "light" | "dark"): string {
 }
 
 /**
- * Devuelve padding para encuadrar el área visible — excluye sidebar derecha
- * (~448px en >=md, 0 en mobile) y deja espacio arriba para el HUD.
+ * Padding para encuadrar el área visible.
+ * Antes restaba ~448px en >=md por el sidebar overlay. Ahora el sidebar
+ * vive FUERA del canvas (el container del globo lo excluye con right:28rem),
+ * asi que solo dejamos un padding suave de 40px para respiracion visual.
  */
 function getMapPadding() {
   if (typeof window === "undefined") {
     return { top: 0, bottom: 0, left: 0, right: 0 };
   }
-  const sidebar = window.innerWidth >= 768 ? 448 : 0;
-  return { top: 80, bottom: 40, left: 40, right: sidebar };
+  return { top: 40, bottom: 40, left: 40, right: 40 };
 }
 
 /**
@@ -61,23 +62,10 @@ function getMarkerFlyToPadding() {
   if (typeof window === "undefined") {
     return { top: 0, bottom: 0, left: 0, right: 0 };
   }
-  const w = window.innerWidth;
-  if (w < 768) {
-    return { top: 80, bottom: 40, left: 20, right: 20 };
-  }
-  // El panel detalle está en bottom-LEFT, no bloquea verticalmente la zona
-  // a su derecha. Por eso el padding bottom es solo un margen mínimo:
-  // el centro vertical del área visible queda alineado con el centro
-  // del viewport (no en el top como antes).
-  const sidebarW = 448;
-  const panelLeft = 24;
-  const panelWidth = 560;
-  return {
-    top: 80, // HUD
-    right: sidebarW + 40, // sidebar + margen
-    left: panelLeft + panelWidth + 40, // hasta el final del panel + margen
-    bottom: 60, // solo margen del bottom edge (panel está a la izquierda)
-  };
+  // Codex layout: sidebar excluido del canvas via container, y el detalle
+  // ahora vive DENTRO del sidebar (navigation stack), no flota a la izquierda.
+  // Padding simple, solo respiracion visual.
+  return { top: 60, bottom: 60, left: 40, right: 40 };
 }
 
 function toFeatureCollection(obras: Obra[]): GeoJSON.FeatureCollection {
