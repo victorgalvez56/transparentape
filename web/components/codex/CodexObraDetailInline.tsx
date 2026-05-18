@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Obra, riesgoDeObra } from "@/lib/types";
 import {
   fmtSolesShort,
@@ -14,6 +15,22 @@ interface Props {
   obra: Obra;
   onInvestigar: () => void;
 }
+
+/** Subconjunto de /api/infobras que usamos en el detalle. */
+type InfobrasData = {
+  codigo_infobras: number;
+  estado: string | null;
+  avance_fisico_pct: number | null;
+  fecha_ultimo_avance: string | null;
+  fecha_inicio: string | null;
+  fecha_fin_programada: string | null;
+  contratista_nombre: string | null;
+  n_avances_mensuales: number | null;
+  n_modificaciones_plazo: number | null;
+  tiene_informe_control: boolean | null;
+  photos: { url: string; label: string }[];
+  infobras_url: string;
+};
 
 function calcDelta(base: number | null, comp: number | null) {
   if (base == null || comp == null || base === 0) return null;
@@ -32,7 +49,60 @@ function calcDelta(base: number | null, comp: number | null) {
  *   TAIL  → supplier (con RUC y antecedentes si red_flag) · contrato compacto ·
  *           comprador · analisis automatico (solo si suma valor)
  */
-export default function CodexObraDetailInline({ obra, onInvestigar }: Props) {
+export default function CodexObraDetailInline({
+  obra: obraProp,
+  onInvestigar,
+}: Props) {
+  // El panel recibe la proyección ligera de /api/obras/points (sin
+  // contract_*, procurement_method, ai_description, infobras_code…). Al
+  // seleccionar traemos la fila completa de /api/obra/[id] y, si tiene
+  // infobras_code, el cruce con Infobras (/api/infobras).
+  // Estado keyed por id de obra: al cambiar de obra el dato viejo se filtra
+  // en el render (mismo patrón que ObraStreetViewCompare) en vez de
+  // resetearlo en el efecto — así no hay renders en cascada.
+  const [fullState, setFullState] = useState<{ id: number; obra: Obra } | null>(
+    null
+  );
+  const [infobrasState, setInfobrasState] = useState<{
+    id: number;
+    data: InfobrasData;
+  } | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    const id = obraProp.id;
+
+    fetch(`/api/obra/${id}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!alive || !d?.obra) return;
+        const o = d.obra as Obra;
+        setFullState({ id, obra: o });
+        if (o.infobras_code) {
+          return fetch(
+            `/api/infobras?code=${encodeURIComponent(o.infobras_code)}`
+          )
+            .then((r) => (r.ok ? r.json() : null))
+            .then((inf) => {
+              if (alive && inf && !inf.error)
+                setInfobrasState({ id, data: inf as InfobrasData });
+            });
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      alive = false;
+    };
+  }, [obraProp.id]);
+
+  // Fila completa cuando ya cargó para ESTA obra; mientras, la ligera.
+  const obra =
+    fullState && fullState.id === obraProp.id ? fullState.obra : obraProp;
+  const infobras =
+    infobrasState && infobrasState.id === obraProp.id
+      ? infobrasState.data
+      : null;
   const riesgo = riesgoDeObra(obra);
   const tituloDisplay = displayTitle(obra);
   const currency = montoSymbol(obra.country);
@@ -196,12 +266,117 @@ export default function CodexObraDetailInline({ obra, onInvestigar }: Props) {
           </div>
         </section>
 
-        {/* STREET VIEW — antes/después (slider arrastrable) */}
+        {/* STREET VIEW — antes/después (slider arrastrable). Cuando Google
+            no tiene cobertura cae a las fotos de la ficha técnica Infobras. */}
         <ObraStreetViewCompare
           obraId={obra.id}
           lat={obra.lat}
           lng={obra.lng}
+          fichaPhotos={infobras?.photos}
         />
+
+        {/* EJECUCIÓN — cruce con Infobras (Contraloría). Solo si hay match. */}
+        {infobras && (
+          <section
+            className="px-4 py-4 border-t"
+            style={{ borderColor: "var(--cx-border)" }}
+          >
+            <p
+              className="text-[11px] font-medium tracking-tight mb-3"
+              style={{
+                color: "var(--cx-muted)",
+                fontFamily: "var(--font-body), system-ui, sans-serif",
+              }}
+            >
+              Ejecución · Infobras
+            </p>
+
+            {infobras.avance_fisico_pct != null && (
+              <div className="mb-3.5">
+                <div className="flex items-baseline justify-between mb-1.5">
+                  <span
+                    className="text-[10.5px] font-medium tracking-tight"
+                    style={{
+                      color: "var(--cx-muted)",
+                      fontFamily: "var(--font-body), system-ui, sans-serif",
+                    }}
+                  >
+                    Avance físico
+                  </span>
+                  <span
+                    className="text-[12px] tabular-nums tracking-tight"
+                    style={{
+                      color: "var(--cx-fg)",
+                      fontFamily: "var(--font-mono), monospace",
+                    }}
+                  >
+                    {Math.round(infobras.avance_fisico_pct)}%
+                  </span>
+                </div>
+                <div
+                  className="h-1.5 w-full rounded-full overflow-hidden"
+                  style={{ background: "var(--cx-secondary)" }}
+                >
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${Math.min(
+                        100,
+                        Math.max(0, infobras.avance_fisico_pct)
+                      )}%`,
+                      background: "var(--cx-brand)",
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5">
+              <KVRow label="Estado de obra" value={infobras.estado ?? "—"} wide />
+              <KVRow
+                label="Último avance"
+                value={fmtFecha(infobras.fecha_ultimo_avance)}
+                mono
+              />
+              <KVRow
+                label="Avances mensuales"
+                value={String(infobras.n_avances_mensuales ?? 0)}
+                mono
+              />
+              <KVRow
+                label="Modif. de plazo"
+                value={String(infobras.n_modificaciones_plazo ?? 0)}
+                alert={(infobras.n_modificaciones_plazo ?? 0) >= 1}
+                mono
+              />
+              <KVRow
+                label="Informe de control"
+                value={infobras.tiene_informe_control ? "Sí" : "No"}
+                alert={Boolean(infobras.tiene_informe_control)}
+              />
+              {infobras.contratista_nombre && (
+                <KVRow
+                  label="Contratista (Infobras)"
+                  value={infobras.contratista_nombre}
+                  wide
+                />
+              )}
+            </dl>
+
+            <a
+              href={infobras.infobras_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block mt-3 text-[11.5px] tracking-tight transition-opacity hover:opacity-70"
+              style={{
+                color: "var(--cx-brand)",
+                fontFamily: "var(--font-body), system-ui, sans-serif",
+              }}
+            >
+              Ver ficha completa en Infobras ↗
+            </a>
+          </section>
+        )}
 
         {/* QUIEN RECIBIO */}
         <section
