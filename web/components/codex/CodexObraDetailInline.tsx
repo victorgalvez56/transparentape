@@ -8,6 +8,7 @@ import {
   displayTitle,
   truncar,
 } from "@/lib/format";
+import ObraStreetViewCompare from "@/components/ObraStreetViewCompare";
 
 interface Props {
   obra: Obra;
@@ -46,12 +47,6 @@ export default function CodexObraDetailInline({ obra, onInvestigar }: Props) {
   const twitterHref = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
     tweetText
   )}&url=${encodeURIComponent(tweetUrl)}`;
-
-  const gmapsKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
-  const hasStreetView = Boolean(gmapsKey && obra.lat && obra.lng);
-  const streetViewUrl = hasStreetView
-    ? `https://maps.googleapis.com/maps/api/streetview?size=600x300&location=${obra.lat},${obra.lng}&fov=80&key=${gmapsKey}`
-    : null;
 
   const deltaAdj = calcDelta(obra.tender_amount, obra.award_amount);
   const deltaCon = calcDelta(obra.award_amount, obra.contract_amount);
@@ -201,28 +196,12 @@ export default function CodexObraDetailInline({ obra, onInvestigar }: Props) {
           </div>
         </section>
 
-        {/* STREET VIEW */}
-        {hasStreetView && streetViewUrl ? (
-          <div
-            className="border-t"
-            style={{ borderColor: "var(--cx-border)" }}
-          >
-            <img
-              src={streetViewUrl}
-              alt="Street View"
-              className="w-full h-36 object-cover block"
-            />
-            <p
-              className="text-[10.5px] tracking-tight px-4 py-1.5 lowercase"
-              style={{
-                color: "var(--cx-faint)",
-                fontFamily: "var(--font-mono), monospace",
-              }}
-            >
-              street view · google
-            </p>
-          </div>
-        ) : null}
+        {/* STREET VIEW — antes/después (slider arrastrable) */}
+        <ObraStreetViewCompare
+          obraId={obra.id}
+          lat={obra.lat}
+          lng={obra.lng}
+        />
 
         {/* QUIEN RECIBIO */}
         <section
