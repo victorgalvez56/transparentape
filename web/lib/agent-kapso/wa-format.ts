@@ -1,4 +1,4 @@
-import type { ObraResumen, ObraCercana, ContratistaStat, BuscarObrasFilters, ObraRetrasada } from "./queries";
+import type { ObraResumen, ObraCercana, ContratistaStat, BuscarObrasFilters, ObraRetrasada, ComparativaItem } from "./queries";
 import { FECHA_DATOS } from "./config";
 
 export const COUNTRY_NAMES: Record<string, string> = {
@@ -37,7 +37,15 @@ function fmt(monto: number | null | undefined, country = "PE"): string {
 function capitalize(raw: string): string {
   return raw
     .split(/\s+/)
-    .map((w) => (w.length <= 2 ? w.toLowerCase() : w[0].toUpperCase() + w.slice(1).toLowerCase()))
+    .map((w, i) => {
+      // First word always upper-cased ("La Libertad", "El Callao") even if
+      // it's a short article; middle short words stay lowercase ("San Juan
+      // de Lurigancho" → "San Juan de Lurigancho").
+      if (!w) return w;
+      if (i === 0) return w[0].toUpperCase() + w.slice(1).toLowerCase();
+      if (w.length <= 2) return w.toLowerCase();
+      return w[0].toUpperCase() + w.slice(1).toLowerCase();
+    })
     .join(" ");
 }
 
@@ -476,21 +484,67 @@ export function fmtMontoEnRiesgo(
   );
 }
 
-export const INTRO_MSG = `👋 Hola, soy *Transparentape* 🔍
+// Side-by-side comparativa render. WhatsApp doesn't have real tables, so
+// we group by METRIC and inline both regions per line — reads better on
+// mobile than a fixed-width pseudo-table that wraps awkwardly.
+export function fmtComparativa(items: ComparativaItem[], country: string): string {
+  if (!items.length) {
+    return "No pude armar la comparativa. Indícame al menos dos regiones para comparar (por ejemplo: \"Lima frente a Cusco\").";
+  }
+  if (items.length === 1) {
+    return `Solo encontré datos para una de las regiones (${capitalize(items[0].region)}). Necesito al menos dos para comparar. ¿Puedes confirmarme la segunda región?`;
+  }
+  const nation = COUNTRY_NAMES[country] ?? country;
+  const labels = items.map((i) => capitalize(i.region));
+  const join = (vals: string[]) => vals.map((v, i) => `${labels[i]}: ${v}`).join(" · ");
 
-Vigilo las obras públicas de Perú, Chile, Colombia y más países. Puedo mostrarte contratos, detectar señales de corrupción e investigar empresas contratistas — todo desde WhatsApp.
+  const lines: string[] = [];
+  lines.push(`📊 *Comparativa · ${labels.join(" frente a ")} · ${nation}*`);
+  lines.push(`_Datos agregados por región. Para el detalle por obra, búscalas individualmente._\n`);
 
-*¿Qué quieres hacer?*
+  lines.push(`🏗️ Obras totales`);
+  lines.push(`   ${join(items.map((i) => i.total.toLocaleString()))}`);
 
-🔍 _obras en Piura este año_
-📊 _estadísticas Perú_
-🏆 _ranking contratistas_
-📍 _obras cerca de mí_ _(comparte ubicación)_
-🔎 _investigar Odebrecht_
-🚫 _inhabilitados Chile_
+  lines.push(`💰 Monto contratado`);
+  lines.push(`   ${join(items.map((i) => fmt(i.monto_total, country)))}`);
 
-O escribe cualquier pregunta sobre contratos públicos.
+  lines.push(`⚠️ Obras con alertas`);
+  lines.push(`   ${join(items.map((i) => `${i.alertas.toLocaleString()} (${i.pct_alertas}%)`))}`);
 
-_Datos: OCDS · SEACE · Mercado Público_`;
+  lines.push(`🐢 Obras retrasadas`);
+  lines.push(`   ${join(items.map((i) => i.retrasadas.toLocaleString()))}`);
+
+  if (items.some((i) => i.top_contratista)) {
+    lines.push(`🏆 Empresa con más contratos`);
+    lines.push(`   ${join(items.map((i) => shortContratista(i.top_contratista ?? "—")))}`);
+  }
+  if (items.some((i) => i.top_entidad)) {
+    lines.push(`🏛️ Entidad que más contrata`);
+    lines.push(`   ${join(items.map((i) => shortContratista(i.top_entidad ?? "—")))}`);
+  }
+
+  lines.push(hint("_¿Quieres profundizar en alguna? Escríbeme, por ejemplo, \"ranking contratistas en " + labels[0] + "\"._"));
+  return lines.join("\n") + SOURCE_FOOTER;
+}
+
+export const INTRO_MSG = `Hola, soy Transparentape 👋
+
+Te acompaño a seguir el rastro del dinero público que se invierte en obras. Trabajo con datos oficiales de Perú, Chile, Colombia, México, Argentina y Brasil.
+
+Esto es lo que puedo hacer:
+
+🔎 Buscar obras por ciudad, región, sector o año. Por ejemplo: "obras de educación en Cusco 2024".
+
+🐢 Detectar irregularidades como obras retrasadas, adjudicación directa con alertas o monto público en riesgo. Por ejemplo: "obras retrasadas en Áncash".
+
+🔍 Investigar empresas — su historial de contratos, sanciones, y si están inhabilitadas pero con obras activas. Por ejemplo: "qué hizo MEJESA en los últimos años".
+
+🏆 Armar rankings de las empresas y entidades con más obras o más alertas. Por ejemplo: "ranking de contratistas en Lima".
+
+📊 Comparar dos regiones lado a lado: cuánto invierten, cuántas alertas, quién contrata más. Por ejemplo: "Lima frente a Cusco".
+
+📚 Resolverte dudas sobre términos como "adjudicación directa", "red flag" u "OCDS".
+
+¿Por dónde te gustaría empezar? Puedes indicarme una ciudad, una empresa o un tipo de obra — y avanzamos paso a paso.`;
 
 export const AYUDA_MSG = INTRO_MSG;

@@ -19,6 +19,7 @@ function buildGeoFilter(
 ): { sql: string; values: unknown[]; consumed: number } {
   const reg = `${colPrefix}buyer_region`;
   const loc = `${colPrefix}buyer_locality`;
+  const buyer = `${colPrefix}buyer_name`;
   // Department fan-out only for PE — other countries don't have the
   // same locality-vs-region quirk in this DB right now.
   const provs = country === "PE" ? expandPeDepartment(geo) : null;
@@ -30,6 +31,19 @@ function buildGeoFilter(
       sql: `(${reg} = ANY($${startPos}::text[]) OR ${loc} ILIKE $${startPos + 1})`,
       values: [provs, `%${geo}%`],
       consumed: 2,
+    };
+  }
+  // CL quirk: buyer_locality is NULL for every row in this ETL, and the
+  // comuna is embedded in buyer_name as "MUNICIPALIDAD DE <COMUNA>".
+  // So we widen the geo filter to also match buyer_name — letting users
+  // search by comuna ("obras en Maipú") even though buyer_locality is
+  // empty. buyer_region still matches the 16 short-form regions via
+  // substring ("Santiago" → "Región Metropolitana de Santiago").
+  if (country === "CL") {
+    return {
+      sql: `(${reg} ILIKE $${startPos} OR ${buyer} ILIKE $${startPos})`,
+      values: [`%${geo}%`],
+      consumed: 1,
     };
   }
   return {
@@ -119,6 +133,19 @@ export interface ObraInfobras {
   dias_retraso: number | null;
 }
 
+// One side of a side-by-side regional comparison. Returned by
+// compararRegiones for each region the user named in their query.
+export interface ComparativaItem {
+  region: string;          // user-typed label, preserved for display
+  total: number;
+  alertas: number;
+  pct_alertas: number;     // 0..100
+  monto_total: number;
+  retrasadas: number;
+  top_contratista: string | null;
+  top_entidad: string | null;
+}
+
 // ─── Obras ────────────────────────────────────────────────────────────────────
 
 export interface BuscarObrasFilters {
@@ -181,9 +208,12 @@ export async function buscarObras(f: BuscarObrasFilters): Promise<ObraResumen[]>
   }
   if (f.q && !f.q_geo && !f.q_supplier && !f.q_sector) {
     // Legacy fallback when caller didn't classify — keeps existing callers
-    // (web UI, older WhatsApp atajos) working without code changes.
+    // (web UI, older WhatsApp atajos) working without code changes. For CL
+    // we substitute buyer_locality (always NULL there) with buyer_name so
+    // the comuna embedded in "MUNICIPALIDAD DE X" still gets hit.
+    const localityCol = f.country === "CL" ? "buyer_name" : "buyer_locality";
     parts.push(
-      `(buyer_region ILIKE $${i} OR buyer_locality ILIKE $${i} OR supplier_name ILIKE $${i})`
+      `(buyer_region ILIKE $${i} OR ${localityCol} ILIKE $${i} OR supplier_name ILIKE $${i})`
     );
     vals.push(`%${f.q}%`);
     i++;
@@ -670,4 +700,94 @@ export async function statsPorPais(country: Country, q?: string) {
      FROM obras WHERE country = $1${geoClause}`,
     params
   );
+}
+
+// ─── Comparativa entre regiones ───────────────────────────────────────────────
+//
+// Returns one ComparativaItem per region the caller passed, fanning the
+// aggregate queries out via Promise.all. Each item runs four short
+// queries against the obras table reusing the existing buildGeoFilter
+// so PE departments expand to provinces automatically.
+//
+// Inputs are limited to 4 regions to keep response size small and DB
+// load bounded; the formatter is also tuned for 2-3 columns.
+export async function compararRegiones(
+  country: Country,
+  regiones: string[]
+): Promise<ComparativaItem[]> {
+  const clean = regiones
+    .map((r) => r.trim())
+    .filter((r, i, a) => r.length >= 2 && a.indexOf(r) === i)
+    .slice(0, 4);
+  if (!clean.length) return [];
+
+  return Promise.all(clean.map(async (region) => {
+    // 1. base stats — total, alertas, monto
+    const baseParams: unknown[] = [country];
+    const baseGeo = buildGeoFilter(region, country, 2);
+    baseParams.push(...baseGeo.values);
+    const base = await queryOne<{ total: string; alertas: string; monto: string }>(
+      `SELECT COUNT(*) AS total,
+              COUNT(*) FILTER (WHERE is_red_flag = TRUE) AS alertas,
+              ROUND(COALESCE(SUM(COALESCE(contract_amount, award_amount, tender_amount)), 0)) AS monto
+       FROM obras
+       WHERE country = $1 AND ${baseGeo.sql}`,
+      baseParams
+    );
+
+    // 2. top contratista (by obras count, restricted to region)
+    const topContParams: unknown[] = [country];
+    const topContGeo = buildGeoFilter(region, country, 2);
+    topContParams.push(...topContGeo.values);
+    const topCont = await queryOne<{ supplier_name: string }>(
+      `SELECT supplier_name FROM obras
+       WHERE country = $1 AND supplier_name IS NOT NULL AND ${topContGeo.sql}
+       GROUP BY supplier_name
+       ORDER BY COUNT(*) DESC
+       LIMIT 1`,
+      topContParams
+    );
+
+    // 3. top entidad compradora
+    const topEntParams: unknown[] = [country];
+    const topEntGeo = buildGeoFilter(region, country, 2);
+    topEntParams.push(...topEntGeo.values);
+    const topEnt = await queryOne<{ buyer_name: string }>(
+      `SELECT buyer_name FROM obras
+       WHERE country = $1 AND buyer_name IS NOT NULL AND ${topEntGeo.sql}
+       GROUP BY buyer_name
+       ORDER BY COUNT(*) DESC
+       LIMIT 1`,
+      topEntParams
+    );
+
+    // 4. retrasadas count — OCDS path is broad enough for a side-by-side
+    //    metric; full INFOBRAS join would balloon the query and we only
+    //    need a number here, not the rows.
+    const retrasoParams: unknown[] = [country];
+    const retrasoGeo = buildGeoFilter(region, country, 2);
+    retrasoParams.push(...retrasoGeo.values);
+    const retraso = await queryOne<{ n: string }>(
+      `SELECT COUNT(*) AS n FROM obras
+       WHERE country = $1
+         AND contract_status = 'active'
+         AND contract_end ~ '^\\d{4}-\\d{2}-\\d{2}'
+         AND contract_end::date < (CURRENT_DATE - INTERVAL '180 days')
+         AND ${retrasoGeo.sql}`,
+      retrasoParams
+    );
+
+    const total = Number(base?.total ?? 0);
+    const alertas = Number(base?.alertas ?? 0);
+    return {
+      region,
+      total,
+      alertas,
+      pct_alertas: total > 0 ? Math.round((alertas / total) * 100) : 0,
+      monto_total: Number(base?.monto ?? 0),
+      retrasadas: Number(retraso?.n ?? 0),
+      top_contratista: topCont?.supplier_name ?? null,
+      top_entidad: topEnt?.buyer_name ?? null,
+    };
+  }));
 }

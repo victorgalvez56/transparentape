@@ -4,6 +4,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { INTRO_MSG } from "@/lib/agent-kapso/wa-format";
 
 interface Message {
   role: "user" | "bot";
@@ -138,13 +139,8 @@ export default function AgentWidget() {
             {/* Chat Area */}
             <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
               {messages.length === 0 ? (
-                <div className="text-center text-neutral-500 my-auto p-6 bg-neutral-900/30 rounded-2xl border border-neutral-800/50">
-                  <div className="mb-3 flex justify-center">
-                    <div className="p-3 bg-blue-500/10 rounded-full text-blue-400">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 1 0 0-20z"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
-                    </div>
-                  </div>
-                  <p className="text-sm">Empieza a preguntar sobre obras públicas. Ej: "¿Qué obras hay en Piura este año?"</p>
+                <div className="text-neutral-200 text-sm leading-relaxed whitespace-pre-wrap p-4 bg-neutral-900/30 rounded-2xl border border-neutral-800/50">
+                  {INTRO_MSG}
                 </div>
               ) : (
                 messages.map((msg, idx) => (

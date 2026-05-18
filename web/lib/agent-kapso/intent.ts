@@ -19,6 +19,7 @@ export type Intent =
   | "VER_DETALLE"
   | "CONTEXTO_DETALLE"
   | "INVESTIGAR_CONTRATISTA"
+  | "COMPARAR_REGIONES"
   | "STREETVIEW_OBRA"
   | "ANALIZAR_OBRA"
   | "AYUDA"
@@ -34,6 +35,8 @@ export interface ParsedIntent {
   contextCount?: number;    // when >1, return a slice (los primeros 3 / los ultimos 5)
   contratista?: string;
   ruc?: string;
+  /** Region names to compare (2-4). Populated only when intent === "COMPARAR_REGIONES". */
+  regiones?: string[];
 }
 
 // ── Text normalization ────────────────────────────────────────────────────────
@@ -132,7 +135,12 @@ function extractYear(text: string): number | undefined {
 
 // Prepositions like "de/del/de la" are intentionally kept — they're part of
 // Latin American place names (Valle del Colca, San Juan de Lurigancho, etc.)
-const STOPWORDS_RE = /\b(obras?|proyectos?|licitaci[oó]nes?|concursos?|contratos?|adjudicaci[oó]nes?|construcci[oó]n(?:es)?|alertas?|riesgos?|sospechosos?|este\s+año|año\s+pasado|año\s+anterior|año\s+actual|en\s+curso|cu[aá]les?|qu[eé]|cu[aá]ntos?|fueron|son\s+las|hay|existen?|tienen?|muestra|dame|dime|busca|busco|quiero|mostrar|necesito|saber|ver\s+las|ver\s+los|con\s+alerta|direct[oa]s?|en|con|por|para|sin|sobre)\b/gi;
+// Country name words are stripped from the free-text q because they are
+// already captured by the explicit country detection above. Without this,
+// "obras en chile" would pass q="chile" into buscarObras, which then ILIKEs
+// %chile% on region/locality/supplier and returns ~58 spurious hits like
+// "Universidad de Chile". The country filter alone is what the user meant.
+const STOPWORDS_RE = /\b(obras?|proyectos?|licitaci[oó]nes?|concursos?|contratos?|adjudicaci[oó]nes?|construcci[oó]n(?:es)?|alertas?|riesgos?|sospechosos?|este\s+año|año\s+pasado|año\s+anterior|año\s+actual|en\s+curso|cu[aá]les?|qu[eé]|cu[aá]ntos?|fueron|son\s+las|hay|existen?|tienen?|muestra|dame|dime|busca|busco|quiero|mostrar|necesito|saber|ver\s+las|ver\s+los|con\s+alerta|direct[oa]s?|en|con|por|para|sin|sobre|per[uú]|chile|chilen[oa]s?|colombia|m[eé]xico|mexican[oa]s?|argentina|brasil)\b/gi;
 
 function buildSearchQuery(text: string, _year: number | undefined): string | undefined {
   // Normalize whitespace first so edge trims work correctly
@@ -152,6 +160,77 @@ function buildSearchQuery(text: string, _year: number | undefined): string | und
 
   if (!cleaned || cleaned.length < 2) return undefined;
   return cleaned.slice(0, 80);
+}
+
+// Splits comparative phrasing into 2-4 region names. Handles the
+// common joiners and the "compara X con Y" / "comparar X y Y" /
+// "diferencia entre X y Y" verb forms. Falls back to splitting on
+// "," and " y " when the connector phrase already matched.
+//
+// The regions returned are user-typed (case preserved) so the DB ILIKE
+// keeps accents. classifyQuery + expandPeDepartment downstream do
+// further normalisation.
+export function extractComparativaRegions(raw: string): string[] {
+  let work = raw.trim();
+  // Strip leading verbs so "compara" / "comparar" / "diferencia entre"
+  // don't end up as the first "region".
+  work = work.replace(
+    /^\s*(?:compara(?:r)?(?:me)?|diferencia(?:s)?\s+entre|cu[aá]l\s+(?:es|son)\s+(?:la\s+)?diferencia(?:s)?\s+entre)\s+/i,
+    ""
+  );
+  // Drop trailing "?" and ".".
+  work = work.replace(/[?¿.!¡]+\s*$/g, "").trim();
+
+  // Split on EVERY joiner so 3+ region queries work ("Lima vs Arequipa vs
+  // Cusco"). Use a global regex so .split() returns all segments.
+  const joinerRe = /\s+(?:vs\.?|versus|frente\s+a|contra)\s+/gi;
+  let parts: string[] = [];
+  if (joinerRe.test(work)) {
+    parts = work.split(joinerRe);
+  } else {
+    // "compara X con Y" / "compara X y Y" / "diferencia entre X y Y" — also
+    // splits on commas. " e " (Spanish "y" before i-sound) is included too.
+    parts = work.split(/\s*,\s*|\s+(?:y|con|e)\s+/i);
+  }
+
+  // Strip "obras en", "obras de", "el departamento de", etc. from each side
+  // so we end up with the bare place name. Preserve compound dept names like
+  // "La Libertad" or "El Callao" — these are 2-word names where stripping
+  // the leading article would alias them to a different DB row.
+  const COMPOUND_DEPT = /^(?:la\s+libertad|el\s+callao|la\s+convencion|la\s+convención|el\s+collao|la\s+mar|las\s+lomas|los\s+olivos|el\s+agustino)$/i;
+  const cleaned = parts
+    .map((p) => p.trim())
+    .map((p) => {
+      // If the phrase verbatim is a known compound, keep it.
+      if (COMPOUND_DEPT.test(p)) return p;
+      // Strip leading filler ("obras en", "departamento de", articles).
+      let s = p.replace(
+        /^(?:obras?\s+(?:en|de)\s+|los\s+|las\s+|el\s+|la\s+|en\s+|de\s+|del\s+|departamento\s+(?:de\s+)?|provincia\s+(?:de\s+)?|region\s+(?:de\s+)?|regi[oó]n\s+(?:de\s+)?)/i,
+        ""
+      );
+      // After one strip, the result might itself be a compound ("la libertad"
+      // → "libertad"). If the ORIGINAL minus the first article still looks
+      // like a known compound, prefer that.
+      if (COMPOUND_DEPT.test(p.replace(/^(?:obras?\s+(?:en|de)\s+|en\s+|de\s+|del\s+|departamento\s+(?:de\s+)?|provincia\s+(?:de\s+)?|region\s+(?:de\s+)?|regi[oó]n\s+(?:de\s+)?)/i, ""))) {
+        s = p.replace(/^(?:obras?\s+(?:en|de)\s+|en\s+|de\s+|del\s+|departamento\s+(?:de\s+)?|provincia\s+(?:de\s+)?|region\s+(?:de\s+)?|regi[oó]n\s+(?:de\s+)?)/i, "");
+      }
+      return s;
+    })
+    .map((p) => p.replace(/\s+(?:el\s+|la\s+)?(?:año\s+\d{4}|este\s+año|año\s+pasado)\s*$/i, ""))
+    .map((p) => p.trim())
+    .filter((p) => p.length >= 2 && p.length <= 40);
+
+  // Dedup + clamp at 4.
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const c of cleaned) {
+    const key = c.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(c);
+    if (out.length >= 4) break;
+  }
+  return out;
 }
 
 // ── Main intent parser ────────────────────────────────────────────────────────
@@ -288,6 +367,23 @@ export function parseIntent(text: string, sessionCountry: Country): ParsedIntent
       if (name.length > 60) name = name.slice(0, 60);
     }
     return { intent: "INVESTIGAR_CONTRATISTA", country, contratista: name || undefined };
+  }
+
+  // ── Comparar regiones ──
+  // High-confidence regex first; we want this BEFORE OBRAS_RETRASADAS and
+  // BUSCAR_OBRAS so "compara obras de Lima vs Cusco" doesn't get eaten by
+  // the obras keyword. Accepts joiners: "vs", "versus", "frente a",
+  // "contra", "compara X con Y", "comparar X y Y", "diferencia entre X y Y".
+  // The geo terms themselves are extracted by stripping the joiner and
+  // splitting on it; each side is then trimmed of stopwords and "obras".
+  const comparativaJoiner =
+    /\b(?:vs\.?|versus|frente\s+a|contra)\b|\b(?:compara(?:r)?|diferencia(?:s)?\s+entre)\b/i;
+  if (comparativaJoiner.test(tn)) {
+    const regiones = extractComparativaRegions(t);
+    if (regiones.length >= 2) {
+      return { intent: "COMPARAR_REGIONES", country, regiones };
+    }
+    // Fell through — too few regions extracted; let the LLM router handle.
   }
 
   // (sunset) inhabilitados / adjudicación directa / ranking entidades /

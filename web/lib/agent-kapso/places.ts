@@ -85,11 +85,29 @@ export function expandPeDepartment(q: string): string[] | null {
   return PE_DEPT_PROVINCES[key] ?? null;
 }
 
+// CL data quirk: `buyer_locality` is NULL on all 1157 rows. The comuna is
+// embedded inside `buyer_name` (e.g. "I MUNICIPALIDAD DE QUILLON | ..."),
+// so the DB-backed warmPlaceCache extracts it from buyer_name on warm.
+// This seed only needs to cover cold-start so the test runner + offline
+// classifier still route Chilean place words to q_geo. The 16 regions
+// (canonical short form) all live inside `buyer_region` already as
+// ILIKE substrings — "santiago" matches "Región Metropolitana de Santiago".
 const PLACES_CL = [
-  "santiago", "valparaiso", "vina del mar", "concepcion", "antofagasta",
-  "temuco", "la serena", "rancagua", "iquique", "arica", "puerto montt",
-  "biobio", "maule", "araucania", "los lagos", "coquimbo", "atacama",
-  "magallanes", "tarapaca", "ohiggins", "nuble",
+  // 16 regions (short form — ILIKEs match longer canonical region names)
+  "santiago", "metropolitana", "valparaiso", "biobio", "bio bio",
+  "araucania", "maule", "los lagos", "los rios", "coquimbo", "antofagasta",
+  "atacama", "tarapaca", "arica", "magallanes", "aysen", "nuble", "ohiggins",
+  "libertador",
+  // Top comunas (cold-start seed; the warm cache extends this from DB)
+  "vina del mar", "concepcion", "temuco", "la serena", "rancagua",
+  "iquique", "puerto montt", "valdivia", "osorno", "chillan", "talca",
+  "copiapo", "calama", "punta arenas",
+  // Santiago metro comunas (frecuentes en queries)
+  "maipu", "providencia", "las condes", "vitacura", "nunoa", "la florida",
+  "puente alto", "san bernardo", "pudahuel", "renca", "quilicura",
+  "huechuraba", "estacion central", "la reina", "penalolen", "macul",
+  "el bosque", "la pintana", "san miguel", "san joaquin", "independencia",
+  "recoleta", "conchali", "lo barnechea", "lo prado", "cerrillos",
 ];
 
 const PLACES_CO = [
@@ -270,9 +288,27 @@ export function warmPlaceCache(): Promise<void> {
            FROM obras
            WHERE buyer_locality IS NOT NULL AND length(buyer_locality) >= 3
            GROUP BY buyer_locality, country
+           -- CL specific: buyer_locality is NULL on every row in this ETL,
+           -- but the comuna is embedded inside buyer_name as
+           -- "[I/ILUSTRE] MUNICIPALIDAD DE <COMUNA>". Extract the comuna
+           -- so "obras en Maipú" resolves through the same q_geo path
+           -- as PE provinces, without hardcoding the ~346 comunas.
+           UNION ALL
+           SELECT
+             TRIM(REGEXP_REPLACE(buyer_name,
+               '^[^|]*MUNICIPALIDAD\\s+DE\\s+([^|]+?)(\\s*\\|.*)?$',
+               '\\1', 'i')) AS name,
+             country,
+             'locality' AS kind,
+             COUNT(*) AS n
+           FROM obras
+           WHERE country = 'CL'
+             AND buyer_name ~* 'MUNICIPALIDAD\\s+DE\\s+'
+           GROUP BY 1, country
          )
          SELECT name, country, kind, n
          FROM names
+         WHERE length(name) >= 3
          ORDER BY n DESC
          LIMIT $1`,
         [PLACE_CACHE_MAX_ROWS]
