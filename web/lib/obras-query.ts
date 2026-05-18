@@ -160,6 +160,77 @@ export async function listObraPoints(
   return rows.map(rowToObra);
 }
 
+/**
+ * Misma proyección ligera que listObraPoints. Const compartida sólo por
+ * las funciones NUEVAS de abajo — listObraPoints queda intacta.
+ */
+const POINT_COLUMNS = `id, ocid, source_year, country, buyer_name, buyer_region,
+            buyer_locality, tender_title,
+            LEFT(tender_description, 220) AS tender_description,
+            supplier_name, supplier_ruc, tender_amount, award_amount,
+            contract_amount, n_amendments, lat, lng, ai_score,
+            is_red_flag, red_flag_types`;
+
+/**
+ * Página "prioritaria" para el primer paint: las N obras más relevantes
+ * (red flags + montos altos). Es un top-N ACOTADO (LIMIT chico) → Postgres
+ * lo resuelve con heap sort, mucho más rápido que el full sort de 70k de
+ * listObraPoints. Función NUEVA y additiva: no toca listObraPoints ni su
+ * contrato.
+ */
+export async function listObraPointsPriority(
+  limit = 2000,
+  country?: string | null
+): Promise<Obra[]> {
+  const values: unknown[] = [];
+  let where = "lat IS NOT NULL AND lng IS NOT NULL";
+  if (country) {
+    where += ` AND country = $1`;
+    values.push(country);
+  }
+  const lim = Math.min(Math.max(Math.trunc(limit) || 2000, 1), 5000);
+  const rows = await queryWithTimeout<Row>(
+    `SELECT ${POINT_COLUMNS}
+       FROM obras
+      WHERE ${where}
+      ORDER BY is_red_flag DESC NULLS LAST, contract_amount DESC NULLS LAST
+      LIMIT ${lim}`,
+    values,
+    15_000
+  );
+  return rows.map(rowToObra);
+}
+
+/**
+ * Página siguiente por keyset sobre id (PK indexada): escaneo ordenado y
+ * barato, sin re-ordenar las 70k filas por página (que es lo que hace lento
+ * a listObraPoints). El cliente itera con after=<último id> hasta agotar.
+ * Función NUEVA y additiva.
+ */
+export async function listObraPointsAfter(
+  afterId: number,
+  limit = 8000,
+  country?: string | null
+): Promise<Obra[]> {
+  const values: unknown[] = [Math.max(0, Math.trunc(afterId) || 0)];
+  let where = "lat IS NOT NULL AND lng IS NOT NULL AND id > $1";
+  if (country) {
+    where += ` AND country = $2`;
+    values.push(country);
+  }
+  const lim = Math.min(Math.max(Math.trunc(limit) || 8000, 1), 20000);
+  const rows = await queryWithTimeout<Row>(
+    `SELECT ${POINT_COLUMNS}
+       FROM obras
+      WHERE ${where}
+      ORDER BY id
+      LIMIT ${lim}`,
+    values,
+    20_000
+  );
+  return rows.map(rowToObra);
+}
+
 export async function getObraById(id: number): Promise<Obra | null> {
   const r = await queryOne<Row>(`SELECT * FROM obras WHERE id = $1`, [id]);
   return r ? rowToObra(r) : null;

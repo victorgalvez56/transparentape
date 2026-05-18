@@ -64,17 +64,35 @@ export default function CodexObraList({
             "linear-gradient(to bottom, transparent, black 12px, black calc(100% - 16px), transparent)",
         }}
       >
-        {obras.length === 0 && (
+        {obras.length === 0 && loading && (
+          <div className="space-y-1.5 animate-pulse" aria-hidden>
+            {Array.from({ length: 7 }).map((_, i) => (
+              <div
+                key={i}
+                className="rounded-lg border p-3"
+                style={{
+                  borderColor: "var(--cx-border)",
+                  background: "var(--cx-secondary)",
+                }}
+              >
+                <div
+                  className="h-2.5 rounded"
+                  style={{ width: "70%", background: "var(--cx-border)" }}
+                />
+                <div
+                  className="h-2 rounded mt-2"
+                  style={{ width: "45%", background: "var(--cx-border)" }}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+        {obras.length === 0 && !loading && (
           <p
             className="p-8 text-center text-xs"
-            style={{
-              color: "var(--cx-faint)",
-              fontFamily: loading ? "var(--font-mono), monospace" : undefined,
-            }}
+            style={{ color: "var(--cx-faint)" }}
           >
-            {loading
-              ? "Cargando contratos públicos…"
-              : "Ninguna obra coincide con el filtro."}
+            Ninguna obra coincide con el filtro.
           </p>
         )}
         {obras.map((o) => (

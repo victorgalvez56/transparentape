@@ -56,7 +56,9 @@ function search(o: Obra, lower: string): boolean {
 
 export default function CodexHomePage() {
   const [obras, setObras] = useState<Obra[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true); // true hasta el 1er paint
+  const [streaming, setStreaming] = useState(true); // true mientras llega el resto
+  const [loaded, setLoaded] = useState(0); // obras ya cargadas (progreso)
   const [dbStats, setDbStats] = useState<{
     total: number;
     geo: number;
@@ -173,18 +175,57 @@ export default function CodexHomePage() {
     };
   }, []);
 
-  // Carga TODAS las obras geocodificadas (~62k) vía endpoint ligero.
-  // Sin el cap de 5000 de /api/obras.
+  // Carga PROGRESIVA de las ~62k obras geocodificadas.
+  //  1) /api/obras/points/chunk?priority=1 → top ~2000 (red flags + montos
+  //     altos) para un primer paint inmediato y relevante (loading → false).
+  //  2) Resto por keyset sobre id (?after=) en background, deduplicando por
+  //     id; cada página actualiza el mapa/lista y el contador de progreso.
+  // Endpoint NUEVO; /api/obras/points queda intacto como fallback.
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/obras/points")
-      .then((r) => r.json())
-      .then((d) => {
+    const byId = new Map<number, Obra>();
+
+    const flush = () => {
+      if (cancelled) return;
+      setObras(Array.from(byId.values()));
+      setLoaded(byId.size);
+    };
+
+    (async () => {
+      try {
+        const pr = await fetch("/api/obras/points/chunk?priority=1")
+          .then((r) => r.json())
+          .catch(() => null);
         if (cancelled) return;
-        setObras((d?.obras ?? []) as Obra[]);
-      })
-      .catch(() => {})
-      .finally(() => !cancelled && setLoading(false));
+        for (const o of (pr?.obras ?? []) as Obra[]) byId.set(o.id, o);
+        flush();
+        setLoading(false); // UI ya interactiva con lo más relevante
+
+        let cursor = 0;
+        let done = false;
+        let guard = 0;
+        while (!done && !cancelled && guard++ < 60) {
+          const pg = await fetch(
+            `/api/obras/points/chunk?after=${cursor}&limit=8000`
+          )
+            .then((r) => r.json())
+            .catch(() => null);
+          if (cancelled || !pg) break;
+          const page = (pg.obras ?? []) as Obra[];
+          for (const o of page) byId.set(o.id, o);
+          flush();
+          const next = Number(pg.nextCursor ?? cursor);
+          done = Boolean(pg.done) || page.length === 0 || next <= cursor;
+          cursor = next;
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+          setStreaming(false);
+        }
+      }
+    })();
+
     return () => {
       cancelled = true;
     };
@@ -283,8 +324,6 @@ export default function CodexHomePage() {
     setSelected((prev) => (prev && o && prev.id === o.id ? null : o));
     setMobileList(false);
   };
-
-  void dbStats;
 
   const filterBarEl = (
     <CodexFilterBar
@@ -443,7 +482,11 @@ export default function CodexHomePage() {
             />
           )}
 
-          <DataLoader show={loading} />
+          <DataLoader
+            show={streaming}
+            loaded={loaded}
+            total={dbStats?.geo ?? 0}
+          />
 
           <GlobeIntro enabled={showColdOpen === false} />
 
