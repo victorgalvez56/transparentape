@@ -26,6 +26,9 @@ interface Props {
   obraId: number;
   lat: number | null;
   lng: number | null;
+  /** Fotos de la ficha técnica de Infobras. Fallback cuando Google Street
+   *  View no tiene cobertura en estas coordenadas (o no hay coordenadas). */
+  fichaPhotos?: { url: string; label: string }[];
 }
 
 /**
@@ -37,7 +40,12 @@ interface Props {
  * El estado se asocia al obraId resuelto: al cambiar de obra se muestra
  * "buscando…" en vez de la imagen anterior, sin parpadeo de datos viejos.
  */
-export default function ObraStreetViewCompare({ obraId, lat, lng }: Props) {
+export default function ObraStreetViewCompare({
+  obraId,
+  lat,
+  lng,
+  fichaPhotos,
+}: Props) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [failedId, setFailedId] = useState<number | null>(null);
 
@@ -62,11 +70,16 @@ export default function ObraStreetViewCompare({ obraId, lat, lng }: Props) {
     };
   }, [obraId, lat, lng]);
 
-  if (!lat || !lng) return null;
-
   const data = loaded && loaded.obraId === obraId ? loaded : null;
   const isFailed = failedId === obraId;
-  if (isFailed && !data) return null;
+  const noCoords = !lat || !lng;
+  const hasFicha = (fichaPhotos?.length ?? 0) > 0;
+
+  // Street View unavailable — no coordinates, or Google returned no imagery.
+  // Fall back to the Infobras ficha-técnica photos when we have them.
+  if ((noCoords || isFailed) && !data) {
+    return hasFicha ? <FichaTecnica photos={fichaPhotos!} /> : null;
+  }
 
   const caption = (extra?: string) => (
     <p
@@ -126,6 +139,44 @@ export default function ObraStreetViewCompare({ obraId, lat, lng }: Props) {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * Fallback de ficha técnica: tira horizontal de fotos de Infobras que se
+ * muestra cuando Google Street View no tiene cobertura (sin coordenadas o
+ * sin imagen). Misma altura y caption mono que el bloque de Street View.
+ */
+function FichaTecnica({
+  photos,
+}: {
+  photos: { url: string; label: string }[];
+}) {
+  const shots = photos.slice(0, 6);
+  return (
+    <div className="border-t" style={{ borderColor: "var(--cx-border)" }}>
+      <div className="flex gap-1 overflow-x-auto">
+        {shots.map((p, i) => (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            key={`${p.url}-${i}`}
+            src={p.url}
+            alt={p.label || "Ficha técnica · Infobras"}
+            className="h-36 w-auto max-w-[85%] object-cover shrink-0 block"
+            loading="lazy"
+          />
+        ))}
+      </div>
+      <p
+        className="text-[10.5px] tracking-tight px-4 py-1.5 lowercase"
+        style={{
+          color: "var(--cx-faint)",
+          fontFamily: "var(--font-mono), monospace",
+        }}
+      >
+        sin street view · ficha técnica · infobras
+      </p>
     </div>
   );
 }
