@@ -1,8 +1,10 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import gsap from "gsap";
+import { useGSAP } from "@gsap/react";
 import { Obra, riesgoDeObra } from "@/lib/types";
 import { PE_CL_VIEW, CountryView, getCountryView } from "@/lib/countries";
 import CustomCursor from "@/components/CustomCursor";
@@ -33,6 +35,9 @@ const MapGlobe = dynamic(() => import("@/components/MapGlobe"), {
     </div>
   ),
 });
+
+// useGSAP debe registrarse antes de cualquier código GSAP (cleanup automático).
+gsap.registerPlugin(useGSAP);
 
 const MAX_REGION_CHIPS = 28;
 const RENDER_CAP = 600;
@@ -286,6 +291,52 @@ export default function CodexHomePage() {
 
   void dbStats;
 
+  // ── GSAP ──────────────────────────────────────────────────────────────
+  // Convive con motion/react: GSAP hace la entrada + el stagger del grid;
+  // motion sigue manejando el swap lista↔detalle del sidebar.
+  const gsapRoot = useRef<HTMLElement>(null);
+
+  // Entrada (una sola vez): header → filterbar → sidebar.
+  useGSAP(
+    () => {
+      const mm = gsap.matchMedia();
+      mm.add("(prefers-reduced-motion: no-preference)", () => {
+        gsap
+          .timeline({ defaults: { ease: "power3.out", duration: 0.6 } })
+          .from("header", { y: -18, autoAlpha: 0 })
+          .from(
+            '[data-gsap="filterbar"]',
+            { y: -12, autoAlpha: 0 },
+            "-=0.35"
+          )
+          .from('[data-gsap="sidebar"]', { x: 28, autoAlpha: 0 }, "-=0.4");
+      });
+    },
+    { scope: gsapRoot }
+  );
+
+  // Stagger del grid: re-corre al entrar a "grid" o al cambiar los grupos.
+  useGSAP(
+    () => {
+      if (view !== "grid") return;
+      const mm = gsap.matchMedia();
+      mm.add("(prefers-reduced-motion: no-preference)", () => {
+        gsap.from('[data-gsap="grid-group"]', {
+          y: 20,
+          autoAlpha: 0,
+          duration: 0.5,
+          ease: "power2.out",
+          stagger: { amount: 0.4, from: "start" },
+        });
+      });
+    },
+    {
+      scope: gsapRoot,
+      dependencies: [view, grouped.length],
+      revertOnUpdate: true,
+    }
+  );
+
   const filterBarEl = (
     <CodexFilterBar
       pais={pais}
@@ -311,6 +362,7 @@ export default function CodexHomePage() {
 
   return (
     <main
+      ref={gsapRoot}
       className={`cx-scope ${theme === "dark" ? "dark" : ""} h-dvh flex flex-col overflow-hidden`}
     >
       {showColdOpen && (
@@ -359,12 +411,16 @@ export default function CodexHomePage() {
           </div>
 
           {/* FilterBar overlay — full width en mobile, hasta sidebar (lg:right-80) en desktop */}
-          <div className="absolute top-0 left-0 right-0 lg:right-80 z-10">
+          <div
+            data-gsap="filterbar"
+            className="absolute top-0 left-0 right-0 lg:right-80 z-10"
+          >
             {filterBarEl}
           </div>
 
           {/* Sidebar overlay derecho — navigation stack: lista (foto 1) ↔ detalle embedded (foto 2) */}
           <aside
+            data-gsap="sidebar"
             className="absolute right-0 top-0 bottom-0 w-80 z-10 border-l hidden lg:block backdrop-blur-xl overflow-hidden"
             style={{
               borderColor: "var(--cx-border)",
@@ -511,7 +567,7 @@ export default function CodexHomePage() {
               </p>
             )}
             {grouped.map(([group, members]) => (
-              <div key={group}>
+              <div key={group} data-gsap="grid-group">
                 <div className="flex items-center gap-2 mb-3">
                   <h2
                     className="text-xs sm:text-sm font-semibold tracking-tight"
