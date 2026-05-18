@@ -170,6 +170,7 @@ export default function CodexHeaderHybrid({
         </button>
 
         <div
+          data-tour="views"
           className="flex items-center rounded-lg p-0.5"
           style={{ background: "var(--cx-secondary)" }}
         >
