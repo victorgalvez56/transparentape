@@ -7,6 +7,8 @@ import { Obra, riesgoDeObra } from "@/lib/types";
 import { PE_CL_VIEW, CountryView, getCountryView } from "@/lib/countries";
 import CustomCursor from "@/components/CustomCursor";
 import ColdOpen from "@/components/ColdOpen";
+import GlobeIntro from "@/components/GlobeIntro";
+import DataLoader from "@/components/DataLoader";
 import ForensicsPanel from "@/components/ForensicsPanel";
 import CodexObraDetailInline from "@/components/codex/CodexObraDetailInline";
 import AgentWidget from "@/components/AgentWidget";
@@ -60,6 +62,8 @@ export default function CodexHomePage() {
     geo: number;
     monto: number;
   } | null>(null);
+  // Monto SOLO Perú (PEN) para el ColdOpen — cifra honesta en soles.
+  const [montoPe, setMontoPe] = useState<number | null>(null);
   const [showColdOpen, setShowColdOpen] = useState<boolean | null>(null);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [view, setView] = useState<"globe" | "grid" | "panel">("globe");
@@ -102,6 +106,7 @@ export default function CodexHomePage() {
     const isReset = params.get("reset") === "1";
     if (isReset) {
       sessionStorage.removeItem("coldOpenSeen");
+      sessionStorage.removeItem("globeIntroSeen");
       window.history.replaceState({}, "", window.location.pathname);
       setPais("todos");
       setRegion(null);
@@ -146,6 +151,21 @@ export default function CodexHomePage() {
           geo: Number(d?.with_coords ?? 0),
           monto: Number(d?.total_monto ?? 0),
         });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Monto solo Perú (PEN) — endpoint nuevo, independiente de /api/stats.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/stats/pe")
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return;
+        setMontoPe(Number(d?.monto_pe ?? 0));
       })
       .catch(() => {});
     return () => {
@@ -264,7 +284,6 @@ export default function CodexHomePage() {
     setMobileList(false);
   };
 
-  void loading;
   void dbStats;
 
   const filterBarEl = (
@@ -296,7 +315,7 @@ export default function CodexHomePage() {
     >
       {showColdOpen && (
         <ColdOpen
-          total={dbStats?.monto}
+          total={montoPe ?? undefined}
           onDone={() => {
             sessionStorage.setItem("coldOpenSeen", "1");
             setShowColdOpen(false);
@@ -410,6 +429,7 @@ export default function CodexHomePage() {
                     q={q}
                     onQ={setQ}
                     totalAll={filtered.length}
+                    loading={loading}
                   />
                 </motion.div>
               )}
@@ -422,6 +442,10 @@ export default function CodexHomePage() {
               onClose={() => setShowForensics(false)}
             />
           )}
+
+          <DataLoader show={loading} />
+
+          <GlobeIntro enabled={showColdOpen === false} />
 
           {/* Mobile: botón + overlay lista */}
           <div className="lg:hidden absolute bottom-4 left-0 right-0 flex justify-center z-20">
@@ -465,6 +489,7 @@ export default function CodexHomePage() {
                   q={q}
                   onQ={setQ}
                   totalAll={filtered.length}
+                  loading={loading}
                 />
               </div>
             </div>

@@ -11,6 +11,7 @@ interface Props {
   q: string;
   onQ: (v: string) => void;
   totalAll: number;
+  loading?: boolean;
 }
 
 export default function CodexObraList({
@@ -20,6 +21,7 @@ export default function CodexObraList({
   q,
   onQ,
   totalAll,
+  loading,
 }: Props) {
   const itemRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -65,9 +67,14 @@ export default function CodexObraList({
         {obras.length === 0 && (
           <p
             className="p-8 text-center text-xs"
-            style={{ color: "var(--cx-faint)" }}
+            style={{
+              color: "var(--cx-faint)",
+              fontFamily: loading ? "var(--font-mono), monospace" : undefined,
+            }}
           >
-            Ninguna obra coincide con el filtro.
+            {loading
+              ? "Cargando contratos públicos…"
+              : "Ninguna obra coincide con el filtro."}
           </p>
         )}
         {obras.map((o) => (

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Kpis } from "@/lib/kpis";
+import { fmtMontoCompact } from "@/lib/format";
 
 /**
  * Panel — foto de toda la base para el jurado. Vive en el tab "Panel" del
@@ -237,6 +238,11 @@ export default function CodexDashboard() {
   }
 
   const t = k.totals;
+  // Monto SOLO Perú (PEN) derivado de by_country — honesto como "S/".
+  // t.monto_total mezcla PEN+CLP sin conversión; no se usa como cifra en soles.
+  const montoPe = k.by_country
+    .filter((c) => c.country !== "CL")
+    .reduce((s, c) => s + c.monto, 0);
   const maxYear = Math.max(...k.years.map((y) => y.n), 1);
   const maxRegion = Math.max(...k.top_regions.map((r) => r.monto), 1);
   const maxSupplier = Math.max(...k.flagged_suppliers.map((s) => s.monto), 1);
@@ -265,7 +271,11 @@ export default function CodexDashboard() {
         className="rounded-xl border p-5 sm:p-6 grid grid-cols-2 lg:grid-cols-4 gap-6"
         style={{ borderColor: "var(--cx-border)", background: "var(--cx-card)" }}
       >
-        <Hero label="Billete rastreado" value={money(t.monto_total)} />
+        <Hero
+          label="Billete rastreado"
+          value={money(montoPe)}
+          sub="Perú · soles (PEN)"
+        />
         <Hero label="Contratos auditados" value={nf(t.obras)} />
         <Hero
           label="Alertas detectadas"
@@ -333,7 +343,7 @@ export default function CodexDashboard() {
                 }
                 value={c.monto}
                 max={maxCountry}
-                display={`${money(c.monto)} · ${nf(c.n)}`}
+                display={`${fmtMontoCompact(c.monto, c.country)} · ${nf(c.n)}`}
                 flags={c.red_flags || undefined}
               />
             ))}
@@ -497,6 +507,9 @@ export default function CodexDashboard() {
       >
         Fuentes: OCDS Perú · OCDS Chile · SEACE · INFOBRAS · Registro de
         sanciones OSCE. Cruce y geocodificación propios. Datos a {fechaDatos}.
+        Montos de Perú en soles (PEN) y de Chile en pesos (CLP); no se
+        convierten entre sí. «Billete rastreado» y el desglose por país son
+        cifras por moneda; los demás agregados en S/ están dominados por Perú.
       </footer>
     </div>
   );
