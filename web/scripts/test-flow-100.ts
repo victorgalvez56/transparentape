@@ -403,6 +403,30 @@ const FLOWS: Flow[] = [
     ],
   },
   {
+    // L. Chile — casuísticas país, región corta, comuna en buyer_name,
+    //    stopword "chile" eliminado de q, sesión multi-país.
+    //    Casos descubiertos al probar data CL en Supabase: buyer_locality
+    //    NULL 100%, comuna embedded en buyer_name "MUNICIPALIDAD DE X",
+    //    region con prefijo "Región de/del".
+    name: "L. Chile — país, región corta, comuna, stopword",
+    steps: [
+      { input: "Chile", intent: "CAMBIAR_PAIS", expectCountry: "CL" },
+      // "chile" debe stripear del q (era stopword bug); solo country=CL aplica
+      { input: "obras en chile", intent: "BUSCAR_OBRAS", filters: {}, expectCountry: "CL" },
+      // Region short form — "Santiago" ILIKE matchea "Región Metropolitana de Santiago"
+      { input: "obras en Santiago", intent: "BUSCAR_OBRAS", filters: { q_geo: "santiago" }, expectCountry: "CL" },
+      { input: "obras en Valparaíso", intent: "BUSCAR_OBRAS", filters: { q_geo: "valparaiso" }, expectCountry: "CL" },
+      { input: "obras en Biobío", intent: "BUSCAR_OBRAS", filters: { q_geo: "biobio" }, expectCountry: "CL" },
+      // Comuna — debe routear a q_geo via cache DB (warmPlaceCache extrae
+      // MUNICIPALIDAD DE X) o seed; en cold-start ambiguo cae a q legacy
+      { input: "obras en Maipú", intent: "BUSCAR_OBRAS", filters: { q_geo: "maipu" }, expectCountry: "CL" },
+      { input: "obras en Providencia", intent: "BUSCAR_OBRAS", filters: { q_geo: "providencia" }, expectCountry: "CL" },
+      // Sector + región CL
+      { input: "obras de salud en Santiago", intent: "BUSCAR_OBRAS", filters: { q_geo: "santiago", q_sector: "salud" }, expectCountry: "CL" },
+      { input: "gracias", intent: "AGRADECIMIENTO", expectCountry: "CL" },
+    ],
+  },
+  {
     // K. Street View + Vision — auto-attach (VER_DETALLE), explicit
     //    streetview, explicit Vision analysis, ordinal pointing into
     //    lastResultIds. The handler resolves ordinal against session

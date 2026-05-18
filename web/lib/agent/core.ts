@@ -394,6 +394,10 @@ function intentToTool(
       if (!p.obraId) return null;
       return { tool: "analizar_obra", args: { id: p.obraId } };
     }
+    case "COMPARAR_REGIONES": {
+      if (!p.regiones || p.regiones.length < 2) return null;
+      return { tool: "comparar_regiones", args: { regiones: p.regiones } };
+    }
     default:
       return null;
   }

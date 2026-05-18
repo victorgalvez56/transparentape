@@ -23,6 +23,7 @@ import {
   montoEnRiesgo,
   obrasRetrasadas,
   getObraResumen,
+  compararRegiones,
   type Country,
   type BuscarObrasFilters,
 } from "@/lib/agent-kapso/queries";
@@ -40,6 +41,7 @@ import {
   fmtMontoEnRiesgo,
   fmtRetrasadas,
   fmtDetalle,
+  fmtComparativa,
 } from "@/lib/agent-kapso/wa-format";
 
 export interface ToolContext {
@@ -105,7 +107,7 @@ export const TOOLS: Tool[] = [
   {
     name: "buscar_obras",
     description:
-      "Lista obras públicas filtradas por lugar, empresa contratista, sector (saneamiento/salud/educación/transporte/etc.), año, alertas o método de contratación. Default 5 resultados ordenados por alertas y monto.",
+      "Lista obras públicas filtradas por lugar, empresa contratista, sector (saneamiento/salud/educación/transporte/etc.), año, alertas o método de contratación. Default 5 resultados ordenados por alertas y monto. Acepta `country_override` (ISO 2 letras) cuando el usuario pregunta por otro país sin cambiar la sesión.",
     parameters: {
       q: "string opcional — texto libre con lugar, sector y/o empresa (ej: 'Piura', 'saneamiento en Lima', 'Cosapi'). Se clasifica automáticamente.",
       q_geo: "string opcional — solo región/provincia/distrito si quieres restringir geo explícitamente",
@@ -114,10 +116,12 @@ export const TOOLS: Tool[] = [
       year: "número opcional — año del registro (ej: 2024)",
       red_flag: "boolean opcional — true para solo obras con alerta",
       procurement_method: "string opcional — 'direct' para adjudicación directa",
+      country_override: "string opcional — código ISO 2 letras si el usuario pide obras de otro país (ej: 'CL' para 'obras en Chile')",
     },
     async run(args, ctx) {
+      const country = pickCountry(args.country_override, ctx.country);
       const filters: BuscarObrasFilters = {
-        country: ctx.country,
+        country,
         year: asNumber(args.year),
         red_flag: asBool(args.red_flag),
         procurement_method: asString(args.procurement_method),
@@ -149,7 +153,7 @@ export const TOOLS: Tool[] = [
       const data = await buscarObras(filters);
       return {
         data,
-        formatted: fmtObras(data, ctx.country, undefined, filters),
+        formatted: fmtObras(data, country, undefined, filters),
         obraIds: data.map((o) => o.id),
       };
     },
@@ -184,40 +188,46 @@ export const TOOLS: Tool[] = [
   {
     name: "ranking_contratistas",
     description:
-      "Top contratistas. Usa `por='alertas'` cuando el usuario menciona riesgo, corrupción, sanciones, 'que más roban', 'sospechosos', 'castigados'. Usa `por='monto'` (default) cuando habla de tamaño económico, 'los más grandes', 'mayor adjudicación'. Si la conversación ya tenía una región, pasa `q` para filtrar geográficamente.",
+      "Top contratistas. Usa `por='alertas'` cuando el usuario menciona riesgo, corrupción, sanciones, 'que más roban', 'sospechosos', 'castigados'. Usa `por='monto'` (default) cuando habla de tamaño económico, 'los más grandes', 'mayor adjudicación'. Si la conversación ya tenía una región, pasa `q` para filtrar geográficamente. Acepta `country_override` para consultar otro país sin cambiar sesión.",
     parameters: {
       por: "string opcional — 'monto' (default, por tamaño económico) o 'alertas' (por número de red flags)",
       q: "string opcional — región/provincia/distrito para limitar el ranking",
+      country_override: "string opcional — ISO 2 letras (ej: 'CL' para ranking de Chile)",
     },
     async run(args, ctx) {
+      const country = pickCountry(args.country_override, ctx.country);
       const por = (asString(args.por) === "alertas" ? "alertas" : "monto") as "monto" | "alertas";
       const q = asString(args.q);
-      const data = await rankingContratistas(ctx.country, por, 5, q);
-      return { data, formatted: fmtRankingContratistas(data, ctx.country, q) };
+      const data = await rankingContratistas(country, por, 5, q);
+      return { data, formatted: fmtRankingContratistas(data, country, q) };
     },
   },
   {
     name: "ranking_entidades",
-    description: "Top entidades compradoras (ministerios, gobiernos regionales) con mayor número de obras. Acepta `q` para filtrar región.",
+    description: "Top entidades compradoras (ministerios, gobiernos regionales) con mayor número de obras. Acepta `q` para filtrar región y `country_override` para otro país.",
     parameters: {
       q: "string opcional — región/provincia/distrito",
+      country_override: "string opcional — ISO 2 letras",
     },
     async run(args, ctx) {
+      const country = pickCountry(args.country_override, ctx.country);
       const q = asString(args.q);
-      const data = await rankingEntidades(ctx.country, 5, q);
-      return { data, formatted: fmtRankingEntidades(data, ctx.country, q) };
+      const data = await rankingEntidades(country, 5, q);
+      return { data, formatted: fmtRankingEntidades(data, country, q) };
     },
   },
   {
     name: "adjudicacion_directa",
-    description: "Obras adjudicadas directamente (sin licitación competitiva) que además tienen alerta. Acepta `q` para filtrar región.",
+    description: "Obras adjudicadas directamente (sin licitación competitiva) que además tienen alerta. Acepta `q` para filtrar región y `country_override` para otro país.",
     parameters: {
       q: "string opcional — región/provincia/distrito",
+      country_override: "string opcional — ISO 2 letras",
     },
     async run(args, ctx) {
+      const country = pickCountry(args.country_override, ctx.country);
       const q = asString(args.q);
-      const data = await adjudicacionDirectaAlertas(ctx.country, 5, q);
-      return { data, formatted: fmtAdjudicacionDirecta(data, ctx.country, q), obraIds: data.map((o) => o.id) };
+      const data = await adjudicacionDirectaAlertas(country, 5, q);
+      return { data, formatted: fmtAdjudicacionDirecta(data, country, q), obraIds: data.map((o) => o.id) };
     },
   },
   {
@@ -237,25 +247,29 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "inhabilitados",
-    description: "Lista de contratistas con sanción vigente que aún tienen contratos activos. Acepta `q` para filtrar región.",
+    description: "Lista de contratistas con sanción vigente que aún tienen contratos activos. Acepta `q` para filtrar región y `country_override` para otro país.",
     parameters: {
       q: "string opcional — región/provincia/distrito",
+      country_override: "string opcional — ISO 2 letras",
     },
     async run(args, ctx) {
+      const country = pickCountry(args.country_override, ctx.country);
       const q = asString(args.q);
-      const data = await inhabilitadosVigentes(ctx.country, 8, q);
-      return { data, formatted: fmtInhabilitados(data, ctx.country, q) };
+      const data = await inhabilitadosVigentes(country, 8, q);
+      return { data, formatted: fmtInhabilitados(data, country, q) };
     },
   },
   {
     name: "monto_en_riesgo",
-    description: "Monto total acumulado de contratos marcados con alerta de riesgo. Acepta `q` para limitar a una región.",
+    description: "Monto total acumulado de contratos marcados con alerta de riesgo. Acepta `q` para limitar a una región y `country_override` para otro país.",
     parameters: {
       q: "string opcional — región/provincia/distrito",
+      country_override: "string opcional — ISO 2 letras",
     },
     async run(args, ctx) {
+      const country = pickCountry(args.country_override, ctx.country);
       const q = asString(args.q);
-      const data = await montoEnRiesgo(ctx.country, q);
+      const data = await montoEnRiesgo(country, q);
       return { data, formatted: fmtMontoEnRiesgo(data, q) };
     },
   },
@@ -291,21 +305,66 @@ export const TOOLS: Tool[] = [
     },
   },
   {
+    name: "comparar_regiones",
+    description:
+      "USA ESTE TOOL cuando el usuario quiere COMPARAR dos o más regiones, provincias o distritos lado a lado. Disparadores: 'compara X vs Y', 'X versus Y', 'X frente a Y', 'diferencia entre X y Y', 'compara obras de Lima y Cusco'. Devuelve obras totales, monto contratado, % alertas, retrasos, top contratista y top entidad para cada región. Acepta 2 a 4 regiones. NO uses este tool si el usuario menciona una sola región — usa buscar_obras o stats_pais.",
+    parameters: {
+      regiones: "string requerido — regiones separadas por coma o ' vs ' (ej: 'Lima, Cusco' o 'Arequipa vs Trujillo')",
+    },
+    async run(args, ctx) {
+      // Accept array form (router emits this) or string form (regex
+      // fast-path may pass a comma-joined list when the LLM is bypassed).
+      let regiones: string[] = [];
+      if (Array.isArray(args.regiones)) {
+        regiones = (args.regiones as unknown[]).filter((x): x is string => typeof x === "string");
+      } else {
+        const s = asString(args.regiones);
+        if (s) {
+          regiones = s
+            .split(/\s*,\s*|\s+(?:vs\.?|versus|frente\s+a|contra|y|con)\s+/i)
+            .map((r) => r.trim())
+            .filter((r) => r.length >= 2);
+        }
+      }
+      regiones = regiones.slice(0, 4);
+      if (regiones.length < 2) {
+        return {
+          data: null,
+          formatted:
+            "Necesito al menos dos regiones para comparar. Indícame ambas: por ejemplo, \"Lima frente a Cusco\".",
+        };
+      }
+      try {
+        const data = await compararRegiones(ctx.country, regiones);
+        return { data, formatted: fmtComparativa(data, ctx.country) };
+      } catch (e) {
+        console.error("[tool comparar_regiones] DB error:", e instanceof Error ? e.message : e);
+        return {
+          data: null,
+          formatted:
+            "No pude armar la comparativa en este momento. Prueba con dos regiones más conocidas (por ejemplo, \"Lima vs Arequipa\").",
+        };
+      }
+    },
+  },
+  {
     name: "obras_retrasadas",
     description:
-      "USA ESTE TOOL cuando el usuario pregunta sobre retrasos, atrasos, demoras, paralizaciones, estancamientos o incumplimientos de plazo en obras públicas. Acepta tanto formas adjetivas ('obras retrasadas', 'obras atrasadas', 'obras paralizadas', 'obras estancadas', 'obras demoradas') como SUSTANTIVAS ('qué retrasos hay', 'cuánto atraso tiene', 'qué demoras', 'cuántas obras incumplen plazo'). También cuando pregunten 'que obras no cumplen el cronograma', 'cuánto se atrasaron', 'fuera de plazo', 'sobre plazo', 'sin avance', 'qué no avanza', 'qué no termina'. Define 'excesivo' como >180 días tarde con contrato activo, o 3+ modificaciones de plazo (INFOBRAS), o cierre >365 días después de la fecha programada. Cobertura amplia vía OCDS contract_end + status='active' (~10K obras), enriquecida con INFOBRAS (avance físico, supervisor) cuando disponible (~579 obras). Acepta `q` para acotar región/ciudad y `year` para acotar año.",
+      "USA ESTE TOOL cuando el usuario pregunta sobre retrasos, atrasos, demoras, paralizaciones, estancamientos o incumplimientos de plazo en obras públicas. Acepta tanto formas adjetivas ('obras retrasadas', 'obras atrasadas', 'obras paralizadas', 'obras estancadas', 'obras demoradas') como SUSTANTIVAS ('qué retrasos hay', 'cuánto atraso tiene', 'qué demoras', 'cuántas obras incumplen plazo'). También cuando pregunten 'que obras no cumplen el cronograma', 'cuánto se atrasaron', 'fuera de plazo', 'sobre plazo', 'sin avance', 'qué no avanza', 'qué no termina'. Define 'excesivo' como >180 días tarde con contrato activo, o 3+ modificaciones de plazo (INFOBRAS), o cierre >365 días después de la fecha programada. Cobertura amplia vía OCDS contract_end + status='active' (~10K obras), enriquecida con INFOBRAS (avance físico, supervisor) cuando disponible (~579 obras, solo PE). Acepta `q` para acotar región/ciudad, `year` para año y `country_override` para otro país.",
     parameters: {
       q: "string opcional — región/provincia/distrito para acotar",
       year: "número opcional — año del registro (ej: 2024)",
+      country_override: "string opcional — ISO 2 letras",
     },
     async run(args, ctx) {
+      const country = pickCountry(args.country_override, ctx.country);
       const q = asString(args.q);
       const year = asNumber(args.year);
       try {
-        const data = await obrasRetrasadas(ctx.country, q, 5, year);
+        const data = await obrasRetrasadas(country, q, 5, year);
         return {
           data,
-          formatted: fmtRetrasadas(data, ctx.country, q, year),
+          formatted: fmtRetrasadas(data, country, q, year),
           obraIds: data.map((o) => o.id),
         };
       } catch (e) {
