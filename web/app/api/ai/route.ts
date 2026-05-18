@@ -204,20 +204,33 @@ export async function GET(req: NextRequest) {
   const useHistory =
     sv.hasHistory && beforeB64 !== null && !isTooSmall(beforeB64);
 
-  const { score, description } = await runVisionAnalysis(
-    useHistory ? beforeB64! : afterB64,
-    afterB64,
-    obra,
-    sv.before.date,
-    sv.after.date,
-    useHistory
-  );
+  // AI vision is best-effort. The Google Street View before/after must render
+  // even if Anthropic fails (no credit, rate limit, timeout). Previously a
+  // thrown vision call 500'd the whole route and the slider never showed.
+  let score: number | null = null;
+  let description: string | null = null;
+  try {
+    const result = await runVisionAnalysis(
+      useHistory ? beforeB64! : afterB64,
+      afterB64,
+      obra,
+      sv.before.date,
+      sv.after.date,
+      useHistory
+    );
+    score = result.score;
+    description = result.description;
+  } catch (err) {
+    console.error("[api/ai] vision analysis failed; returning Street View only:", err);
+  }
 
-  // Persist — only overwrite streetview_before if we have genuine history
+  // Persist. Cache the Street View URLs even when AI failed (so the comparison
+  // is instant next time) and never overwrite a prior successful analysis with
+  // a null result.
   await query(
     `UPDATE obras
-     SET ai_score        = $1,
-         ai_description  = $2,
+     SET ai_score         = COALESCE($1, ai_score),
+         ai_description   = COALESCE($2, ai_description),
          streetview_after = $3,
          streetview_before = CASE
            WHEN $4::boolean AND $5 IS DISTINCT FROM $3 THEN $5

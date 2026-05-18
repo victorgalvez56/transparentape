@@ -28,7 +28,7 @@ import {
   type BuscarObrasFilters,
 } from "@/lib/agent-kapso/queries";
 import { classifyQuery } from "@/lib/agent-kapso/places";
-import { lookupDefinition, fmtDefinition, listKnownTerms } from "@/lib/agent-kapso/definitions";
+import { lookupDefinition, fmtDefinition, listKnownTerms, explainTermWithLLM } from "@/lib/agent-kapso/definitions";
 import { fetchStreetview, fetchAiAnalysis } from "@/lib/agent-kapso/streetview";
 import {
   fmtObras,
@@ -292,16 +292,29 @@ export const TOOLS: Tool[] = [
         };
       }
       const def = lookupDefinition(term);
-      if (!def) {
-        const sample = listKnownTerms().slice(0, 6).join(", ");
+      if (def) return { data: def, formatted: fmtDefinition(def) };
+
+      // Glossary miss — try the LLM scoped to civic-tech / transparency.
+      // Returns null when the term is off-topic (programming, recipes, etc.)
+      // so the user gets a polite redirect instead of a hallucinated answer.
+      const llmExplanation = await explainTermWithLLM(term);
+      if (llmExplanation) {
         return {
-          data: null,
+          data: { term, source: "llm" },
           formatted:
-            `No tengo definición para "${term}".\n\nConozco términos como: ${sample}...\n\n` +
-            `_Escribe "qué es <término>" para ver una definición._`,
+            llmExplanation +
+            `\n\n_Pídeme *obras*, *ranking*, *alertas* o *inhabilitados* para ver casos reales._`,
         };
       }
-      return { data: def, formatted: fmtDefinition(def) };
+
+      const sample = listKnownTerms().slice(0, 6).join(", ");
+      return {
+        data: null,
+        formatted:
+          `No tengo definición clara para "${term}" en el contexto de obras públicas.\n\n` +
+          `Conozco conceptos como: ${sample}, corrupción, transparencia, fiscalización...\n\n` +
+          `_Escribe "qué es <término>" o pregúntame por una obra real._`,
+      };
     },
   },
   {

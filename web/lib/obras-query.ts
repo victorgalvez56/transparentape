@@ -205,22 +205,3 @@ export async function getCountryStats(): Promise<CountryStats> {
     years: ys.map((y) => ({ year: Number(y.year), count: Number(y.count) })),
   };
 }
-
-/**
- * Monto SOLO Perú (PEN puro), seguro para mostrar como "S/".
- *
- * Función nueva e independiente: NO toca getCountryStats() ni su contrato
- * (se consume en otros sitios). `total_monto` de getCountryStats() mezcla
- * PEN+CLP sin conversión; esto filtra Chile fuera para tener una cifra
- * honesta en soles.
- */
-export async function getMontoPeru(): Promise<{ monto_pe: number }> {
-  const r = await queryOne<{ monto_pe: string }>(
-    `SELECT COALESCE(
-       SUM(GREATEST(COALESCE(contract_amount, 0), COALESCE(award_amount, 0), COALESCE(tender_amount, 0)))
-       FILTER (WHERE country IS DISTINCT FROM 'CL'),
-     0) AS monto_pe
-     FROM obras`
-  );
-  return { monto_pe: Number(r?.monto_pe ?? 0) };
-}

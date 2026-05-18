@@ -8,9 +8,8 @@ import { useGSAP } from "@gsap/react";
 import { Obra, riesgoDeObra } from "@/lib/types";
 import { PE_CL_VIEW, CountryView, getCountryView } from "@/lib/countries";
 import CustomCursor from "@/components/CustomCursor";
-import ColdOpen from "@/components/ColdOpen";
-import GlobeIntro from "@/components/GlobeIntro";
 import DataLoader from "@/components/DataLoader";
+import Tour from "@/components/Tour";
 import ForensicsPanel from "@/components/ForensicsPanel";
 import CodexObraDetailInline from "@/components/codex/CodexObraDetailInline";
 import AgentWidget from "@/components/AgentWidget";
@@ -67,9 +66,6 @@ export default function CodexHomePage() {
     geo: number;
     monto: number;
   } | null>(null);
-  // Monto SOLO Perú (PEN) para el ColdOpen — cifra honesta en soles.
-  const [montoPe, setMontoPe] = useState<number | null>(null);
-  const [showColdOpen, setShowColdOpen] = useState<boolean | null>(null);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [view, setView] = useState<"globe" | "grid" | "panel">("globe");
   const [selected, setSelected] = useState<Obra | null>(null);
@@ -83,49 +79,68 @@ export default function CodexHomePage() {
   const [q, setQ] = useState("");
 
   /**
-   * mapPhase — animacion inicial del globo (paridad con / local):
-   * "cold"    = ColdOpen overlay activo, globo pausado
+   * mapPhase — animacion inicial del globo:
    * "global"  = vista mundo completa, pausa 1.5s
-   * "country" = flyTo PE_CL_VIEW (Peru+Chile centered)
+   * "country" = zoom directo al país del usuario (geoView: PE o CL)
    */
-  const [mapPhase, setMapPhase] = useState<"cold" | "global" | "country">(
-    "cold"
-  );
+  const [mapPhase, setMapPhase] = useState<"global" | "country">("global");
   const [flyTarget, setFlyTarget] = useState<CountryView | null>(null);
 
-  // Pausa global → country (solo cuando ya pasamos ColdOpen)
+  /**
+   * geoView — país del usuario (PE o CL) detectado por /api/geo. El globo
+   * hace UN solo zoom directo a ese país tras el cold open, en vez de la
+   * vista lejana combinada PE_CL. Datos son PE/CL → CL: Chile; resto: Perú.
+   */
+  const [geoView, setGeoView] = useState<CountryView | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/geo")
+      .then((r) => r.json())
+      .then((d: { detected?: string }) => {
+        if (cancelled) return;
+        const code = String(d?.detected ?? "")
+          .toUpperCase()
+          .slice(0, 2);
+        setGeoView(getCountryView(code === "CL" ? "CL" : "PE"));
+      })
+      .catch(() => {
+        if (!cancelled) setGeoView(getCountryView("PE"));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // global → country: volamos directo al país del usuario apenas /api/geo
+  // resuelve (delay 0). Fallback corto (900ms) si geo tarda/falla, para que
+  // el zoom siga siendo rápido. Sólo corre tras pasar el ColdOpen.
   useEffect(() => {
     if (mapPhase !== "global") return;
-    const t = setTimeout(() => setMapPhase("country"), 1500);
+    const t = setTimeout(() => setMapPhase("country"), geoView ? 0 : 900);
     return () => clearTimeout(t);
-  }, [mapPhase]);
+  }, [mapPhase, geoView]);
 
   /**
-   * ColdOpen + ?reset=1 — primera visita muestra el overlay de animacion
-   * inicial 4.2s; sesiones posteriores lo skipean (sessionStorage). Con
-   * ?reset=1 se limpia todo y se re-dispara la experiencia desde cero.
+   * ?reset=1 — limpia filtros y re-dispara el tour desde cero. El reset es
+   * un evento puntual disparado por la URL, no un render normal.
    */
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
-    const isReset = params.get("reset") === "1";
-    if (isReset) {
-      sessionStorage.removeItem("coldOpenSeen");
-      sessionStorage.removeItem("globeIntroSeen");
-      window.history.replaceState({}, "", window.location.pathname);
-      setPais("todos");
-      setRegion(null);
-      setRiesgo("todas");
-      setSoloRedFlags(false);
-      setQ("");
-      setSelected(null);
-      setShowForensics(false);
-      setFlyTarget(null);
-    }
-    const shouldShowCold = sessionStorage.getItem("coldOpenSeen") !== "1";
-    setShowColdOpen(shouldShowCold);
-    // Si ya vio cold open: pasar de "cold" a "global" inmediatamente
-    if (!shouldShowCold) setMapPhase("global");
+    if (params.get("reset") !== "1") return;
+    sessionStorage.removeItem("tourSeen");
+    window.history.replaceState({}, "", window.location.pathname);
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setPais("todos");
+    setRegion(null);
+    setRiesgo("todas");
+    setSoloRedFlags(false);
+    setQ("");
+    setSelected(null);
+    setShowForensics(false);
+    setFlyTarget(null);
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
   // Tema persistido
@@ -156,21 +171,6 @@ export default function CodexHomePage() {
           geo: Number(d?.with_coords ?? 0),
           monto: Number(d?.total_monto ?? 0),
         });
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // Monto solo Perú (PEN) — endpoint nuevo, independiente de /api/stats.
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/stats/pe")
-      .then((r) => r.json())
-      .then((d) => {
-        if (cancelled) return;
-        setMontoPe(Number(d?.monto_pe ?? 0));
       })
       .catch(() => {});
     return () => {
@@ -365,17 +365,6 @@ export default function CodexHomePage() {
       ref={gsapRoot}
       className={`cx-scope ${theme === "dark" ? "dark" : ""} h-dvh flex flex-col overflow-hidden`}
     >
-      {showColdOpen && (
-        <ColdOpen
-          total={montoPe ?? undefined}
-          onDone={() => {
-            sessionStorage.setItem("coldOpenSeen", "1");
-            setShowColdOpen(false);
-            setMapPhase("global");
-          }}
-        />
-      )}
-
       <CodexHeader
         obrasCount={filtered.length}
         redFlagsCount={redFlagsCount}
@@ -405,7 +394,8 @@ export default function CodexHomePage() {
               onSelect={toggleSelect}
               themeOverride={theme}
               flyToCountry={
-                flyTarget ?? (mapPhase === "country" ? PE_CL_VIEW : null)
+                flyTarget ??
+                (mapPhase === "country" ? geoView ?? PE_CL_VIEW : null)
               }
             />
           </div>
@@ -413,6 +403,7 @@ export default function CodexHomePage() {
           {/* FilterBar overlay — full width en mobile, hasta sidebar (lg:right-80) en desktop */}
           <div
             data-gsap="filterbar"
+            data-tour="filters"
             className="absolute top-0 left-0 right-0 lg:right-80 z-10"
           >
             {filterBarEl}
@@ -421,6 +412,7 @@ export default function CodexHomePage() {
           {/* Sidebar overlay derecho — navigation stack: lista (foto 1) ↔ detalle embedded (foto 2) */}
           <aside
             data-gsap="sidebar"
+            data-tour="list"
             className="absolute right-0 top-0 bottom-0 w-80 z-10 border-l hidden lg:block backdrop-blur-xl overflow-hidden"
             style={{
               borderColor: "var(--cx-border)",
@@ -500,8 +492,6 @@ export default function CodexHomePage() {
           )}
 
           <DataLoader show={loading} />
-
-          <GlobeIntro enabled={showColdOpen === false} />
 
           {/* Mobile: botón + overlay lista */}
           <div className="lg:hidden absolute bottom-4 left-0 right-0 flex justify-center z-20">
@@ -613,6 +603,8 @@ export default function CodexHomePage() {
           </div>
         </div>
       )}
+
+      <Tour enabled={!loading && view === "globe"} />
 
       <AgentWidget />
       <CustomCursor />
