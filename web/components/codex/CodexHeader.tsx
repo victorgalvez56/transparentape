@@ -114,16 +114,6 @@ export default function CodexHeaderHybrid({
           contratos auditados
         </span>
         <span style={{ color: "var(--cx-faint)" }}>·</span>
-        <span className="whitespace-nowrap">
-          <span
-            className="font-medium tabular-nums"
-            style={{ color: "var(--cx-alarm)" }}
-          >
-            {nf(redFlagsCount)}
-          </span>{" "}
-          alertas
-        </span>
-        <span style={{ color: "var(--cx-faint)" }}>·</span>
         <span
           key={regionLabel}
           className="whitespace-nowrap inline-block animate-[fadeIn_0.25s_ease-out]"
