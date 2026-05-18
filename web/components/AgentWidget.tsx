@@ -150,13 +150,13 @@ export default function AgentWidget() {
             >
               <div className="min-w-0">
                 <p
-                  className="text-[11px] tracking-tight lowercase"
+                  className="text-[11px] tracking-tight"
                   style={{
                     color: "var(--cx-muted)",
                     fontFamily: monoFont,
                   }}
                 >
-                  agente · forense
+                  Agente · forense
                 </p>
                 <h2
                   className="text-[15px] leading-tight font-medium tracking-tight mt-0.5"
@@ -165,7 +165,8 @@ export default function AgentWidget() {
                     letterSpacing: "-0.012em",
                   }}
                 >
-                  Sigue el billete
+                  Transparentape
+                  <span style={{ color: "var(--cx-brand)" }}>.</span>
                 </h2>
               </div>
               <button
@@ -209,7 +210,7 @@ export default function AgentWidget() {
               style={{ background: "var(--cx-bg)" }}
             >
               {messages.length === 0 ? (
-                <div className="px-1">
+                <div className="my-auto px-1">
                   <h2
                     className="text-[22px] leading-[1.15] font-medium tracking-tight"
                     style={{
@@ -364,13 +365,13 @@ export default function AgentWidget() {
                   className="flex flex-col gap-2 mt-1"
                 >
                   <p
-                    className="text-[11px] tracking-tight lowercase px-1"
+                    className="text-[11px] tracking-tight px-1"
                     style={{
                       color: "var(--cx-faint)",
                       fontFamily: monoFont,
                     }}
                   >
-                    sugerencias
+                    Sugerencias
                   </p>
                   {suggestedQuestions.map((q, i) => (
                     <button
@@ -490,13 +491,13 @@ export default function AgentWidget() {
                 </button>
               </form>
               <p
-                className="mt-2 text-[10.5px] tracking-tight lowercase px-1"
+                className="mt-2 text-[10.5px] tracking-tight px-1"
                 style={{
                   color: "var(--cx-faint)",
                   fontFamily: monoFont,
                 }}
               >
-                respuestas generadas · verificar contra la fuente
+                Respuestas generadas · verificar contra la fuente
               </p>
             </footer>
           </motion.div>
