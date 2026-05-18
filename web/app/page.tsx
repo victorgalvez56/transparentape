@@ -76,17 +76,45 @@ export default function CodexHomePage() {
   /**
    * mapPhase — animacion inicial del globo:
    * "global"  = vista mundo completa, pausa 1.5s
-   * "country" = flyTo PE_CL_VIEW (Peru+Chile centered)
+   * "country" = zoom directo al país del usuario (geoView: PE o CL)
    */
   const [mapPhase, setMapPhase] = useState<"global" | "country">("global");
   const [flyTarget, setFlyTarget] = useState<CountryView | null>(null);
 
-  // Pausa global → country (solo cuando ya pasamos ColdOpen)
+  /**
+   * geoView — país del usuario (PE o CL) detectado por /api/geo. El globo
+   * hace UN solo zoom directo a ese país tras el cold open, en vez de la
+   * vista lejana combinada PE_CL. Datos son PE/CL → CL: Chile; resto: Perú.
+   */
+  const [geoView, setGeoView] = useState<CountryView | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/geo")
+      .then((r) => r.json())
+      .then((d: { detected?: string }) => {
+        if (cancelled) return;
+        const code = String(d?.detected ?? "")
+          .toUpperCase()
+          .slice(0, 2);
+        setGeoView(getCountryView(code === "CL" ? "CL" : "PE"));
+      })
+      .catch(() => {
+        if (!cancelled) setGeoView(getCountryView("PE"));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // global → country: volamos directo al país del usuario apenas /api/geo
+  // resuelve (delay 0). Fallback corto (900ms) si geo tarda/falla, para que
+  // el zoom siga siendo rápido. Sólo corre tras pasar el ColdOpen.
   useEffect(() => {
     if (mapPhase !== "global") return;
-    const t = setTimeout(() => setMapPhase("country"), 1500);
+    const t = setTimeout(() => setMapPhase("country"), geoView ? 0 : 900);
     return () => clearTimeout(t);
-  }, [mapPhase]);
+  }, [mapPhase, geoView]);
 
   /**
    * ?reset=1 — limpia filtros y re-dispara el tour desde cero. El reset es
@@ -314,7 +342,8 @@ export default function CodexHomePage() {
               onSelect={toggleSelect}
               themeOverride={theme}
               flyToCountry={
-                flyTarget ?? (mapPhase === "country" ? PE_CL_VIEW : null)
+                flyTarget ??
+                (mapPhase === "country" ? geoView ?? PE_CL_VIEW : null)
               }
             />
           </div>
