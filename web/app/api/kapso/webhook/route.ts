@@ -619,11 +619,70 @@ export async function POST(req: NextRequest) {
 
   if (!text) return NextResponse.json({ ok: true, skipped: true });
 
+  // ── Prompt-injection / jailbreak fast-path ───────────────────────────────
+  // Hard-coded refusal before the message reaches the LLM. Catches the most
+  // obvious attempts so we save Groq tokens AND so the response is consistent
+  // (the model sometimes lapses into compliance even with a strict system
+  // prompt). The LLM router still has its own guardrail for paraphrased asks.
+  const INJECTION_RE = new RegExp(
+    [
+      // Direct asks for internal state
+      "(?:pasa|m[aá]nda|muestr[ao]?|dame|comparte|imprim[ei]|reveal|le[ae]ke?)\\s+(?:me|le)?\\s*(?:tu|el|las?|los)?\\s*(?:prompt|instrucciones?|system\\s*(?:prompt|message)?|configuraci[oó]n\\s+interna|variables?\\s+de\\s+entorno|env(?:\\s*vars?)?|api\\s*keys?|tokens?|secretos?|reglas?\\s+internas?)",
+      // Imperative overrides
+      "ignora\\s+(?:todas?\\s+)?(?:las?\\s+)?(?:instrucciones?|reglas?|pautas?)\\s+(?:anteriores?|previas?|de\\s+sistema)",
+      "olvida\\s+(?:tus|las?)\\s+(?:instrucciones?|reglas?|pautas?)",
+      "(?:act[uú]a|comp[oó]rtate)\\s+como\\s+(?:una?\\s+)?(?:otra?\\s+)?(?:ia|asistente|chatbot|gpt|claude|dan|persona\\s+sin)",
+      // Jailbreak vocabulary
+      "\\bjailbreak\\b|\\bdan\\s+mode\\b|\\bmodo\\s+desarrollador\\b|\\bsin\\s+filtros?\\b|\\bsin\\s+censura\\b|\\bsin\\s+restricci[oó]nes?\\b",
+      // Fake system markers
+      "<\\|im_start\\|>|<\\|im_end\\|>|\\[admin\\]|\\[system\\]|\\[\\/?inst\\]",
+    ].join("|"),
+    "i"
+  );
+  if (INJECTION_RE.test(text)) {
+    waitUntil((async () => {
+      try {
+        if (await isDuplicate()) return;
+        await getKapso().messages.sendText({
+          phoneNumberId,
+          to,
+          body:
+            "🛡️ *Buen intento*, pero soy un agente de obras públicas — no vas a sacarme mis instrucciones internas, claves ni a hacerme cambiar de personalidad.\n\n" +
+            "Volviendo a lo nuestro, ¿qué tal si revisamos *obras con alerta en Lima*, *ranking contratistas* o *inhabilitados vigentes*? Para eso sí soy útil. 😉",
+        });
+        query(
+          `INSERT INTO agent_logs(endpoint, params, n_resultados, latencia_ms) VALUES ($1, $2, $3, $4)`,
+          ["/api/kapso/webhook", JSON.stringify({ from, text: text.slice(0, 200), fast_path: "injection_block" }), 1, Date.now() - t0]
+        ).catch(() => {});
+      } catch (e) {
+        console.error("[kapso/webhook] injection block error:", e);
+      }
+    })());
+    return NextResponse.json({ ok: true });
+  }
+
   // Fast-path: pure greeting → skip session lookup + dedup in critical path,
   // fire interactive buttons immediately. Cuts ~1-1.5s vs full handler.
-  // Accepts repeated greetings ("hola hola hola"), 👋 emoji solo, and emoji+word.
-  const GREETING_RE = /^\s*(?:(?:hola|holi|hey|hi|👋|buenos?\s+dias?|buenas?\s+tardes?|buenas?\s+noches?|buenas?|saludos?|ayuda|menu|start|inicio|empezar)\s*[!.?,]*\s*)+$/i;
-  if (GREETING_RE.test(text)) {
+  // Accepts repeated greetings ("hola hola hola"), 👋 emoji solo, emoji+word,
+  // and friendly suffixes ("hola bro", "hola amigo", "hola maquina", etc.)
+  // so the AYUDA flow fires even when the user adds casual filler.
+  const GREETING_CORE =
+    /\b(hola|holi|hey|hi|hellou?|buenos?\s+dias?|buenas?\s+tardes?|buenas?\s+noches?|buenas?|saludos?|que\s+tal|qu[eé]\s+hay|como\s+estas|c[oó]mo\s+est[aá]s|ayuda|menu|start|inicio|empezar)\b/i;
+  const GREETING_BARE_EMOJI = /^\s*(?:👋\s*)+\s*[!.?,]*\s*$/;
+  // Strict: bare greeting (with optional emoji/punctuation/space).
+  const GREETING_STRICT_RE =
+    /^\s*(?:(?:hola|holi|hey|hi|hellou?|👋|buenos?\s+dias?|buenas?\s+tardes?|buenas?\s+noches?|buenas?|saludos?|ayuda|menu|start|inicio|empezar)\s*[!.?,]*\s*)+$/i;
+  // Loose: greeting word + short casual suffix ("hola bro", "hola amigo").
+  // Caps suffix length so "hola, ¿obras en piura?" doesn't get swallowed.
+  const GREETING_SUFFIX_RE =
+    /^\s*(hola|holi|hey|hi|hellou?|buenas?\s+tardes?|buenas?\s+dias?|buenas?\s+noches?|buenas?|saludos?|que\s+tal|qu[eé]\s+hay)\b[!.?,]?\s*(amig[oa]|bro|broder|brother|chamo|m[aá]quina|maestr[oa]|crack|jefe|pana|hermano|man|men|wey|guey)\s*[!.?,]*\s*$/i;
+  const isGreeting =
+    GREETING_STRICT_RE.test(text) ||
+    GREETING_BARE_EMOJI.test(text) ||
+    GREETING_SUFFIX_RE.test(text) ||
+    // single short utterance with greeting word and <=4 tokens total
+    (GREETING_CORE.test(text) && text.trim().split(/\s+/).length <= 4 && !/\?/.test(text));
+  if (isGreeting) {
     waitUntil((async () => {
       const tFast = Date.now();
       try {
